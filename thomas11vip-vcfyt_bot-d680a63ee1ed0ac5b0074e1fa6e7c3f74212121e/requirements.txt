@@ -1,0 +1,22 @@
+# Telegram clients
+# pyrofork is a maintained Pyrogram fork that exposes newer MTProto errors
+# (e.g. GroupcallForbidden) required by py-tgcalls 2.3.x. It installs under
+# the `pyrogram` import namespace, so existing `from pyrogram ...` code works.
+pyrofork==2.3.69
+TgCrypto==1.2.5
+
+# Voice chat
+# PyPI name is "py-tgcalls" — imports as "pytgcalls"
+py-tgcalls==2.3.3
+
+# Audio processing
+yt-dlp>=2024.1.1
+
+# Database (MongoDB Atlas — persistent storage on Heroku)
+motor>=3.3.1
+pymongo>=4.6.0
+
+# Utilities
+aiofiles>=23.0.0
+aiohttp>=3.9.0
+python-dotenv>=1.0.0

@@ -1,0 +1,92 @@
+{
+  "name": "VC Audio Bot",
+  "description": "Multi-user Telegram Voice Chat Audio Bot \u2014 in-bot login, high volume/bass/echo/boost, live mic boost, full button UI.",
+  "keywords": [
+    "telegram",
+    "bot",
+    "voice-chat",
+    "pyrogram",
+    "pytgcalls"
+  ],
+  "repository": "https://github.com/thomas82822/vcfyt_bot",
+  "env": {
+    "API_ID": {
+      "description": "Telegram API ID \u2014 get from https://my.telegram.org",
+      "required": true
+    },
+    "API_HASH": {
+      "description": "Telegram API Hash \u2014 get from https://my.telegram.org",
+      "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Bot token from @BotFather on Telegram",
+      "required": true
+    },
+    "OWNER_ID": {
+      "description": "Your Telegram user ID (numeric). Get it from @userinfobot",
+      "required": true
+    },
+    "LOG_CHANNEL": {
+      "description": "Log channel/group ID. Default -1004303404961. Add the bot as admin there.",
+      "required": false,
+      "value": "-1004303404961"
+    },
+    "STRING_SESSION": {
+      "description": "Optional owner Pyrogram string session. Generate with @Session_generator_1bot or just /login inside the bot.",
+      "required": false
+    },
+    "MONGO_URI": {
+      "description": "MongoDB Atlas connection URI (recommended for persistent storage). Free tier: mongodb.com/atlas",
+      "required": false
+    },
+    "DEFAULT_VOLUME": {
+      "description": "Default volume multiplier 1-20000. Default: 4000",
+      "required": false,
+      "value": "1000"
+    },
+    "DEFAULT_BASS": {
+      "description": "Default bass boost dB (0-60). Default: 35",
+      "required": false,
+      "value": "25"
+    },
+    "DEFAULT_ECHO": {
+      "description": "Enable echo effect by default (true/false). Default: true",
+      "required": false,
+      "value": "true"
+    },
+    "HEROKU_APP_NAME": {
+      "description": "Your Heroku app name (e.g. my-vc-bot). Used for deep links.",
+      "required": false
+    },
+    "DEFAULT_ECHO_LEVEL": {
+      "description": "Echo strength 0-10. Default: 6",
+      "required": false,
+      "value": "6"
+    },
+    "DEFAULT_BOOST": {
+      "description": "Loudness boost stage 0-10. Default: 8",
+      "required": false,
+      "value": "8"
+    },
+    "LIVE_BOOST_DEFAULT": {
+      "description": "Live mic participant volume 1-20000 (20000 = 200% max)",
+      "required": false,
+      "value": "20000"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    },
+    {
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
+    }
+  ],
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "stack": "heroku-22"
+}
