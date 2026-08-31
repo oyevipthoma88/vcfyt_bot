@@ -61,6 +61,10 @@ class ChatState:
         self.echo = Config.DEFAULT_ECHO
         self.echo_level = Config.DEFAULT_ECHO_LEVEL
         self.boost = Config.DEFAULT_BOOST
+        self.relay_volume = Config.RELAY_DEFAULT_VOLUME
+        self.gain = Config.RELAY_DEFAULT_GAIN
+        self.treble = Config.RELAY_DEFAULT_TREBLE
+        self.voice = "normal"
         self.auto = Config.AUTO_MODE_DEFAULT   # AUTO mode (max loud + keeper)
         self.loop = False                  # .loop — current track repeat
         self.loop_left = -1                # -1 = infinite, warna baaki counts
@@ -70,6 +74,8 @@ class ChatState:
         return {
             "volume": self.volume, "bass": self.bass, "echo": self.echo,
             "echo_level": self.echo_level, "boost": self.boost,
+            "relay_volume": self.relay_volume, "gain": self.gain,
+            "treble": self.treble, "voice": self.voice,
             "auto": self.auto, "loop": self.loop,
         }
 
@@ -383,10 +389,14 @@ class UserVC:
     # ── playback ─────────────────────────────────────────────────────────────
     async def _stream(self, chat_id: int, path: str, source_name: str):
         st = self.state(chat_id)
+        effective_volume = (
+            st.volume if st.volume != Config.DEFAULT_VOLUME else st.relay_volume
+        )
         processed = await process_audio_to_file(
             path,
-            volume=st.volume, bass=st.bass, echo=st.echo,
+            volume=effective_volume, bass=st.bass, echo=st.echo,
             echo_level=st.echo_level, boost=st.boost,
+            relay_volume=st.relay_volume, gain=st.gain, treble=st.treble,
         )
 
         old = st.processed_file

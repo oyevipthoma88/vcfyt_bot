@@ -36,7 +36,7 @@ def validate_config():
         "API_ID": Config.API_ID,
         "API_HASH": Config.API_HASH,
         "BOT_TOKEN": Config.BOT_TOKEN,
-        "OWNER_ID": Config.OWNER_ID,
+        "OWNER_ID/OWNER_IDS": Config.primary_owner(),
     }
     missing = [k for k, v in required.items() if not v]
     if missing:
@@ -51,6 +51,12 @@ BOT_COMMANDS = [
     BotCommand("addstring", "🔑 String session add karein"),
     BotCommand("logout", "🚪 Session hataayein"),
     BotCommand("settings", "🎚️ Audio settings panel"),
+    BotCommand("volume", "🎚️ Relay volume 0-400"),
+    BotCommand("gain", "📈 Relay gain 0-150"),
+    BotCommand("bass", "🎸 Bass 0-100"),
+    BotCommand("treble", "✨ Treble 0-100"),
+    BotCommand("voice", "🎤 Voice profile"),
+    BotCommand("relaystatus", "📊 Relay audio status"),
     BotCommand("auto", "🤖 AUTO mode — sab automatic, max aavaj"),
     BotCommand("ultra", "🔥 Ultra loud (max volume/bass/boost/echo)"),
     BotCommand("mystatus", "👤 Aapki info"),
@@ -100,10 +106,11 @@ async def main():
     logger.info(f"Restored {restored} user session(s)")
 
     # Owner's env STRING_SESSION (optional) — treated like a normal login.
-    if Config.STRING_SESSION and Config.OWNER_ID not in session_manager.users:
+    primary_owner = Config.primary_owner()
+    if Config.STRING_SESSION and primary_owner not in session_manager.users:
         try:
-            await session_manager.add(Config.OWNER_ID, Config.STRING_SESSION)
-            await db.add_user(Config.OWNER_ID, "", "Owner", Config.STRING_SESSION)
+            await session_manager.add(primary_owner, Config.STRING_SESSION)
+            await db.add_user(primary_owner, "", "Owner", Config.STRING_SESSION)
             restored += 1
         except Exception as e:
             await log_error("owner_env_session", e)
@@ -118,7 +125,7 @@ async def main():
 
     try:
         await bot.send_message(
-            Config.OWNER_ID,
+            primary_owner,
             f"✅ <b>Bot Online</b>\n"
             f"├ Bot: @{me.username}\n"
             f"├ Users: {total_users}\n"

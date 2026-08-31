@@ -32,7 +32,7 @@ Built with **Pyrofork + py-tgcalls + FFmpeg**.
 
 ### Local / VPS
 ```bash
-git clone https://github.com/thomas82822/vcfyt_bot
+git clone https://github.com/oyevipthoma88/vcfyt_bot
 cd vcfyt_bot
 pip install -r requirements.txt
 cp .env.example .env      # fill values
@@ -48,7 +48,8 @@ FFmpeg and yt-dlp must be installed on the machine.
 |---|---|---|---|
 | `API_ID` / `API_HASH` | ✅ | — | https://my.telegram.org |
 | `BOT_TOKEN` | ✅ | — | @BotFather |
-| `OWNER_ID` | ✅ | — | Your numeric Telegram ID |
+| `OWNER_ID` | ✅* | — | Primary owner Telegram ID; backward-compatible |
+| `OWNER_IDS` | ✅* | — | Additional owners, comma/semicolon separated |
 | `LOG_CHANNEL` | ❌ | `-1004303404961` | Already configured; bot ko wahan admin banayein |
 | `STRING_SESSION` | ❌ | — | Optional owner session; users `/login` bhi kar sakte hain |
 | `MONGO_URI` | ❌ | SQLite | Recommended on Heroku for persistence |
@@ -58,6 +59,10 @@ FFmpeg and yt-dlp must be installed on the machine.
 | `DEFAULT_ECHO` / `DEFAULT_ECHO_LEVEL` | ❌ | `true` / `6` | 0–10 |
 | `LIVE_BOOST_DEFAULT` | ❌ | `20000` | Live mic volume (20000 = 200%) |
 | `AUTO_LIVE_BOOST` | ❌ | `true` | Auto max-boost the logged-in account |
+| `RELAY_DEFAULT_VOLUME` | ❌ | `200` | Relay volume, 0–400 |
+| `RELAY_DEFAULT_GAIN` | ❌ | `30` | Relay gain, 0–150 |
+| `RELAY_DEFAULT_BASS` | ❌ | `10` | Relay bass, 0–100 |
+| `RELAY_DEFAULT_TREBLE` | ❌ | `40` | Relay treble, 0–100 |
 
 ---
 
@@ -88,6 +93,19 @@ se generate karke bot ko bhej dein (ya `/addstring <session>`).
 **Live mic:** `.myboost` `.vcboost [user] [1-20000]` `.boostall`
 
 **Owner:** `/owner` `/users` `/broadcast` `/stats` `/ban` `/unban` `/restart`
+
+### VC Audio Relay controls
+
+`/volume <0-400>` (default 200), `/gain <0-150>` (default 30),
+`/bass <0-100>` (default 10), `/treble <0-100>` (default 40),
+`/voice female|male|normal`, and `/relaystatus` are available. The `female`
+profile uses bright treble, `male` uses heavier bass, and `normal` is balanced.
+Settings persist per user and are applied to active playback.
+
+Multiple owners can be configured with `OWNER_IDS=123456789,987654321`; the
+primary `OWNER_ID` remains supported. `/broadcast` sends the message to active
+VC chats, while `/stats` shows registered users, saved sessions, engines, and
+active VCs.
 
 Dono prefix chalte hain: `.` aur `/`.
 

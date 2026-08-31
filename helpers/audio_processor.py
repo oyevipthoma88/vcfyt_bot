@@ -23,7 +23,7 @@ from typing import Optional
 from config import Config
 
 VOLUME_MIN, VOLUME_MAX = 1, 100000
-BASS_MIN, BASS_MAX = 0, 80
+BASS_MIN, BASS_MAX = 0, 100
 LEVEL_MIN, LEVEL_MAX = 0, 10
 
 
@@ -37,6 +37,9 @@ def build_ffmpeg_filter(
     echo: bool = None,
     echo_level: int = None,
     boost: int = None,
+    relay_volume: int = None,
+    gain: int = None,
+    treble: int = None,
     extra_filters: str = "",
 ) -> str:
     """Return an -af filter string for ffmpeg."""
@@ -49,6 +52,12 @@ def build_ffmpeg_filter(
                   LEVEL_MIN, LEVEL_MAX)
     b_lvl = clamp(boost if boost is not None else Config.DEFAULT_BOOST,
                   LEVEL_MIN, LEVEL_MAX)
+    relay_vol = clamp(relay_volume if relay_volume is not None
+                      else Config.RELAY_DEFAULT_VOLUME, 0, 400)
+    gain_pct = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN,
+                     0, 150)
+    treble_pct = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE,
+                       0, 100)
 
     filters = ["highpass=f=35"]
 
@@ -68,18 +77,26 @@ def build_ffmpeg_filter(
         if bass_db > 60:
             filters.append(f"equalizer=f=110:t=o:w=1.2:g={bass_db - 60}")
 
-    filters.append("equalizer=f=3000:t=o:w=1.5:g=6")   # vocal presence
-    filters.append("equalizer=f=8000:t=o:w=1.5:g=4")   # air / brightness
+    filters.append(f"equalizer=f=3000:t=o:w=1.5:g={treble_pct * 0.12 - 6:.2f}")
+    filters.append(f"equalizer=f=8000:t=o:w=1.5:g={treble_pct * 0.10 - 4:.2f}")
 
     # ── RAW GAIN (multi-stage, warna intermediate values saturate hote hain) ─
+    # Compact relay volume uses 100 as unity; legacy volume values retain
+    # the original direct multiplier semantics.
+    if volume is not None and volume <= 400:
+        vol = max(1, relay_vol) / 100.0
     remaining = float(vol)
     while remaining > 1.0:
         stage = min(remaining, 32.0)
         filters.append(f"volume={stage:.3f}")
         remaining /= stage
 
+    if gain_pct > 0:
+        filters.append(f"volume={1 + gain_pct / 100:.2f}")
+
     if b_lvl > 0:
-        ratio = 4 + b_lvl * 1.6                 # 5.6 … 20
+        ratio = 4 + b_lvl * 1.6
+                 # 5.6 … 20
         makeup = 1 + b_lvl * 0.8                # 1.8 … 9
         threshold = max(0.012, 0.4 - b_lvl * 0.038)
         filters.append(
@@ -152,6 +169,9 @@ async def process_audio_to_file(
     echo: bool = None,
     echo_level: int = None,
     boost: int = None,
+    relay_volume: int = None,
+    gain: int = None,
+    treble: int = None,
     extra_filters: str = "",
 ) -> str:
     """Process an audio/video file, return path to the processed .mp3."""
@@ -159,7 +179,10 @@ async def process_audio_to_file(
         fd, output_path = tempfile.mkstemp(suffix=".mp3", prefix="vc_processed_")
         os.close(fd)
 
-    af = build_ffmpeg_filter(volume, bass, echo, echo_level, boost, extra_filters)
+    af = build_ffmpeg_filter(
+        volume, bass, echo, echo_level, boost, relay_volume, gain, treble,
+        extra_filters,
+    )
 
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",

@@ -8,6 +8,13 @@ def _int(name: str, default: int = 0) -> int:
         return default
 
 
+def _int_value(raw: str) -> int:
+    try:
+        return int((raw or "").strip())
+    except (TypeError, ValueError):
+        return 0
+
+
 def _bool(name: str, default: bool = True) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -21,8 +28,24 @@ class Config:
     API_HASH: str = os.environ.get("API_HASH", "")
     BOT_TOKEN: str = os.environ.get("BOT_TOKEN", "")
 
-    # ── Owner ────────────────────────────────────────────────────────────────
+    # ── Owners ───────────────────────────────────────────────────────────────
+    # OWNER_ID remains the primary owner for backward compatibility.
+    # OWNER_IDS accepts comma/semicolon-separated Telegram user IDs.
     OWNER_ID: int = _int("OWNER_ID")
+    OWNER_IDS: tuple[int, ...] = tuple(sorted({
+        value
+        for raw in os.environ.get("OWNER_IDS", "").replace(";", ",").split(",")
+        for value in (_int_value(raw),)
+        if value
+    } | ({OWNER_ID} if OWNER_ID else set())))
+
+    @classmethod
+    def is_owner(cls, user_id: int) -> bool:
+        return bool(user_id and int(user_id) in cls.OWNER_IDS)
+
+    @classmethod
+    def primary_owner(cls) -> int:
+        return cls.OWNER_ID or (cls.OWNER_IDS[0] if cls.OWNER_IDS else 0)
 
     # ── Log channel ──────────────────────────────────────────────────────────
     # Pre-configured log channel. Can still be overridden with the LOG_CHANNEL
@@ -44,6 +67,12 @@ class Config:
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", True)
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 8)   # 0-10
     DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)            # 0-10 loudness stage
+
+    # Relay controls (user-facing compact controls).
+    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 200)  # 0-400
+    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 30)       # 0-150
+    RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 10)       # 0-100
+    RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 40)   # 0-100
 
     # ── Live mic boost (Telegram participant volume: 1-20000) ────────────────
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)  # 200% = max

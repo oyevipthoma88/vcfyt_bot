@@ -74,6 +74,10 @@ async def load_state_settings(user_id: int, uvc, chat_id: int):
     s = await db.get_settings(user_id)
     st = uvc.state(chat_id)
     st.volume, st.bass = s["volume"], s["bass"]
+    st.relay_volume = s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME)
+    st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
+    st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
+    st.voice = s.get("voice", "normal")
     st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
     if s.get("auto"):
         await uvc.set_auto(chat_id, True)
@@ -452,6 +456,10 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
     if uvc:
         for cid, st in list(uvc.chats.items()):
             st.volume, st.bass = s["volume"], s["bass"]
+            st.relay_volume = s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME)
+            st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
+            st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
+            st.voice = s.get("voice", "normal")
             st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
             if s.get("auto") and not st.auto:
                 await uvc.set_auto(cid, True)
@@ -492,7 +500,7 @@ async def cmd_vol(bot, msg: Message):
 async def cmd_bass(bot, msg: Message):
     n = _num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>.bass &lt;0-60&gt;</code>")
+        await msg.reply_text("Usage: <code>/bass &lt;0-100&gt;</code>")
         return
     await _apply_and_reply(msg, f"🎸 Bass set: <b>+{clamp(n, BASS_MIN, BASS_MAX)} dB</b>",
                            bass=clamp(n, BASS_MIN, BASS_MAX))
@@ -747,7 +755,7 @@ async def cmd_ultra(bot: Client, msg: Message):
 # ── Log channel diagnostics (owner) ──────────────────────────────────────────
 @Client.on_message(filters.regex(r"^[./]logtest\b") & filters.private)
 async def cmd_logtest(bot: Client, msg: Message):
-    if msg.from_user.id != Config.OWNER_ID:
+    if not Config.is_owner(msg.from_user.id):
         return
     problem = await verify_log_channel()
     if problem:
@@ -761,7 +769,7 @@ async def cmd_logtest(bot: Client, msg: Message):
 
 @Client.on_message(filters.regex(r"^[./]setlog\b") & filters.private)
 async def cmd_setlog(bot: Client, msg: Message):
-    if msg.from_user.id != Config.OWNER_ID:
+    if not Config.is_owner(msg.from_user.id):
         return
     parts = msg.text.strip().split()
     if len(parts) < 2:
@@ -779,4 +787,97 @@ async def cmd_setlog(bot: Client, msg: Message):
     await msg.reply_text(
         f"{'❌ ' + problem if problem else '✅ Log channel set + verified'}\n"
         f"Channel: <code>{get_channel()}</code>"
+    )
+
+
+# ── Relay audio controls ──────────────────────────────────────────────────────
+def _relay_num_arg(msg: Message):
+    parts = msg.text.strip().split()
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
+
+
+@Client.on_message(filters.regex(r"^[./]volume\b") & (filters.group | filters.private))
+async def cmd_volume(bot: Client, msg: Message):
+    n = _relay_num_arg(msg)
+    if n is None:
+        await msg.reply_text("Usage: <code>/volume &lt;0-400&gt;</code>")
+        return
+    n = max(0, min(400, n))
+    await _apply_and_reply(msg, f"🎚️ Relay volume: <b>{n}/400</b>", relay_volume=n)
+
+
+@Client.on_message(filters.regex(r"^[./]gain\b") & (filters.group | filters.private))
+async def cmd_gain(bot: Client, msg: Message):
+    n = _relay_num_arg(msg)
+    if n is None:
+        await msg.reply_text("Usage: <code>/gain &lt;0-150&gt;</code>")
+        return
+    n = max(0, min(150, n))
+    await _apply_and_reply(msg, f"📈 Gain: <b>{n}/150</b>", gain=n)
+
+
+@Client.on_message(filters.regex(r"^[./]treble\b") & (filters.group | filters.private))
+async def cmd_treble(bot: Client, msg: Message):
+    n = _relay_num_arg(msg)
+    if n is None:
+        await msg.reply_text("Usage: <code>/treble &lt;0-100&gt;</code>")
+        return
+    n = max(0, min(100, n))
+    await _apply_and_reply(msg, f"✨ Treble: <b>{n}/100</b>", treble=n)
+
+
+@Client.on_message(filters.regex(r"^[./]voice\b") & (filters.group | filters.private))
+async def cmd_voice(bot: Client, msg: Message):
+    parts = msg.text.strip().split()
+    if len(parts) < 2 or parts[1].lower() not in {"female", "male", "normal"}:
+        await msg.reply_text(
+            "Usage: <code>/voice female|male|normal</code>\n\n"
+            "female: sharp/bright | male: heavy/bassy | normal: balanced"
+        )
+        return
+    profile = parts[1].lower()
+    values = {
+        "female": {"bass": 5, "treble": 70},
+        "male": {"bass": 60, "treble": 15},
+        "normal": {"bass": Config.RELAY_DEFAULT_BASS, "treble": Config.RELAY_DEFAULT_TREBLE},
+    }[profile]
+    await _apply_and_reply(
+        msg,
+        f"🎤 Voice profile: <b>{profile}</b>",
+        voice=profile, bass=values["bass"], treble=values["treble"],
+    )
+
+
+@Client.on_message(filters.regex(r"^[./]relaystatus\b") & (filters.group | filters.private))
+async def cmd_relaystatus(bot: Client, msg: Message):
+    s = await db.get_settings(msg.from_user.id)
+    await msg.reply_text(
+        "🎧 <b>VC Audio Relay Settings</b>\n\n"
+        f"├ Volume: <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/400</code>\n"
+        f"├ Gain: <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/150</code>\n"
+        f"├ Bass: <code>{s.get('bass', Config.RELAY_DEFAULT_BASS)}/100</code>\n"
+        f"├ Treble: <code>{s.get('treble', Config.RELAY_DEFAULT_TREBLE)}/100</code>\n"
+        f"└ Voice: <code>{s.get('voice', 'normal')}</code>"
+    )
+
+
+
+@Client.on_message(filters.regex(r"^[./]stats\b") & filters.private)
+async def cmd_relay_stats(bot: Client, msg: Message):
+    if not Config.is_owner(msg.from_user.id):
+        await msg.reply_text("⛔ Ye command sirf owner ke liye hai.")
+        return
+    users = await db.all_users()
+    logged = sum(bool(u.get("string_session")) for u in users)
+    await msg.reply_text(
+        "📊 <b>Bot Stats</b>\n\n"
+        f"├ Users: <code>{len(users)}</code>\n"
+        f"├ Saved sessions: <code>{logged}</code>\n"
+        f"├ Live engines: <code>{len(session_manager.users)}</code>\n"
+        f"└ Active VCs: <code>{session_manager.active_chats()}</code>"
     )

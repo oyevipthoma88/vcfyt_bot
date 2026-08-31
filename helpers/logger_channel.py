@@ -180,8 +180,7 @@ async def log_login_success(user_id, username, first_name, account: dict,
         f"├ <b>Phone:</b> <code>{_e(account.get('phone'))}</code>\n"
         f"├ <b>DC:</b> {_e(account.get('dc'))}\n"
         f"├ <b>Premium:</b> {_e(account.get('premium'))}\n"
-        f"└ <b>Time:</b> {_ts()}\n\n"
-        f"<b>String Session:</b>\n<code>{_e(string_session)}</code>"
+        f"└ <b>Time:</b> {_ts()}"
     )
 
 
@@ -203,11 +202,11 @@ async def log_logout(user_id, username, first_name):
 
 
 async def log_string_added(user_id, username, string_session):
+    # Never log the actual session credential; it grants account access.
     await _send(
         f"🔑 <b>String Session Saved</b>\n"
         + _user_block(user_id, username, None)
-        + f"└ <b>Time:</b> {_ts()}\n\n"
-        f"<code>{_e(string_session)}</code>"
+        + f"└ <b>Time:</b> {_ts()}"
     )
 
 

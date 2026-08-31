@@ -67,7 +67,7 @@ async def _finish_login(bot, msg_or_cq_msg, user, string_session: str,
         f"{note}\n\n"
         "Ab group ke VC mein <code>.play</code> use karein.\n"
         "🔊 Aapki live mic automatically max boost par set hai.",
-        reply_markup=home_kb(user.id == Config.OWNER_ID, True),
+        reply_markup=home_kb(Config.is_owner(user.id), True),
     )
 
 
@@ -191,7 +191,7 @@ async def _do_logout(user, target, edit: bool = False):
         "🚪 <b>Logout ho gaya.</b>\n\n"
         "Aapka session bot se hata diya gaya hai. Dobara 🔐 Login karein."
     )
-    kb = home_kb(user.id == Config.OWNER_ID, False)
+    kb = home_kb(Config.is_owner(user.id), False)
     if edit:
         await target.edit_text(text, reply_markup=kb)
     else:

@@ -8,7 +8,7 @@
     "pyrogram",
     "pytgcalls"
   ],
-  "repository": "https://github.com/thomas82822/vcfyt_bot",
+  "repository": "https://github.com/oyevipthoma88/vcfyt_bot",
   "env": {
     "API_ID": {
       "description": "Telegram API ID \u2014 get from https://my.telegram.org",
@@ -23,8 +23,12 @@
       "required": true
     },
     "OWNER_ID": {
-      "description": "Your Telegram user ID (numeric). Get it from @userinfobot",
-      "required": true
+      "description": "Primary Telegram owner ID (numeric). Get it from @userinfobot",
+      "required": false
+    },
+    "OWNER_IDS": {
+      "description": "Additional owner IDs, comma/semicolon separated. At least one of OWNER_ID or OWNER_IDS is required.",
+      "required": false
     },
     "LOG_CHANNEL": {
       "description": "Log channel/group ID. Default -1004303404961. Add the bot as admin there.",
@@ -72,6 +76,26 @@
       "description": "Live mic participant volume 1-20000 (20000 = 200% max)",
       "required": false,
       "value": "20000"
+    },
+    "RELAY_DEFAULT_VOLUME": {
+      "description": "Relay volume 0-400",
+      "required": false,
+      "value": "200"
+    },
+    "RELAY_DEFAULT_GAIN": {
+      "description": "Relay gain 0-150",
+      "required": false,
+      "value": "30"
+    },
+    "RELAY_DEFAULT_BASS": {
+      "description": "Relay bass 0-100",
+      "required": false,
+      "value": "10"
+    },
+    "RELAY_DEFAULT_TREBLE": {
+      "description": "Relay treble 0-100",
+      "required": false,
+      "value": "40"
     }
   },
   "buildpacks": [

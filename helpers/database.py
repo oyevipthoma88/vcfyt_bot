@@ -66,14 +66,25 @@ class Database:
                 echo       INTEGER,
                 echo_level INTEGER,
                 boost      INTEGER,
-                auto       INTEGER DEFAULT 0
+                auto       INTEGER DEFAULT 0,
+                relay_volume INTEGER,
+                gain       INTEGER,
+                treble     INTEGER,
+                voice      TEXT DEFAULT 'normal'
             )
         """)
-        # Migration for databases created before AUTO mode existed.
-        try:
-            c.execute("ALTER TABLE settings ADD COLUMN auto INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
+        # Migrations for databases created by older bot versions.
+        for statement in (
+            "ALTER TABLE settings ADD COLUMN auto INTEGER DEFAULT 0",
+            "ALTER TABLE settings ADD COLUMN relay_volume INTEGER",
+            "ALTER TABLE settings ADD COLUMN gain INTEGER",
+            "ALTER TABLE settings ADD COLUMN treble INTEGER",
+            "ALTER TABLE settings ADD COLUMN voice TEXT DEFAULT 'normal'",
+        ):
+            try:
+                c.execute(statement)
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
         conn.close()
 
@@ -187,8 +198,13 @@ class Database:
         defaults = {
             "volume": Config.DEFAULT_VOLUME, "bass": Config.DEFAULT_BASS,
             "echo": 1 if Config.DEFAULT_ECHO else 0,
-            "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
+            "echo_level": Config.DEFAULT_ECHO_LEVEL,             "boost": Config.DEFAULT_BOOST,
             "auto": 1 if Config.AUTO_MODE_DEFAULT else 0,
+            "relay_volume": Config.RELAY_DEFAULT_VOLUME,
+            "gain": Config.RELAY_DEFAULT_GAIN,
+            "treble": Config.RELAY_DEFAULT_TREBLE,
+            "voice": "normal",
+
         }
         if self._use_mongo:
             doc = await self._mongo.settings.find_one({"user_id": user_id})
@@ -212,10 +228,12 @@ class Database:
             self._sql("INSERT OR IGNORE INTO settings (user_id) VALUES (?)", (user_id,))
             self._sql(
                 "UPDATE settings SET volume=?, bass=?, echo=?, echo_level=?, "
-                "boost=?, auto=? WHERE user_id=?",
+                "boost=?, auto=?, relay_volume=?, gain=?, treble=?, voice=? "
+                "WHERE user_id=?",
                 (current["volume"], current["bass"], int(current["echo"]),
                  current["echo_level"], current["boost"],
-                 int(current.get("auto") or 0), user_id),
+                 int(current.get("auto") or 0), current["relay_volume"],
+                 current["gain"], current["treble"], current["voice"], user_id),
             )
 
 

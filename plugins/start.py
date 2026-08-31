@@ -39,7 +39,7 @@ async def cmd_start(bot: Client, msg: Message):
     logged = await _is_logged_in(user.id)
     await msg.reply_text(
         home_text(user.first_name or "friend", logged),
-        reply_markup=home_kb(user.id == Config.OWNER_ID, logged),
+        reply_markup=home_kb(Config.is_owner(user.id), logged),
         disable_web_page_preview=True,
     )
 
@@ -50,7 +50,7 @@ async def cb_home(bot, cq):
     logged = await _is_logged_in(user.id)
     await cq.message.edit_text(
         home_text(user.first_name or "friend", logged),
-        reply_markup=home_kb(user.id == Config.OWNER_ID, logged),
+        reply_markup=home_kb(Config.is_owner(user.id), logged),
         disable_web_page_preview=True,
     )
     await cq.answer()
@@ -72,7 +72,7 @@ async def cmd_mystatus(bot: Client, msg: Message):
     uvc = session_manager.users.get(msg.from_user.id)
     await msg.reply_text(status_text(msg.from_user.id, data, uvc, s),
                          reply_markup=home_kb(
-                             msg.from_user.id == Config.OWNER_ID,
+                             Config.is_owner(msg.from_user.id),
                              bool(data and data.get("string_session"))))
 
 
@@ -112,6 +112,10 @@ async def apply_settings_live(user_id: int) -> int:
     for chat_id, st in list(uvc.chats.items()):
         st.volume = s["volume"]
         st.bass = s["bass"]
+        st.relay_volume = s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME)
+        st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
+        st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
+        st.voice = s.get("voice", "normal")
         st.echo = bool(s["echo"])
         st.echo_level = s["echo_level"]
         st.boost = s["boost"]

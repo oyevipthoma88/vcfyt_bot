@@ -21,7 +21,7 @@ BANNED_USERS: set = set()
 
 def owner_only(func):
     async def wrapper(bot: Client, msg: Message):
-        if not msg.from_user or msg.from_user.id != Config.OWNER_ID:
+        if not msg.from_user or not Config.is_owner(msg.from_user.id):
             await msg.reply_text("⛔ Ye command sirf owner ke liye hai.")
             return
         return await func(bot, msg)
@@ -61,7 +61,7 @@ async def cmd_owner_panel(bot: Client, msg: Message):
 
 @Client.on_callback_query(filters.regex(r"^adm_"))
 async def cb_admin(bot, cq):
-    if cq.from_user.id != Config.OWNER_ID:
+    if not Config.is_owner(cq.from_user.id):
         await cq.answer("⛔ Sirf owner!", show_alert=True)
         return
 
@@ -122,24 +122,30 @@ async def cmd_broadcast(bot: Client, msg: Message):
                              "ya kisi message ko reply karein.")
         return
 
-    users = await db.all_users()
-    status = await msg.reply_text(f"📢 Sending to {len(users)} users…")
+    active_chats = sorted({
+        chat_id
+        for uvc in session_manager.users.values()
+        for chat_id in uvc.chats
+    })
+    status = await msg.reply_text(
+        f"📢 Sending to {len(active_chats)} active VC chat(s)…"
+    )
     success = 0
-    for user in users:
+    for chat_id in active_chats:
         try:
             if reply_src:
-                await reply_src.forward(user["user_id"])
+                await reply_src.forward(chat_id)
             else:
-                await bot.send_message(user["user_id"], text_to_send)
+                await bot.send_message(chat_id, text_to_send)
             success += 1
         except Exception:
             pass
         await asyncio.sleep(0.05)
 
     await status.edit_text(
-        f"✅ <b>Broadcast done</b>\n├ Sent: {success}/{len(users)}\n"
-        f"└ Failed: {len(users) - success}")
-    await log_broadcast(msg.from_user.id, len(users), success)
+        f"✅ <b>VC Broadcast done</b>\n├ Sent: {success}/{len(active_chats)}\n"
+        f"└ Failed: {len(active_chats) - success}")
+    await log_broadcast(msg.from_user.id, len(active_chats), success)
 
 
 @Client.on_message(filters.command("users") & filters.private)
