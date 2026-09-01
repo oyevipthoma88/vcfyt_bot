@@ -85,6 +85,15 @@ class RelayFeatureTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_buttons_are_plain_and_callback_safe(self):
+        from helpers.buttons import ikb
+        button = ikb("🏠 Home", callback_data="menu:home", style="danger",
+                     icon_custom_emoji_id="123", icon="456")
+        self.assertEqual(button.text, "🏠 Home")
+        self.assertEqual(button.callback_data, "menu:home")
+        self.assertFalse(hasattr(button, "style"))
+        self.assertFalse(hasattr(button, "icon_custom_emoji_id"))
+
     def test_transport_aliases_and_start_picture_are_wired(self):
         root = pathlib.Path(__file__).parents[1]
         commands = (root / "plugins" / "vc_commands.py").read_text()

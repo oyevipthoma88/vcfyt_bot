@@ -1,23 +1,14 @@
 """Premium inline-button factory — shared across all bots.
 
-Copied from the Melody_music reference (`utils/buttons.py` + `utils/inline.py`
-+ `utils/emoji_map.py`) so every bot in this account builds inline buttons the
-same way:
+This helper keeps one reliable inline-button construction path for every
+bot screen. It intentionally uses ordinary Telegram text buttons so the same
+keyboard renders consistently across Pyrogram forks and Telegram clients.
 
-  * a real premium (animated) custom-emoji icon on the button
-    (`icon_custom_emoji_id=`) resolved from the glyph in the label
-  * coloured button styles (`style=` -> PRIMARY / SUCCESS / DANGER)
-  * exactly ONE emoji per button: when the premium icon is attached the plain
-    unicode copy is stripped out of the label, so a supported client never
-    shows the icon twice
-
-NEVER CRASHES
--------------
-Neither Pyrogram nor Telethon accepts `style=` / `icon_custom_emoji_id=` on
-every version/fork, so the installed constructor signature is inspected once
-at import time and any unsupported keyword is silently dropped. Buttons render
-premium + coloured where the running library supports it, and as ordinary
-buttons everywhere else.
+NORMAL BUTTONS
+--------------
+Custom style and icon support differs between Telegram clients and library
+forks. The wrapper therefore drops decoration arguments and always sends a
+standard text/callback button, which is the reliable cross-client path.
 
 USAGE
 -----
@@ -328,21 +319,17 @@ SUPPORTS_STYLE: bool = "style" in _PYRO_PARAMS
 
 def ikb(text: Any = "", *args: Any, style: Any = None, icon: Optional[str] = None,
         auto_icon: bool = True, **kwargs: Any):
-    """`InlineKeyboardButton` drop-in with premium icon + colour style."""
+    """Build a plain Telegram-compatible inline button.
+
+    ``style``, ``icon`` and ``auto_icon`` remain accepted for source
+    compatibility, but decoration is deliberately ignored.
+    """
     if _PyroButton is None:  # pragma: no cover
         raise ImportError("no Telegram library (pyrogram/python-telegram-bot) installed")
-    if style is not None:
-        kwargs["style"] = style
-    if icon is not None:
-        kwargs["icon_custom_emoji_id"] = icon
-    if not auto_icon:
-        kwargs.setdefault("icon_custom_emoji_id", None)
-        if kwargs["icon_custom_emoji_id"] is None:
-            kwargs.pop("icon_custom_emoji_id")
-            text = _decorate(text, kwargs, _PYRO_PARAMS - {"icon_custom_emoji_id"})
-            return _safe(_PyroButton, text, *args, **kwargs)
-    text = _decorate(text, kwargs, _PYRO_PARAMS)
-    return _safe(_PyroButton, text, *args, **kwargs)
+    kwargs.pop("style", None)
+    kwargs.pop("icon_custom_emoji_id", None)
+    kwargs.pop("icon", None)
+    return _PyroButton(text, *args, **kwargs)
 
 
 def _safe(factory: Any, text: Any, *args: Any, **kwargs: Any):
