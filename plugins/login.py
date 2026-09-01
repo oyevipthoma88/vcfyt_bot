@@ -281,8 +281,11 @@ async def conversation(bot: Client, msg: Message):
                 "🔐 Aapka password kisi log mein save nahi kiya jayega.",
                 reply_markup=CANCEL_KB,
             )
-            asyncio.create_task(log_login_step(
-                user.id, user.username, user.first_name, "2FA required"))
+            await log_login_step(
+                user.id, user.username, user.first_name,
+                "2FA REQUIRED — password prompt shown",
+                "User ko 2-Step Verification password prompt bheja gaya",
+            )
             return
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             await log_login_failed(user.id, user.username, user.first_name, str(e))
