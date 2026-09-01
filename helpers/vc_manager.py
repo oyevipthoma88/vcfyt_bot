@@ -22,7 +22,7 @@ from typing import Dict, Optional
 
 from pyrogram import Client
 from pyrogram.raw.functions.channels import GetFullChannel
-from pyrogram.raw.functions.phone import EditGroupCallParticipant, GetGroupParticipants
+from pyrogram.raw.functions.phone import EditGroupCallParticipant
 from ntgcalls import MediaSource
 
 from pytgcalls import MediaDevices, PyTgCalls
@@ -33,7 +33,7 @@ from pytgcalls.types.raw import AudioParameters, AudioStream, Stream
 from config import Config
 from helpers.audio_processor import build_ffmpeg_filter, process_audio_to_file
 from helpers.logger_channel import (
-    log_auto_mode, log_error, log_external_mute, log_live_boost, log_vc_join,
+    log_auto_mode, log_error, log_live_boost, log_vc_join,
     log_vc_leave,
 )
 
@@ -54,7 +54,6 @@ class ChatState:
     def __init__(self):
         self.is_playing = False
         self.is_paused = False
-        self.held_by_mute = False          # someone else muted us
         self.current_file: Optional[str] = None
         self.processed_file: Optional[str] = None
         self.source_name = "—"
@@ -135,9 +134,6 @@ class UserVC:
         async def _on_end(_, update: StreamEnded):
             await self._on_stream_end(update.chat_id)
 
-        @self.calls.on_update(call_filters.call_participant())
-        async def _on_part(_, update):
-            await self._on_participant(update)
 
         @self.calls.on_update(call_filters.chat_update(ChatUpdate.Status.LEFT_CALL))
         async def _on_left(_, update: ChatUpdate):
@@ -175,9 +171,6 @@ class UserVC:
         st = self.chats.get(chat_id)
         if not st:
             return
-        if st.held_by_mute:
-            st.is_playing = False
-            return
         # .loop — same track dubara chalao
         if st.loop and st.current_file and os.path.exists(st.current_file):
             if st.loop_left > 0:
@@ -192,65 +185,6 @@ class UserVC:
         else:
             await self.leave(chat_id, reason="Queue empty")
 
-    async def _on_participant(self, update):
-        chat_id = getattr(update, "chat_id", None)
-        participant = getattr(update, "participant", None)
-        if not chat_id or participant is None:
-            return
-        uid = getattr(participant, "user_id", None)
-        if uid is None:
-            return
-
-        # Our own account: watch for external mute / unmute.
-        if uid == self.account_id:
-            st = self.chats.get(chat_id)
-            muted = bool(getattr(participant, "muted", False)) or bool(
-                getattr(participant, "muted_by_admin", False)
-            )
-            if st:
-                if muted and not st.held_by_mute:
-                    st.held_by_mute = True
-                    try:
-                        if st.is_playing and not st.is_paused:
-                            await self.calls.pause(chat_id)
-                            st.is_paused = True
-                    except Exception:
-                        pass
-                    asyncio.create_task(log_external_mute(self.account_id, chat_id, True))
-                elif not muted and st.held_by_mute:
-                    st.held_by_mute = False
-                    asyncio.create_task(log_external_mute(self.account_id, chat_id, False))
-                    try:
-                        if st.is_paused:
-                            await self.calls.resume(chat_id)
-                            st.is_paused = False
-                        elif st.queue:
-                            path, name = st.queue.pop(0)
-                            await self._stream(chat_id, path, name)
-                    except Exception:
-                        pass
-            # Keep our own live mic pinned at max volume.
-            if Config.AUTO_LIVE_BOOST:
-                asyncio.create_task(
-                    self.set_participant_volume(
-                        chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True
-                    )
-                )
-            return
-
-        # Anybody else: never lower — only make sure they are not below normal.
-        vol = getattr(participant, "volume", None)
-        if Config.ME_LOUDEST:
-            # Meri aavaj sabse upar: baaki ko normal (100%) par set karo.
-            if vol is not None and vol != VOL_NORMAL:
-                asyncio.create_task(
-                    self.set_participant_volume(chat_id, uid, VOL_NORMAL, quiet=True)
-                )
-        elif Config.NEVER_LOWER_OTHERS:
-            if vol is not None and vol < VOL_NORMAL:
-                asyncio.create_task(
-                    self.set_participant_volume(chat_id, uid, VOL_NORMAL, quiet=True)
-                )
 
     # ── AUTO MODE (volume keeper) ────────────────────────────────────────────
     async def _keeper_loop(self, chat_id: int):
@@ -273,12 +207,6 @@ class UserVC:
                 await self.set_participant_volume(
                     chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True
                 )
-                # Meri aavaj sabse zyada: khud 200%, baaki sirf normal (100%).
-                # Kisi ki aavaj kam nahi ki jaati, bas mujhse upar nahi jaati.
-                if Config.ME_LOUDEST:
-                    await self.normalize_others(chat_id)
-                else:
-                    await self.boost_everyone(chat_id, VOL_MAX)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -308,10 +236,6 @@ class UserVC:
             await self.set_participant_volume(
                 chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True
             )
-            if Config.ME_LOUDEST:
-                await self.normalize_others(chat_id)
-            else:
-                await self.boost_everyone(chat_id, VOL_MAX)
         else:
             self._stop_keeper(chat_id)
         asyncio.create_task(log_auto_mode(self.owner_id, chat_id, bool(on)))
@@ -346,66 +270,6 @@ class UserVC:
             if not quiet:
                 await log_error("set_participant_volume", e)
             return False
-
-    async def boost_everyone(self, chat_id: int, volume: int = VOL_MAX) -> int:
-        """Raise every participant (never lower)."""
-        volume = max(1, min(VOL_MAX, int(volume)))
-        try:
-            call_input = await self._call_input(chat_id)
-            if not call_input:
-                return 0
-            res = await self.client.invoke(
-                GetGroupParticipants(
-                    call=call_input, ids=[], sources=[], offset="", limit=200,
-                )
-            )
-            done = 0
-            for p in res.participants:
-                uid = getattr(p.peer, "user_id", None)
-                if not uid:
-                    continue
-                current = getattr(p, "volume", None) or VOL_NORMAL
-                if volume <= current:
-                    continue                     # never lower anybody
-                if await self.set_participant_volume(chat_id, uid, volume, quiet=True):
-                    done += 1
-            return done
-        except Exception as e:
-            await log_error("boost_everyone", e)
-            return 0
-
-    async def normalize_others(self, chat_id: int) -> int:
-        """Baaki participants ko normal (100%) par laao — kabhi neeche nahi.
-        Khud 200% par rehta hai, isliye meri aavaj sabse loud sunai deti hai."""
-        try:
-            call_input = await self._call_input(chat_id)
-            if not call_input:
-                return 0
-            res = await self.client.invoke(
-                GetGroupParticipants(
-                    call=call_input, ids=[], sources=[], offset="", limit=200,
-                )
-            )
-            done = 0
-            for p in res.participants:
-                uid = getattr(p.peer, "user_id", None)
-                if not uid or uid == self.account_id:
-                    continue
-                current = getattr(p, "volume", None) or VOL_NORMAL
-                if current == VOL_NORMAL:
-                    continue
-                if await self.set_participant_volume(chat_id, uid, VOL_NORMAL,
-                                                     quiet=True):
-                    done += 1
-            return done
-        except Exception as e:
-            await log_error("normalize_others", e)
-            return 0
-
-    async def me_loudest(self, chat_id: int) -> int:
-        """Khud ko max par pin karo aur baaki ko normal par."""
-        await self.set_participant_volume(chat_id, self.account_id, VOL_MAX)
-        return await self.normalize_others(chat_id)
 
     # ── playback ─────────────────────────────────────────────────────────────
     async def _stream(self, chat_id: int, path: str, source_name: str):
@@ -543,7 +407,6 @@ class UserVC:
             if chat_title:
                 st.chat_title = chat_title
             st.queue.clear()
-            st.held_by_mute = False
             try:
                 if st.is_paused:
                     await self.calls.resume(chat_id)

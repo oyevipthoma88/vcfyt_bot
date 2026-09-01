@@ -37,9 +37,11 @@ async def cmd_start(bot: Client, msg: Message):
         await log_new_user(user.id, user.username, user.first_name)
 
     logged = await _is_logged_in(user.id)
+    uvc = session_manager.users.get(user.id)
+    active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
     await msg.reply_text(
         home_text(user.first_name or "friend", logged),
-        reply_markup=home_kb(Config.is_owner(user.id), logged),
+        reply_markup=home_kb(Config.is_owner(user.id), logged, active_chat_id),
         disable_web_page_preview=True,
     )
 
@@ -48,9 +50,11 @@ async def cmd_start(bot: Client, msg: Message):
 async def cb_home(bot, cq):
     user = cq.from_user
     logged = await _is_logged_in(user.id)
+    uvc = session_manager.users.get(user.id)
+    active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
     await cq.message.edit_text(
         home_text(user.first_name or "friend", logged),
-        reply_markup=home_kb(Config.is_owner(user.id), logged),
+        reply_markup=home_kb(Config.is_owner(user.id), logged, active_chat_id),
         disable_web_page_preview=True,
     )
     await cq.answer()
@@ -70,10 +74,11 @@ async def cmd_mystatus(bot: Client, msg: Message):
     data = await db.get_user(msg.from_user.id)
     s = await db.get_settings(msg.from_user.id)
     uvc = session_manager.users.get(msg.from_user.id)
+    active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
     await msg.reply_text(status_text(msg.from_user.id, data, uvc, s),
                          reply_markup=home_kb(
                              Config.is_owner(msg.from_user.id),
-                             bool(data and data.get("string_session"))))
+                             bool(data and data.get("string_session")), active_chat_id))
 
 
 @Client.on_callback_query(filters.regex(r"^menu:status$"))

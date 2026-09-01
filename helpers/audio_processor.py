@@ -67,8 +67,6 @@ def build_ffmpeg_filter(
     # Bohot dheemi recording par volume multiplier bekaar hai kyunki limiter
     # baad me kaat deta hai. speechnorm yahan har syllable ko full-scale tak
     # khinchta hai — asli "slow aavaj ko loud" karne wali cheez yahi hai.
-    filters.append("speechnorm=e=25:r=0.0004:l=1:p=0.95")
-    filters.append("dynaudnorm=f=150:g=9:p=0.95:m=12:s=0.7:r=0.85")
 
     # ── Bass ────────────────────────────────────────────────────────────────
     if bass_db > 0:

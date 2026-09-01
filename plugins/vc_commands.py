@@ -36,8 +36,7 @@ def now_playing_kb(cid: int) -> K:
         [B("⏸️ Pause", callback_data=f"vc:pause:{cid}"),
          B("▶️ Resume", callback_data=f"vc:resume:{cid}"),
          B("⏭️ Skip", callback_data=f"vc:skip:{cid}")],
-        [B("🔁 Loop", callback_data=f"vc:loop:{cid}"),
-         B("🔊 Boost All", callback_data=f"vc:boostall:{cid}")],
+        [B("🔁 Loop", callback_data=f"vc:loop:{cid}")],
         [B("♻️ Reset Audio", callback_data=f"vc:reset:{cid}"),
          B("🤖 Auto", callback_data=f"vc:auto:{cid}")],
         [B("⏹️ Stop", callback_data=f"vc:stop:{cid}"),
@@ -340,23 +339,6 @@ async def cmd_loop(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(filters.regex(r"^[./]meloud\b") & (filters.group | filters.private))
-async def cmd_meloud(bot: Client, msg: Message):
-    """Meri aavaj VC me sabse zyada: khud 200%, baaki normal 100%."""
-    uvc = await get_engine(msg)
-    if not uvc:
-        return
-    parts = msg.text.strip().split()
-    cid = await need_chat(msg, parts[1] if len(parts) > 1 else None)
-    if not cid:
-        return
-    n = await uvc.me_loudest(cid)
-    await msg.reply_text(
-        f"🎤 <b>Aap sabse loud</b> — apki mic 200% (Telegram max) par pin, "
-        f"{n} baaki users normal (100%) par set. Ab aapki aavaj sabse upar aayegi."
-    )
-
-
 @Client.on_message(filters.regex(r"^[./]padd\b") & (filters.group | filters.private))
 async def cmd_padd(bot: Client, msg: Message):
     await _play(bot, msg, enqueue=True)
@@ -437,8 +419,7 @@ async def cmd_vcinfo(bot: Client, msg: Message):
     if not st:
         await msg.reply_text("⚠️ Koi active VC session nahi.")
         return
-    state = ("🔕 Held (kisi ne mute kiya)" if st.held_by_mute
-             else "⏸️ Paused" if st.is_paused else "▶️ Playing")
+    state = "⏸️ Paused" if st.is_paused else "▶️ Playing"
     await msg.reply_text(
         f"📊 <b>VC Info</b> — <code>{cid}</code>\n\n"
         f"├ <b>Account:</b> {uvc.account_name} (<code>{uvc.account_id}</code>)\n"
@@ -519,7 +500,7 @@ async def cmd_boost(bot, msg: Message):
     if n is None:
         await msg.reply_text(
             "Usage: <code>.boost &lt;0-10&gt;</code> (audio loudness)\n"
-            "Live mic ke liye: <code>.myboost</code> / <code>.vcboost</code>")
+            "Live mic ke liye: <code>.myboost</code>")
         return
     await _apply_and_reply(msg, f"💥 Boost set: <b>{clamp(n, LEVEL_MIN, LEVEL_MAX)}/10</b>",
                            boost=clamp(n, LEVEL_MIN, LEVEL_MAX))
@@ -604,69 +585,6 @@ async def cmd_myboost(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(filters.regex(r"^[./]vcboost\b") & (filters.group | filters.private))
-async def cmd_vcboost(bot: Client, msg: Message):
-    uvc = await get_engine(msg)
-    if not uvc:
-        return
-    parts = msg.text.strip().split()
-    target, vol, cid_arg = None, Config.LIVE_BOOST_DEFAULT, None
-    if msg.reply_to_message and msg.reply_to_message.from_user:
-        target = msg.reply_to_message.from_user.id
-
-    numbers = []
-    for p in parts[1:]:
-        try:
-            v = int(p)
-        except ValueError:
-            try:
-                u = await bot.get_users(p)
-                target = u.id
-            except Exception:
-                pass
-            continue
-        if v < 0:
-            cid_arg = p
-        else:
-            numbers.append(v)
-
-    if numbers:
-        if target is None:
-            target = numbers.pop(0)
-        if numbers:
-            vol = max(VOL_NORMAL, min(VOL_MAX, numbers[0]))
-
-    if target is None:
-        await msg.reply_text(
-            "Usage:\n• reply + <code>.vcboost</code>\n"
-            "• <code>.vcboost &lt;user_id&gt; [1-20000] [chat_id]</code>")
-        return
-    cid = await need_chat(msg, cid_arg)
-    if not cid:
-        return
-    ok = await uvc.set_participant_volume(cid, target, vol)
-    await msg.reply_text(
-        f"{'✅' if ok else '❌'} <b>Live boost</b> — <code>{target}</code> → "
-        f"{vol} ({round(vol/100)}%)"
-    )
-
-
-@Client.on_message(filters.regex(r"^[./]boostall\b") & (filters.group | filters.private))
-async def cmd_boostall(bot: Client, msg: Message):
-    uvc = await get_engine(msg)
-    if not uvc:
-        return
-    parts = msg.text.strip().split()
-    cid = await need_chat(msg, parts[1] if len(parts) > 1 else None)
-    if not cid:
-        return
-    n = await uvc.boost_everyone(cid, VOL_MAX)
-    await msg.reply_text(
-        f"🔊 <b>{n} participants</b> ko max (200%) par boost kiya.\n"
-        "Kisi ki aavaj kam nahi ki gayi — sirf badhai gayi."
-    )
-
-
 # ── inline transport buttons ─────────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^vc:"))
 async def cb_vc(bot, cq):
@@ -744,9 +662,6 @@ async def cb_vc(bot, cq):
             st.loop = not st.loop
             st.loop_left = -1
             await cq.answer("🔁 Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
-    elif action == "boostall":
-        await cq.answer("🔊 Sab participants boost ho rahe hain…")
-        await uvc.boost_everyone(cid, VOL_MAX)
 
 
 # ── AUTO MODE ────────────────────────────────────────────────────────────────

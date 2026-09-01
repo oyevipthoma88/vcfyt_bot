@@ -32,7 +32,8 @@ def home_text(name: str, logged_in: bool) -> str:
     )
 
 
-def home_kb(is_owner: bool = False, logged_in: bool = False) -> K:
+def home_kb(is_owner: bool = False, logged_in: bool = False,
+            active_chat_id: int = None) -> K:
     rows = [
         [
             B("🔐 Login" if not logged_in else "🔁 Re-Login", callback_data="menu:login"),
@@ -52,8 +53,11 @@ def home_kb(is_owner: bool = False, logged_in: bool = False) -> K:
         ],
         [B(f"🤖 Session Generator — {GEN_NAME}", url=GEN)],
     ]
+    if active_chat_id is not None:
+        rows.insert(1, [B("🎶 Now Playing", callback_data=f"vc:now:{active_chat_id}")])
     if logged_in:
-        rows.insert(1, [B("🚪 Logout", callback_data="menu:logout")])
+        rows.insert(1 if active_chat_id is None else 2,
+                    [B("🚪 Logout", callback_data="menu:logout")])
     if is_owner:
         rows.append([B("👑 Owner Panel", callback_data="adm_back")])
     return K(rows)
