@@ -44,33 +44,28 @@
       "required": false
     },
     "DEFAULT_VOLUME": {
-      "description": "Default volume multiplier 1-20000. Default: 4000",
+      "description": "Legacy volume multiplier. Relay playback normally uses RELAY_DEFAULT_VOLUME. Default: 50000",
       "required": false,
-      "value": "1000"
-    },
-    "DEFAULT_BASS": {
-      "description": "Default bass boost dB (0-60). Default: 35",
-      "required": false,
-      "value": "25"
+      "value": "50000"
     },
     "DEFAULT_ECHO": {
-      "description": "Enable echo effect by default (true/false). Default: true",
+      "description": "Enable echo by default. Keep false for the clearest voice playback.",
       "required": false,
-      "value": "true"
+      "value": "false"
     },
     "HEROKU_APP_NAME": {
       "description": "Your Heroku app name (e.g. my-vc-bot). Used for deep links.",
       "required": false
     },
     "DEFAULT_ECHO_LEVEL": {
-      "description": "Echo strength 0-10. Default: 6",
+      "description": "Echo strength 0-10. Default: 2 (only used when echo is enabled)",
       "required": false,
-      "value": "6"
+      "value": "2"
     },
     "DEFAULT_BOOST": {
-      "description": "Loudness boost stage 0-10. Default: 8",
+      "description": "Loudness boost stage 0-10. Strong default: 9",
       "required": false,
-      "value": "8"
+      "value": "9"
     },
     "LIVE_BOOST_DEFAULT": {
       "description": "Live mic participant volume 1-20000 (20000 = 200% max)",
@@ -78,24 +73,24 @@
       "value": "20000"
     },
     "RELAY_DEFAULT_VOLUME": {
-      "description": "Relay volume 0-400",
+      "description": "Relay playback volume 0-400. Strong default: 320",
       "required": false,
-      "value": "200"
+      "value": "320"
     },
     "RELAY_DEFAULT_GAIN": {
-      "description": "Relay gain 0-150",
+      "description": "Relay playback gain 0-150. Strong default: 60",
       "required": false,
-      "value": "30"
+      "value": "60"
     },
     "RELAY_DEFAULT_BASS": {
-      "description": "Relay bass 0-100",
+      "description": "Relay bass 0-100. Keep moderate for clear speech.",
       "required": false,
-      "value": "10"
+      "value": "8"
     },
     "RELAY_DEFAULT_TREBLE": {
-      "description": "Relay treble 0-100",
+      "description": "Relay treble/presence 0-100. Higher values improve intelligibility.",
       "required": false,
-      "value": "40"
+      "value": "62"
     }
   },
   "buildpacks": [

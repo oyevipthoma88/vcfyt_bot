@@ -12,27 +12,45 @@ from helpers.logger_channel import log_command
 from plugins.ui import GEN_NAME, LINE, back_kb
 
 TUTORIAL_MENU_TEXT = (
-    "📖 <b>Tutorial — kya seekhna hai?</b>\n\n"
-    "Neeche button dabayein, har topic short aur clear hai."
+    "📖 <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
+    "Naye ho? Pehle <b>Quick Start</b> follow karein.\n"
+    "Audio ko loud aur clear rakhne ke liye <b>Play & Queue</b> aur "
+    "<b>Audio Settings</b> dekhein.\n\n"
+    "Har button mein commands, examples aur important tips diye gaye hain."
 )
 
 
 def tutorial_kb() -> K:
     return K([
-        [B("🚀 Setup / Login", callback_data="tut:setup"),
-         B("🎵 Play & Queue", callback_data="tut:play")],
+        [B("⚡ Quick Start", callback_data="tut:quick"),
+         B("🚀 Setup / Login", callback_data="tut:setup")],
+        [B("🎵 Play & Queue", callback_data="tut:play"),
+         B("🎚️ Audio Settings", callback_data="tut:effects")],
         [B("🏷️ Tags", callback_data="tut:tags"),
-         B("🎚️ Effects", callback_data="tut:effects")],
-        [B("🔊 Live Voice Boost", callback_data="tut:boost"),
-         B("🎛️ VC Control", callback_data="tut:vc")],
-        [B("👥 Multi-User", callback_data="tut:multi"),
-         B("❓ FAQ", callback_data="tut:faq")],
-        [B("📋 All Commands", callback_data="tut:cmds")],
+         B("🔊 Live Voice Boost", callback_data="tut:boost")],
+        [B("🎛️ VC Control", callback_data="tut:vc"),
+         B("👥 Multi-User", callback_data="tut:multi")],
+        [B("❓ FAQ / Fixes", callback_data="tut:faq"),
+         B("📋 All Commands", callback_data="tut:cmds")],
         [B("🏠 Home", callback_data="menu:home")],
     ])
 
 
 SECTIONS = {
+    "quick": (
+        "⚡ <b>Quick Start — 2 minute setup</b>\n\n"
+        f"{LINE}\n"
+        "1️⃣ `/start` ➜ <b>Login</b> ➜ phone/OTP/2FA complete karein.\n"
+        "2️⃣ Logged-in account ko target group mein add karein.\n"
+        "3️⃣ Group mein Voice Chat start karein.\n"
+        "4️⃣ Kisi audio/video ko reply karke <code>.play</code> bhejein.\n"
+        "5️⃣ Loudness ke liye <code>.max</code>; normal control ke liye "
+        "<code>/volume 320</code> aur <code>/gain 60</code>.\n"
+        "6️⃣ Live mic ke liye <code>.myboost 20000</code>.\n"
+        f"{LINE}\n\n"
+        "✅ Playback loud + clear default chain se process hota hai.\n"
+        "💡 Speech clarity ke liye echo off rakhein; music ke liye hi echo on karein."
+    ),
     "setup": (
         "🚀 <b>Setup — 4 steps</b>\n\n"
         f"{LINE}\n"
@@ -44,8 +62,10 @@ SECTIONS = {
         "3️⃣ Group mein <b>Voice Chat start</b> karein.\n"
         "4️⃣ Group mein <code>.play</code> (audio reply karke) — bas!\n"
         f"{LINE}\n\n"
-        "💡 Bot ko group mein admin banane se live boost/mute control "
-        "bhi milta hai."
+        "💡 Bot ko group mein admin banane se participant-volume aur "
+        "mute-state handling zyada reliably kaam karti hai.\n\n"
+        "🔐 <b>Security:</b> OTP, 2FA password aur String Session kisi "
+        "ke saath share na karein."
     ),
     "play": (
         "🎵 <b>Play & Queue</b>\n\n"
@@ -79,21 +99,23 @@ SECTIONS = {
     "effects": (
         "🎚️ <b>Audio Effects — high bhi, low bhi</b>\n\n"
         f"{LINE}\n"
-        "<code>/volume &lt;0-400&gt;</code> — relay volume (default 200)\n"
-        "<code>/gain &lt;0-150&gt;</code> — gain (default 30)\n"
-        "<code>/bass &lt;0-100&gt;</code> — bass (default 10)\n"
-        "<code>/treble &lt;0-100&gt;</code> — treble (default 40)\n"
+        "<code>/volume &lt;0-400&gt;</code> — playback volume (default 320)\n"
+        "<code>/gain &lt;0-150&gt;</code> — loudness gain (default 60)\n"
+        "<code>/bass &lt;0-100&gt;</code> — controlled bass (default 8)\n"
+        "<code>/treble &lt;0-100&gt;</code> — voice clarity/presence (default 62)\n"
         "<code>/voice female|male|normal</code> — voice profile\n"
         "<code>/relaystatus</code> — current relay settings\n"
         "<code>.vol &lt;1-100000&gt;</code> — legacy volume control\n"
-        "<code>.boost &lt;0-10&gt;</code> — loudness stage (default 8)\n"
+        "<code>.boost &lt;0-10&gt;</code> — loudness stage (default 9)\n"
         "<code>.echo on|off</code> — echo toggle\n"
         "<code>.echolvl &lt;0-10&gt;</code> — echo kitna heavy\n"
         "<code>.max</code> — sab kuch maximum 🔥\n"
         "<code>.reset</code> — default settings\n"
         f"{LINE}\n\n"
         "🎛️ Ya Home ➜ <b>Audio Settings</b> se buttons se badhaayein/ghataayein.\n"
-        "Change turant chal rahe track par apply hota hai."
+        "Change turant chal rahe track par apply hota hai.\n\n"
+        "🎙️ Voice ke liye: bass moderate, treble 55–75, gain 50–70.\n"
+        "🎵 Music ke liye: bass 15–30 try karein; distortion aaye to gain kam karein."
     ),
     "boost": (
         "🔊 <b>Live Voice Boost</b>\n\n"
@@ -148,7 +170,8 @@ SECTIONS = {
         "A. Group mein VC on hai? Aapka logged-in account us group ka "
         "member hai? chat ID negative hai?\n\n"
         "<b>Q. Aavaj kam lagti hai?</b>\n"
-        "A. <code>.max</code> ya Audio Settings ➜ 🔥 MAX.\n\n"
+        "A. <code>.max</code> ya Audio Settings ➜ 🔥 MAX. Echo off rakhein, "
+        "aur `/gain 60` + `/treble 62` try karein.\n\n"
         "<b>Q. Kisi ki aavaj mute kaise karun?</b>\n"
         "A. Bot ab kisi ki aavaj kam/mute nahi karta — by design.\n"
         f"{LINE}"

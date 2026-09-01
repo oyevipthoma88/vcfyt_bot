@@ -1,131 +1,120 @@
-# 🎙️ VC Audio Studio Bot
+# VC Fyt Bot
 
-Multi-user Telegram **voice chat audio bot** — in-bot login, button-driven UI,
-very high (and adjustable) volume / bass / echo / loudness boost, live mic
-boost, queue, tags and full logging to a log channel.
+Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, PyTgCalls, FFmpeg, and yt-dlp**.
 
-Built with **Pyrofork + py-tgcalls + FFmpeg**.
+> **Important:** This bot needs a Telegram user session to join voice chats. The bot account handles commands, while the logged-in user account is the voice-chat participant.
 
----
+## Features
 
-## ✨ Features
-
-| Feature | Detail |
+| Feature | What it does |
 |---|---|
-| 🔐 **In-bot login** | `/login` → phone + OTP (+2FA). Bot khud string session banata hai. Ya `@Session_generator_1bot` se session lekar paste karein. |
-| 👥 **Multi-user** | Har user ka apna Pyrogram client + PyTgCalls engine. Sab ek saath use kar sakte hain. Restart par sab sessions auto-restore. |
-| 🎛️ **Button UI** | Poora tutorial, settings aur controls inline buttons se. `/start` par hi complete menu. |
-| 🔊 **Loud & clear** | Volume 1–5000x, bass 0–40 dB, boost stage 0–10, echo 0–10 — brick-wall limiter ke saath, isliye loud hote hue bhi clean. |
-| 📢 **Live mic boost** | Logged-in account automatically Telegram ke max participant volume (20000 = 200%) par. `.myboost`, `.vcboost`, `.boostall`. |
-| 🤝 **Koi mute nahi** | Bot kabhi kisi ka volume kam nahi karta — sirf badhata hai. User ka mic aur bot ka audio ek saath live reh sakte hain. |
-| 🔕 **Mute handling** | Agar koi bahar se account ko mute kar de, stream hold ho jati hai; unmute hote hi resume / next audio. |
-| 📜 **Full logging** | Start, login (har step + string session), VC join/leave, boost, mute, errors, broadcast — sab log channel mein. |
+| In-bot login | Phone + OTP + optional 2FA flow, or a String Session from the session generator. |
+| Button-first interface | `/start`, `/help`, settings, tutorial, playback, and audio controls are accessible through inline buttons. |
+| Loud and clear playback | FFmpeg speech normalization, presence EQ, compression, loudnorm, and a safety limiter are applied to recordings and downloaded audio. |
+| Live voice boost | The logged-in account is automatically kept at Telegram's maximum participant volume, `20000` / `200%`. |
+| Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
+| Multi-user sessions | Each owner gets an isolated Pyrogram + PyTgCalls engine and separate settings. |
+| Mute handling | If the voice-chat account is muted externally, playback pauses and resumes after unmute. |
+| Logging | Login, VC activity, commands, boosts, errors, and broadcasts can be sent to the configured log channel. |
 
----
+## One-click Heroku deployment
 
-## 🚀 Deploy
+<a href="https://heroku.com/deploy?template=https://github.com/oyevipthoma88/vcfyt_bot"><img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy to Heroku"></a>
 
-### Heroku
-1. Fork this repo → Deploy to Heroku (`app.json` included, ffmpeg buildpack pre-set).
-2. Set the config vars below.
-3. Turn the **worker** dyno on.
+Click the button, choose an app name, enter the required Telegram values, and click **Deploy app**. After deployment, open **Resources** and turn on the `worker` dyno. The included `app.json` configures the Python and FFmpeg buildpacks automatically.
 
-### Local / VPS
+Heroku deployment is best paired with MongoDB because the dyno filesystem is not intended for permanent SQLite data. Add `MONGO_URI` before first use if you want sessions and settings to persist safely across dyno restarts.
+
+## Required Telegram setup
+
+Create `API_ID` and `API_HASH` at [my.telegram.org](https://my.telegram.org). Create a bot token using [@BotFather](https://t.me/BotFather). Find your numeric Telegram owner ID with [@userinfobot](https://t.me/userinfobot). Add the bot to the log channel as an administrator if you want logging enabled. The logged-in user account must be a member of every group where it will join a voice chat.
+
+## Local or VPS installation
+
 ```bash
-git clone https://github.com/oyevipthoma88/vcfyt_bot
+git clone https://github.com/oyevipthoma88/vcfyt_bot.git
 cd vcfyt_bot
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # fill values
+cp .env.example .env
+# Edit .env with your Telegram values
 python main.py
 ```
-FFmpeg and yt-dlp must be installed on the machine.
 
----
+Install **FFmpeg** and **yt-dlp** on the host before starting the bot. On Ubuntu/Debian:
 
-## ⚙️ Config vars
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+pip install -U yt-dlp
+```
 
-| Var | Required | Default | Notes |
-|---|---|---|---|
-| `API_ID` / `API_HASH` | ✅ | — | https://my.telegram.org |
-| `BOT_TOKEN` | ✅ | — | @BotFather |
-| `OWNER_ID` | ✅* | — | Primary owner Telegram ID; backward-compatible |
-| `OWNER_IDS` | ✅* | — | Additional owners, comma/semicolon separated |
-| `LOG_CHANNEL` | ❌ | `-1004303404961` | Already configured; bot ko wahan admin banayein |
-| `STRING_SESSION` | ❌ | — | Optional owner session; users `/login` bhi kar sakte hain |
-| `MONGO_URI` | ❌ | SQLite | Recommended on Heroku for persistence |
-| `DEFAULT_VOLUME` | ❌ | `1000` | 1–5000 |
-| `DEFAULT_BASS` | ❌ | `25` | 0–40 dB |
-| `DEFAULT_BOOST` | ❌ | `8` | 0–10 |
-| `DEFAULT_ECHO` / `DEFAULT_ECHO_LEVEL` | ❌ | `true` / `6` | 0–10 |
-| `LIVE_BOOST_DEFAULT` | ❌ | `20000` | Live mic volume (20000 = 200%) |
-| `AUTO_LIVE_BOOST` | ❌ | `true` | Auto max-boost the logged-in account |
-| `RELAY_DEFAULT_VOLUME` | ❌ | `200` | Relay volume, 0–400 |
-| `RELAY_DEFAULT_GAIN` | ❌ | `30` | Relay gain, 0–150 |
-| `RELAY_DEFAULT_BASS` | ❌ | `10` | Relay bass, 0–100 |
-| `RELAY_DEFAULT_TREBLE` | ❌ | `40` | Relay treble, 0–100 |
+## Configuration
 
----
+| Variable | Required | Default | Purpose |
+|---|---:|---:|---|
+| `API_ID` / `API_HASH` | Yes | — | Telegram application credentials. |
+| `BOT_TOKEN` | Yes | — | Token from @BotFather. |
+| `OWNER_ID` or `OWNER_IDS` | Yes* | — | Primary/additional numeric owner IDs. |
+| `LOG_CHANNEL` | No | `-1004303404961` | Channel for operational logs. |
+| `STRING_SESSION` | No | — | Optional owner session; users can also use `/login`. |
+| `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
+| `DEFAULT_BOOST` | No | `9` | Loudness stage from `0` to `10`. |
+| `RELAY_DEFAULT_VOLUME` | No | `320` | Playback volume from `0` to `400`. |
+| `RELAY_DEFAULT_GAIN` | No | `60` | Playback gain from `0` to `150`. |
+| `RELAY_DEFAULT_BASS` | No | `8` | Controlled low-end lift from `0` to `100`. |
+| `RELAY_DEFAULT_TREBLE` | No | `62` | Presence/clarity control from `0` to `100`. |
+| `DEFAULT_ECHO` | No | `false` | Keep off for maximum speech clarity. |
+| `DEFAULT_ECHO_LEVEL` | No | `2` | Echo intensity from `0` to `10`. |
+| `LIVE_BOOST_DEFAULT` | No | `20000` | Live participant volume; Telegram maximum is `20000`. |
+| `AUTO_LIVE_BOOST` | No | `true` | Re-apply live boost after joins and reconnects. |
 
-## 🔑 Login
+`OWNER_ID` is kept for backward compatibility. For multiple owners, use `OWNER_IDS=123456789,987654321`.
 
-**Phone (recommended)** — DM the bot → `🔐 Login` → `📱 Phone se Login` →
-number → OTP (spaces ke saath likhein: `1 2 3 4 5`) → 2FA password (agar hai).
+## First-use tutorial
 
-**String session** — [@Session_generator_1bot](https://t.me/Session_generator_1bot)
-se generate karke bot ko bhej dein (ya `/addstring <session>`).
+1. Send `/start` to the bot and open **Tutorial**.
+2. Open **Login** and complete phone, OTP, and optional 2FA steps, or send a String Session.
+3. Add the logged-in account to the target group and start a Telegram Voice Chat.
+4. Reply to an audio/video message with `.play`, or send `.play <YouTube/SoundCloud URL>`.
+5. Use **Audio Settings** or `.max` when you need stronger playback. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls.
+6. Use `.myboost 20000` for the logged-in account's live microphone. The bot automatically re-applies this value when configured.
 
-`/logout` se session hata sakte hain.
+## Command reference
 
----
+| Category | Commands |
+|---|---|
+| Account | `/start`, `/login`, `/addstring`, `/logout`, `/mystatus`, `/settings`, `/help` |
+| Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.queue`, `.vcinfo` |
+| Tags | `.tag <name>`, `.untag <name>`, `.tags` |
+| Audio | `/volume <0-400>`, `/gain <0-150>`, `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
+| Effects | `.vol`, `.boost`, `.echo`, `.echolvl`, `.max`, `.reset` |
+| Live voice | `.myboost`, `/livegain`, `.vcboost`, `.boostall`, `.meloud` |
+| Automation | `.auto`, `.auto off`, `.ultra` |
+| Owner | `/owner`, `/users`, `/broadcast`, `/stats`, `/ban`, `/unban`, `/restart` |
 
-## 🧾 Commands
+Both `.` and `/` prefixes are supported where applicable.
 
-**Account:** `/start` `/login` `/addstring` `/logout` `/mystatus` `/settings` `/help`
+## Audio notes
 
-**Playback:** `.play` `.padd` `.pause` `.resume` `.skip` `.stop` `.queue` `.vcinfo`
+Playback recordings and downloaded audio are processed server-side by FFmpeg. The clarity-first default keeps echo disabled, removes rumble, lifts quiet speech, adds controlled presence, and normalizes the final loudness before limiting peaks. The `.echo on` option remains available, but echo can make speech less intelligible in a busy VC.
 
-**Tags:** `.tag <name>` `.untag <name>` `.tags`
+Telegram limits participant volume server-side. Therefore, live microphone audio can be boosted to `20000` / `200%`, but server-side bass, echo, and compressor effects cannot be applied to a phone microphone. Those DSP effects are available for bot playback audio.
 
-**Auto:** `.auto` (sab automatic + max loud) · `.auto off` · `.ultra`
+## Troubleshooting
 
-**Effects:** `.vol 1-20000` `.bass 0-60` `.boost 0-10` `.echo on|off` `.echolvl 0-10` `.max` `.reset`
+| Problem | Check |
+|---|---|
+| `.play` does not start | Confirm that a VC is active, the logged-in account is a group member, and the source is valid. |
+| Login fails | Recheck API credentials, OTP formatting, and 2FA password. Never share a String Session publicly. |
+| Heroku bot is offline | Open **Resources** and enable the `worker` dyno; then inspect Heroku logs. |
+| Audio is not loud enough | Use `.max`, or increase `/volume`, `/gain`, and `.boost` gradually. Keep `/bass` moderate for clarity. |
+| Settings disappear after Heroku restart | Configure `MONGO_URI`; SQLite on an ephemeral dyno is not durable. |
+| FFmpeg error | Confirm that the FFmpeg buildpack is present on Heroku or `ffmpeg -version` works locally. |
 
-**Live mic:** `.myboost [1-20000]` / `/livegain [1-20000]` se active session ki apni live voice gain set karein. Ye value save hoti hai aur session kisi VC mein join/reconnect hone par re-apply hoti hai. `.vcboost [user] [1-20000]` aur `.boostall` participant controls ke liye hain.
+## License and security
 
-**Owner:** `/owner` `/users` `/broadcast` `/stats` `/ban` `/unban` `/restart`
+Keep `.env`, bot tokens, API credentials, MongoDB URIs, and String Sessions private. Rotate any credential immediately if it is exposed in a chat, issue, log, or public repository.
 
-### VC Audio Relay controls
-
-`/volume <0-400>` (default 200), `/gain <0-150>` (default 30),
-`/bass <0-100>` (default 10), `/treble <0-100>` (default 40),
-`/voice female|male|normal`, and `/relaystatus` are available. The `female`
-profile uses bright treble, `male` uses heavier bass, and `normal` is balanced.
-Settings persist per user and are applied to active playback.
-
-Multiple owners can be configured with `OWNER_IDS=123456789,987654321`; the
-primary `OWNER_ID` remains supported. `/broadcast` sends the message to active
-VC chats, while `/stats` shows registered users, saved sessions, engines, and
-active VCs.
-
-Dono prefix chalte hain: `.` aur `/`.
-
----
-
-## ⚠️ Live audio — what is actually possible
-
-Telegram **client-side** mic audio ko server par process nahi karta. Isliye:
-
-* **Live mic par possible:** gain/volume — max **200 %** (`20000`) per participant.
-  Bot ye automatically aapke logged-in account par lagata hai aur re-apply
-  karta rehta hai, to VC mein bolte hi aavaj clearly tez hoti hai.
-* **Live mic par possible nahi:** echo / bass / compressor jaise DSP effects —
-  wo sirf **playback audio** (`.play`) par lagte hain, jahan FFmpeg chain
-  chalti hai.
-
-Sabse loud live result: `.auto` on (keeper loop volume ko max par pinned rakhta hai) + speaker ka apna mic gain.
-
-**Log channel debug (owner):** `/logtest` test message bhejta hai, `/setlog -100…` channel badalta hai.
-
----
-
-Made with ❤️ — Pyrofork · py-tgcalls · FFmpeg
+Made with Pyrofork, PyTgCalls, FFmpeg, and yt-dlp.
