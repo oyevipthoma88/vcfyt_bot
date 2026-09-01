@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import pathlib
 import unittest
 
 os.environ["OWNER_ID"] = "101"
@@ -28,6 +29,12 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("equalizer=f=3000", af)
         self.assertIn("equalizer=f=8000", af)
         self.assertNotIn("aecho=", af)
+
+    def test_live_join_uses_saved_volume(self):
+        source = pathlib.Path(__file__).parents[1] / "helpers" / "vc_manager.py"
+        text = source.read_text()
+        self.assertIn("st.live_volume, quiet=True", text)
+        self.assertNotIn("VOL_MAX if st.auto else Config.LIVE_BOOST_DEFAULT", text)
 
     def test_settings_round_trip(self):
         async def run():

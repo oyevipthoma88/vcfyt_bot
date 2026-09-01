@@ -98,8 +98,9 @@ SECTIONS = {
     "boost": (
         "🔊 <b>Live Voice Boost</b>\n\n"
         f"{LINE}\n"
-        "<code>.myboost</code> — aapke apne logged-in account ki live mic "
-        "200% (max) par\n"
+        "<code>.myboost [1-20000]</code> — apne active logged-in account ki live mic gain\n"
+        "<code>/livegain [1-20000]</code> — same live mic control\n"
+        "VC join/reconnect par saved value automatically re-apply hoti hai.\n"
         "<code>.vcboost</code> — reply/user ko boost\n"
         "<code>.vcboost &lt;user_id&gt; &lt;1-20000&gt;</code> — custom\n"
         "<code>.boostall</code> — VC mein sabko max par (kisi ki aavaj "

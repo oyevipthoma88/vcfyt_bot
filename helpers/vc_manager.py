@@ -434,7 +434,7 @@ class UserVC:
             asyncio.create_task(
                 self.set_participant_volume(
                     chat_id, self.account_id,
-                    VOL_MAX if st.auto else Config.LIVE_BOOST_DEFAULT, quiet=True
+                    st.live_volume, quiet=True
                 )
             )
         if st.auto and chat_id not in self._keepers:
