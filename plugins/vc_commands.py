@@ -890,3 +890,54 @@ async def cmd_relay_stats(bot: Client, msg: Message):
         f"├ Live engines: <code>{len(session_manager.users)}</code>\n"
         f"└ Active VCs: <code>{session_manager.active_chats()}</code>"
     )
+
+
+@Client.on_message(filters.regex(r"^[./]mic\b") & (filters.group | filters.private))
+async def cmd_mic(bot: Client, msg: Message):
+    uvc = await get_engine(msg)
+    if not uvc:
+        return
+    parts = msg.text.strip().split()
+    action = parts[1].lower() if len(parts) > 1 else "devices"
+    if action in {"devices", "list"}:
+        devices = uvc.microphone_devices()
+        if not devices:
+            await msg.reply_text(
+                "🎙️ Server par microphone/virtual microphone nahi mila."
+            )
+            return
+        lines = [f"{i}. <code>{d.metadata}</code> — {d.title}"
+                 for i, d in enumerate(devices, 1)]
+        await msg.reply_text("🎙️ <b>Available microphone inputs</b>\n" + "\n".join(lines))
+        return
+    if action not in {"on", "start"}:
+        await msg.reply_text(
+            "Usage: <code>/mic devices</code>\n"
+            "<code>/mic on [device-name] [-100xxxxxxxx]</code>"
+        )
+        return
+    cid_arg = None
+    device_parts = []
+    for value in parts[2:]:
+        try:
+            number = int(value)
+        except ValueError:
+            device_parts.append(value)
+            continue
+        if number < 0:
+            cid_arg = value
+        else:
+            device_parts.append(value)
+    cid = await need_chat(msg, cid_arg)
+    if not cid:
+        return
+    try:
+        title = await uvc.play_microphone(cid, " ".join(device_parts))
+        await msg.reply_text(
+            f"🎙️ <b>Live microphone ON</b>\n"
+            f"Input: <code>{title}</code>\n"
+            f"Gain: <code>{uvc.state(cid).live_volume}/20000</code>\n\n"
+            "Note: mic playback stream ko replace karta hai; `/play` se audio stream wapas chala sakte hain."
+        )
+    except Exception as exc:
+        await msg.reply_text(f"❌ <b>Microphone start nahi hua:</b> <code>{exc}</code>")

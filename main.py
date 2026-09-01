@@ -59,6 +59,7 @@ BOT_COMMANDS = [
     BotCommand("relaystatus", "📊 Relay audio status"),
     BotCommand("myboost", "🎙️ Live mic gain"),
     BotCommand("livegain", "🎙️ Live mic gain alias"),
+    BotCommand("mic", "🎙️ Server/virtual microphone"),
     BotCommand("auto", "🤖 AUTO mode — sab automatic, max aavaj"),
     BotCommand("ultra", "🔥 Ultra loud (max volume/bass/boost/echo)"),
     BotCommand("mystatus", "👤 Aapki info"),

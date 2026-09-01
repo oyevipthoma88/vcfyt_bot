@@ -23,7 +23,7 @@ from pyrogram import Client
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.phone import EditGroupCallParticipant, GetGroupParticipants
 
-from pytgcalls import PyTgCalls
+from pytgcalls import MediaDevices, PyTgCalls
 from pytgcalls import filters as call_filters
 from pytgcalls.types import AudioQuality, ChatUpdate, MediaStream, StreamEnded
 
@@ -66,6 +66,8 @@ class ChatState:
         self.treble = Config.RELAY_DEFAULT_TREBLE
         self.voice = "normal"
         self.live_volume = Config.LIVE_BOOST_DEFAULT
+        self.mic_enabled = False
+        self.mic_device = Config.MIC_DEVICE
         self.auto = Config.AUTO_MODE_DEFAULT   # AUTO mode (max loud + keeper)
         self.loop = False                  # .loop — current track repeat
         self.loop_left = -1                # -1 = infinite, warna baaki counts
@@ -78,6 +80,7 @@ class ChatState:
             "relay_volume": self.relay_volume, "gain": self.gain,
             "treble": self.treble, "voice": self.voice,
             "live_volume": self.live_volume,
+            "mic_enabled": self.mic_enabled, "mic_device": self.mic_device,
             "auto": self.auto, "loop": self.loop,
         }
 
@@ -444,6 +447,44 @@ class UserVC:
             log_vc_join(self.owner_id, chat_id, st.chat_title or str(chat_id),
                         source_name, st.settings())
         )
+
+    async def play_microphone(self, chat_id: int, device_hint: str = "") -> str:
+        """Publish a server/VM microphone or virtual input device to the VC.
+
+        The input must exist on the machine running this userbot. Telegram does
+        not expose a remote phone microphone to a bot session.
+        """
+        devices = list(MediaDevices.microphone_devices())
+        if not devices:
+            raise RuntimeError(
+                "Server par koi microphone/virtual input device nahi mila. "
+                "ALSA/PulseAudio virtual mic configure karein."
+            )
+        wanted = (device_hint or Config.MIC_DEVICE).strip().lower()
+        device = next(
+            (d for d in devices if wanted and (
+                wanted in d.title.lower() or wanted in d.metadata.lower()
+            )),
+            devices[0],
+        )
+        st = self.state(chat_id)
+        st.mic_enabled = True
+        st.mic_device = device.metadata
+        await self.calls.play(
+            chat_id,
+            MediaStream(
+                device, AudioQuality.STUDIO,
+                video_flags=MediaStream.Flags.IGNORE,
+            ),
+        )
+        await self.set_participant_volume(
+            chat_id, self.account_id, st.live_volume, quiet=True
+        )
+        return device.title
+
+    @staticmethod
+    def microphone_devices() -> list:
+        return list(MediaDevices.microphone_devices())
 
     async def play(self, chat_id: int, path: str, source_name: str = "audio",
                    chat_title: str = "", enqueue: bool = False) -> str:

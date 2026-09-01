@@ -30,6 +30,20 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("equalizer=f=8000", af)
         self.assertNotIn("aecho=", af)
 
+    def test_microphone_bridge_is_wired(self):
+        source = pathlib.Path(__file__).parents[1] / "helpers" / "vc_manager.py"
+        text = source.read_text()
+        self.assertIn("MediaDevices.microphone_devices()", text)
+        self.assertIn("async def play_microphone", text)
+        self.assertIn("MediaStream(\n                device", text)
+
+    def test_mic_command_is_registered(self):
+        source = pathlib.Path(__file__).parents[1] / "plugins" / "vc_commands.py"
+        text = source.read_text()
+        self.assertIn("async def cmd_mic", text)
+        self.assertIn("/mic devices", text)
+        self.assertIn("/mic on", text)
+
     def test_live_join_uses_saved_volume(self):
         source = pathlib.Path(__file__).parents[1] / "helpers" / "vc_manager.py"
         text = source.read_text()

@@ -77,6 +77,8 @@ class Config:
     # ── Live mic boost (Telegram participant volume: 1-20000) ────────────────
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)  # 200% = max
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)
+    # Optional server/VM microphone or virtual microphone device metadata/name.
+    MIC_DEVICE: str = os.environ.get("MIC_DEVICE", "")
 
     # ── AUTO MODE ────────────────────────────────────────────────────────────
     # ".auto on" karte hi: max volume + max bass + max boost + echo on,
