@@ -44,9 +44,9 @@
       "required": false
     },
     "DEFAULT_VOLUME": {
-      "description": "Legacy volume multiplier. Relay playback normally uses RELAY_DEFAULT_VOLUME. Default: 50000",
+      "description": "Practical playback volume scale 0-1000. Default: 1000",
       "required": false,
-      "value": "50000"
+      "value": "1000"
     },
     "DEFAULT_ECHO": {
       "description": "Enable echo by default. Keep false for the clearest voice playback.",

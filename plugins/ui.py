@@ -117,8 +117,7 @@ def settings_text(s: dict) -> str:
         "🎚️ <b>Audio Settings</b> (aapke account ke liye)\n\n"
         f"{LINE}\n"
         f"🤖 <b>AUTO mode:</b> {'ON 🔥 (sab automatic, max aavaj)' if s.get('auto') else 'OFF'}\n"
-        f"🔊 <b>Legacy Volume:</b> <code>{s['volume']}x</code>\n"
-        f"🎚️ <b>Relay Volume:</b> <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/400</code>\n"
+        f"🔊 <b>Playback Volume:</b> <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
         f"📈 <b>Gain:</b> <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/150</code>\n"
         f"🎸 <b>Bass:</b> <code>+{s['bass']} dB</code>  (0 – 100)\n"
         f"✨ <b>Treble:</b> <code>{s.get('treble', Config.RELAY_DEFAULT_TREBLE)}/100</code>\n"
@@ -135,15 +134,15 @@ def settings_text(s: dict) -> str:
 def settings_kb() -> K:
     return K([
         [B("🤖 AUTO ON/OFF (sab automatic)", callback_data="set:auto:toggle")],
-        [B("🔊 Vol −100", callback_data="set:vol:-100"),
-         B("🔊 Vol", callback_data="set:noop"),
-         B("Vol +100 🔊", callback_data="set:vol:100")],
-        [B("−1000", callback_data="set:vol:-1000"),
+        [B("🔊 −25", callback_data="set:relay:-25"),
+         B("Volume", callback_data="set:noop"),
+         B("+25 🔊", callback_data="set:relay:25")],
+        [B("−100", callback_data="set:relay:-100"),
          B("Reset", callback_data="set:reset"),
-         B("+1000", callback_data="set:vol:1000")],
-        [B("−5000", callback_data="set:vol:-5000"),
-         B("🔊 MAX VOL", callback_data="set:vol:20000"),
-         B("+5000", callback_data="set:vol:5000")],
+         B("+100", callback_data="set:relay:100")],
+        [B("−250", callback_data="set:relay:-250"),
+         B("🔊 MAX 1000", callback_data="set:relay:1000"),
+         B("+250", callback_data="set:relay:250")],
         [B("🎸 Bass −5", callback_data="set:bass:-5"),
          B("🎸 Bass", callback_data="set:noop"),
          B("Bass +5 🎸", callback_data="set:bass:5")],
@@ -176,7 +175,7 @@ def status_text(user_id: int, data: dict, uvc, s: dict) -> str:
         f"├ <b>Username:</b> @{(data or {}).get('username') or 'none'}\n"
         f"├ <b>Login:</b> {logged}\n"
         f"{acc}"
-        f"├ <b>Volume:</b> {s['volume']}x | <b>Relay:</b> {s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}\n"
+        f"├ <b>Volume:</b> <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
         f"├ <b>Gain:</b> {s.get('gain', Config.RELAY_DEFAULT_GAIN)} | <b>Bass:</b> +{s['bass']} | <b>Treble:</b> {s.get('treble', Config.RELAY_DEFAULT_TREBLE)}\n"
         f"├ <b>Voice:</b> {s.get('voice', 'normal')}\n"
         f"├ <b>Boost:</b> {s['boost']}/10 | <b>Echo:</b> "

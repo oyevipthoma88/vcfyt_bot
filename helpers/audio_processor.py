@@ -21,7 +21,9 @@ from typing import Optional
 
 from config import Config
 
-VOLUME_MIN, VOLUME_MAX = 1, 100000
+# Practical user-facing scale: 0 is unity, 1000 is the safe maximum.
+# The mapping below is intentionally non-linear so each step is audible.
+VOLUME_MIN, VOLUME_MAX = 0, 1000
 BASS_MIN, BASS_MAX = 0, 100
 LEVEL_MIN, LEVEL_MAX = 0, 10
 
@@ -52,7 +54,7 @@ def build_ffmpeg_filter(
     b_lvl = clamp(boost if boost is not None else Config.DEFAULT_BOOST,
                   LEVEL_MIN, LEVEL_MAX)
     relay_vol = clamp(relay_volume if relay_volume is not None
-                      else Config.RELAY_DEFAULT_VOLUME, 0, 400)
+                      else Config.RELAY_DEFAULT_VOLUME, 0, VOLUME_MAX)
     gain_pct = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN,
                      0, 150)
     treble_pct = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE,
@@ -80,12 +82,18 @@ def build_ffmpeg_filter(
     filters.append(f"equalizer=f=3000:t=o:w=1.5:g={treble_pct * 0.12 - 6:.2f}")
     filters.append(f"equalizer=f=8000:t=o:w=1.5:g={treble_pct * 0.10 - 4:.2f}")
 
-    # ── RAW GAIN (multi-stage, warna intermediate values saturate hote hain) ─
-    # Compact relay volume uses 100 as unity; legacy volume values retain
-    # the original direct multiplier semantics.
-    if volume is not None and volume <= 400:
-        vol = max(1, relay_vol) / 100.0
-    remaining = float(vol)
+    # Normalize the source before applying the user's gain. If loudnorm came
+    # after this point, it would erase the difference between 100 and 1000.
+    filters.append("loudnorm=I=-16:LRA=7:TP=-1.5:dual_mono=true:linear=false")
+
+    # ── REAL LOUDNESS MAPPING ───────────────────────────────────────────────
+    # Both controls use the same 0–1000 scale. 0 means unity and 1000 means
+    # 16x (+24 dB) before compression/limiting; 100-point changes are audible.
+    # Do not use a raw 1000x multiplier: it only creates clipped distortion.
+    control = relay_vol if volume is None else volume
+    control = clamp(control, VOLUME_MIN, VOLUME_MAX)
+    mapped_gain = 1.0 + (control / 1000.0) * 15.0
+    remaining = float(mapped_gain)
     while remaining > 1.0:
         stage = min(remaining, 32.0)
         filters.append(f"volume={stage:.3f}")
@@ -116,8 +124,6 @@ def build_ffmpeg_filter(
         filters.append(
             f"speechnorm=e={min(32.0, 10 + b_lvl * 3.0):.1f}:r=0.0005:l=1:p=0.98"
         )
-        filters.append("loudnorm=I=-11:LRA=7:TP=-1.0:dual_mono=true:linear=false")
-
     # Brick-wall limiter — LOUD but never clipped/crackly.
     filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=2"
                    ":release=30:level=false")

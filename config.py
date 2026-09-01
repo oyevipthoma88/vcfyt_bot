@@ -62,7 +62,7 @@ class Config:
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
     # ── Audio defaults (per-user overridable at runtime) ─────────────────────
-    DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 50000)  # amplitude multiplier (1-100000)
+    DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1000)  # practical loudness scale (0-1000)
     DEFAULT_BASS: int = _int("DEFAULT_BASS", 8)           # controlled low-end lift (0-100)
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)  # clarity-first; enable only when wanted
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)   # 0-10

@@ -29,6 +29,22 @@ LOGIN_KB = K([
 ])
 
 
+def now_playing_kb(cid: int) -> K:
+    """Controls shown on every active playback message."""
+    return K([
+        [B("🎶 Now Playing", callback_data=f"vc:now:{cid}")],
+        [B("⏸️ Pause", callback_data=f"vc:pause:{cid}"),
+         B("▶️ Resume", callback_data=f"vc:resume:{cid}"),
+         B("⏭️ Skip", callback_data=f"vc:skip:{cid}")],
+        [B("🔁 Loop", callback_data=f"vc:loop:{cid}"),
+         B("🔊 Boost All", callback_data=f"vc:boostall:{cid}")],
+        [B("♻️ Reset Audio", callback_data=f"vc:reset:{cid}"),
+         B("🤖 Auto", callback_data=f"vc:auto:{cid}")],
+        [B("⏹️ Stop", callback_data=f"vc:stop:{cid}"),
+         B("🎚️ Settings", callback_data="menu:settings")],
+    ])
+
+
 async def get_engine(msg: Message):
     """Return the caller's VC engine, or None (with a helpful reply)."""
     uvc = await session_manager.get(msg.from_user.id)
@@ -236,17 +252,10 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         f"🎵 <b>Source:</b> {name}\n"
         f"📣 <b>Chat:</b> {title}\n"
         f"👤 <b>Account:</b> {uvc.account_name}\n"
-        f"🔊 <b>Volume:</b> {st.volume}x | 🎸 <b>Bass:</b> +{st.bass} dB\n"
+        f"🔊 <b>Volume:</b> {st.relay_volume}/1000 | 🎸 <b>Bass:</b> +{st.bass} dB\n"
         f"💥 <b>Boost:</b> {st.boost}/10 | 🌀 <b>Echo:</b> "
         f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
-        reply_markup=K([
-            [B("⏸️ Pause", callback_data=f"vc:pause:{cid}"),
-             B("▶️ Resume", callback_data=f"vc:resume:{cid}"),
-             B("⏭️ Skip", callback_data=f"vc:skip:{cid}")],
-            [B("🔊 Boost All", callback_data=f"vc:boostall:{cid}"),
-             B("⏹️ Stop", callback_data=f"vc:stop:{cid}")],
-            [B("🎚️ Audio Settings", callback_data="menu:settings")],
-        ]),
+        reply_markup=now_playing_kb(cid),
     )
 
 
@@ -289,14 +298,10 @@ async def cmd_playforce(bot: Client, msg: Message):
         f"⚡ <b>Force playing!</b>\n\n"
         f"🎵 <b>Source:</b> {name}\n"
         f"📣 <b>Chat:</b> {title}\n"
-        f"🔊 <b>Volume:</b> {st.volume}x | 🎸 <b>Bass:</b> +{st.bass} dB\n"
+        f"🔊 <b>Volume:</b> {st.relay_volume}/1000 | 🎸 <b>Bass:</b> +{st.bass} dB\n"
         f"💥 <b>Boost:</b> {st.boost}/10 | 🌀 <b>Echo:</b> "
         f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
-        reply_markup=K([
-            [B("⏸️ Pause", callback_data=f"vc:pause:{cid}"),
-             B("🔁 Loop", callback_data=f"vc:loop:{cid}"),
-             B("⏹️ Stop", callback_data=f"vc:stop:{cid}")],
-        ]),
+        reply_markup=now_playing_kb(cid),
     )
 
 
@@ -666,7 +671,48 @@ async def cb_vc(bot, cq):
     if not uvc:
         await cq.answer("Pehle login karein.", show_alert=True)
         return
-    if action == "pause":
+    if action == "now":
+        st = uvc.chats.get(cid)
+        if not st or not st.is_playing:
+            await cq.answer("Kuch play nahi ho raha", show_alert=True)
+            return
+        await cq.message.edit_text(
+            f"🎶 <b>NOW PLAYING</b>\n\n"
+            f"🎵 <b>Track:</b> {st.source_name}\n"
+            f"🔊 <b>Volume:</b> {st.relay_volume}/1000\n"
+            f"📈 <b>Gain:</b> {st.gain}/150\n"
+            f"💥 <b>Boost:</b> {st.boost}/10\n"
+            f"🎸 <b>Bass:</b> {st.bass} | ✨ <b>Treble:</b> {st.treble}\n"
+            f"🤖 <b>Auto:</b> {'ON' if st.auto else 'OFF'}",
+            reply_markup=now_playing_kb(cid),
+        )
+        await cq.answer("Now Playing updated")
+    elif action == "reset":
+        await db.save_settings(
+            cq.from_user.id, volume=Config.DEFAULT_VOLUME,
+            relay_volume=Config.RELAY_DEFAULT_VOLUME, gain=Config.RELAY_DEFAULT_GAIN,
+            bass=Config.DEFAULT_BASS, treble=Config.RELAY_DEFAULT_TREBLE,
+            voice="normal", boost=Config.DEFAULT_BOOST,
+            echo=1 if Config.DEFAULT_ECHO else 0,
+            echo_level=Config.DEFAULT_ECHO_LEVEL, auto=0,
+        )
+        from plugins.start import apply_settings_live
+        await apply_settings_live(cq.from_user.id)
+        await cq.answer("♻️ Audio reset ho gaya", show_alert=True)
+    elif action == "auto":
+        s = await db.get_settings(cq.from_user.id)
+        on = not bool(s.get("auto"))
+        if on:
+            s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
+                      "boost": LEVEL_MAX, "bass": BASS_MAX, "echo": 0,
+                      "echo_level": 0, "auto": 1})
+        else:
+            s["auto"] = 0
+        await db.save_settings(cq.from_user.id, **s)
+        from plugins.start import apply_settings_live
+        await apply_settings_live(cq.from_user.id)
+        await cq.answer("🤖 Auto ON" if on else "🤖 Auto OFF", show_alert=True)
+    elif action == "pause":
         await cq.answer("⏸️ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
     elif action == "resume":
         await cq.answer("▶️ Resumed" if await uvc.resume(cid) else "Paused nahi tha")
@@ -733,7 +779,7 @@ async def cmd_auto(bot: Client, msg: Message):
 
     await msg.reply_text(
         "🤖 <b>AUTO MODE ON</b> — ab sab automatic hai 🔥\n\n"
-        f"🔊 Volume <code>{VOLUME_MAX}x</code> (max)\n"
+        f"🔊 Volume <code>{VOLUME_MAX}/1000</code> (max)\n"
         f"🎸 Bass <code>+{BASS_MAX} dB</code> (max)\n"
         f"💥 Boost <code>{LEVEL_MAX}/10</code> (max)\n"
         f"🌀 Echo <code>ON {LEVEL_MAX}/10</code>\n"
@@ -813,10 +859,10 @@ def _relay_num_arg(msg: Message):
 async def cmd_volume(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>/volume &lt;0-400&gt;</code>")
+        await msg.reply_text("Usage: <code>/volume &lt;0-1000&gt;</code>")
         return
-    n = max(0, min(400, n))
-    await _apply_and_reply(msg, f"🎚️ Relay volume: <b>{n}/400</b>", relay_volume=n)
+    n = max(0, min(VOLUME_MAX, n))
+    await _apply_and_reply(msg, f"🎚️ Playback volume: <b>{n}/1000</b>", relay_volume=n, volume=n)
 
 
 @Client.on_message(filters.regex(r"^[./]gain\b") & (filters.group | filters.private))
@@ -866,7 +912,7 @@ async def cmd_relaystatus(bot: Client, msg: Message):
     s = await db.get_settings(msg.from_user.id)
     await msg.reply_text(
         "🎧 <b>VC Audio Relay Settings</b>\n\n"
-        f"├ Volume: <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/400</code>\n"
+        f"├ Volume: <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
         f"├ Gain: <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/150</code>\n"
         f"├ Bass: <code>{s.get('bass', Config.RELAY_DEFAULT_BASS)}/100</code>\n"
         f"├ Treble: <code>{s.get('treble', Config.RELAY_DEFAULT_TREBLE)}/100</code>\n"

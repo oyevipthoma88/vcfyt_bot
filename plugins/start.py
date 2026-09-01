@@ -137,8 +137,14 @@ async def cb_settings_change(bot, cq):
         await cq.answer()
         return
 
-    if action == "vol":
-        s["volume"] = clamp(s["volume"] + int(rest[0]), VOLUME_MIN, VOLUME_MAX)
+    if action in ("vol", "relay"):
+        # Practical playback control: 0–1000. Keep legacy volume synced so
+        # old settings and the new panel always point to the same real gain.
+        s["relay_volume"] = clamp(
+            s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME) + int(rest[0]),
+            VOLUME_MIN, VOLUME_MAX,
+        )
+        s["volume"] = s["relay_volume"]
     elif action == "bass":
         s["bass"] = clamp(s["bass"] + int(rest[0]), BASS_MIN, BASS_MAX)
     elif action == "boost":
@@ -151,17 +157,21 @@ async def cb_settings_change(bot, cq):
     elif action == "auto":
         s["auto"] = 0 if s.get("auto") else 1
         if s["auto"]:
-            # AUTO = sab kuch max, automatically.
-            s.update({"volume": VOLUME_MAX, "bass": BASS_MAX, "boost": LEVEL_MAX,
-                      "echo": 1, "echo_level": LEVEL_MAX})
+            # AUTO = practical max playback, with clarity-safe bass/echo.
+            s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
+                      "bass": BASS_MAX, "boost": LEVEL_MAX,
+                      "echo": 0, "echo_level": 0})
     elif action == "reset":
-        s = {"volume": Config.DEFAULT_VOLUME, "bass": Config.DEFAULT_BASS,
-             "echo": 1 if Config.DEFAULT_ECHO else 0,
-             "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
-             "auto": 0}
+        s.update({"volume": Config.DEFAULT_VOLUME, "relay_volume": Config.RELAY_DEFAULT_VOLUME,
+                  "bass": Config.DEFAULT_BASS, "gain": Config.RELAY_DEFAULT_GAIN,
+                  "treble": Config.RELAY_DEFAULT_TREBLE, "voice": "normal",
+                  "echo": 1 if Config.DEFAULT_ECHO else 0,
+                  "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
+                  "auto": 0})
     elif action == "max":
-        s = {"volume": VOLUME_MAX, "bass": BASS_MAX, "echo": 1,
-             "echo_level": LEVEL_MAX, "boost": LEVEL_MAX, "auto": 1}
+        s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
+                  "bass": BASS_MAX, "echo": 0, "echo_level": 0,
+                  "boost": LEVEL_MAX, "auto": 1})
     elif action == "apply":
         n = await apply_settings_live(uid)
         await cq.answer(f"⚡ {n} VC par apply ho gaya" if n

@@ -32,6 +32,11 @@ async def main():
         print(next(line.strip() for line in combined.splitlines() if "mean_volume" in line))
         print("filter_has_loudnorm=true", "loudnorm=" in build_ffmpeg_filter())
         print("filter_has_limiter=true", "alimiter=" in build_ffmpeg_filter())
+        filters = [build_ffmpeg_filter(volume=level, relay_volume=level, boost=0, echo=False)
+                   for level in (0, 250, 500, 750, 1000)]
+        gains = [line for af in filters for line in af.split(",") if line.startswith("volume=")]
+        assert len(set(gains)) >= 5
+        print("distinct_real_gain_levels=true", len(set(gains)))
 
 
 if __name__ == "__main__":
