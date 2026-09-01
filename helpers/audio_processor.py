@@ -116,7 +116,7 @@ def build_ffmpeg_filter(
         filters.append(
             f"speechnorm=e={min(32.0, 10 + b_lvl * 3.0):.1f}:r=0.0005:l=1:p=0.98"
         )
-        filters.append("loudnorm=I=-14:LRA=7:TP=-1.5:dual_mono=true:linear=false")
+        filters.append("loudnorm=I=-11:LRA=7:TP=-1.0:dual_mono=true:linear=false")
 
     # Brick-wall limiter — LOUD but never clipped/crackly.
     filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=2"
@@ -145,7 +145,7 @@ def build_ffmpeg_filter(
     # Final modest push + safety limiter. The loudnorm stage above does the
     # heavy lifting; a huge post-limiter multiplier only creates distortion.
     if b_lvl > 0:
-        filters.append(f"volume={1 + b_lvl * 0.08:.2f}")
+        filters.append(f"volume={1 + b_lvl * 0.10:.2f}")
     filters.append("alimiter=limit=0.98:attack=5:release=60:level=false")
 
     return ",".join(filters)
