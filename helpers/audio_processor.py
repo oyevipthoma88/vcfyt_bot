@@ -93,15 +93,6 @@ def build_ffmpeg_filter(
     control = relay_vol if volume is None else volume
     control = clamp(control, VOLUME_MIN, VOLUME_MAX)
     mapped_gain = 1.0 + (control / 1000.0) * 31.0
-    remaining = float(mapped_gain)
-    while remaining > 1.0:
-        stage = min(remaining, 32.0)
-        filters.append(f"volume={stage:.3f}")
-        remaining /= stage
-
-    if gain_pct > 0:
-        filters.append(f"volume={1 + gain_pct / 100:.2f}")
-
     if b_lvl > 0:
         ratio = 4 + b_lvl * 1.6
                  # 5.6 … 20
@@ -124,6 +115,16 @@ def build_ffmpeg_filter(
         filters.append(
             f"speechnorm=e={min(32.0, 10 + b_lvl * 3.0):.1f}:r=0.0005:l=1:p=0.98"
         )
+    # Apply user controls after dynamics so compression cannot hide the
+    # difference between volume/gain values. The limiter is the final guard.
+    remaining = float(mapped_gain)
+    while remaining > 1.0:
+        stage = min(remaining, 32.0)
+        filters.append(f"volume={stage:.3f}")
+        remaining /= stage
+    if gain_pct > 0:
+        filters.append(f"volume={1 + gain_pct / 100:.2f}")
+
     # Brick-wall limiter — LOUD but never clipped/crackly.
     filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=2"
                    ":release=30:level=false")
@@ -148,10 +149,10 @@ def build_ffmpeg_filter(
     if extra_filters:
         filters.append(extra_filters)
 
-    # Final modest push + safety limiter. The loudnorm stage above does the
-    # heavy lifting; a huge post-limiter multiplier only creates distortion.
+    # Boost is already applied in the dynamics chain; only a small makeup
+    # push remains here before the final safety limiter.
     if b_lvl > 0:
-        filters.append(f"volume={1 + b_lvl * 0.10:.2f}")
+        filters.append(f"volume={1 + b_lvl * 0.04:.2f}")
     filters.append("alimiter=limit=0.98:attack=5:release=60:level=false")
 
     return ",".join(filters)
