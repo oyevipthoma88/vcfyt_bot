@@ -37,7 +37,7 @@ class RelayFeatureTests(unittest.TestCase):
                 await db.connect()
                 await db.save_settings(
                     101, relay_volume=275, gain=90, bass=60,
-                    treble=15, voice="male"
+                    treble=15, voice="male", live_volume=18000
                 )
                 settings = await db.get_settings(101)
                 self.assertEqual(settings["relay_volume"], 275)
@@ -45,6 +45,7 @@ class RelayFeatureTests(unittest.TestCase):
                 self.assertEqual(settings["bass"], 60)
                 self.assertEqual(settings["treble"], 15)
                 self.assertEqual(settings["voice"], "male")
+                self.assertEqual(settings["live_volume"], 18000)
 
         asyncio.run(run())
 

@@ -65,6 +65,7 @@ class ChatState:
         self.gain = Config.RELAY_DEFAULT_GAIN
         self.treble = Config.RELAY_DEFAULT_TREBLE
         self.voice = "normal"
+        self.live_volume = Config.LIVE_BOOST_DEFAULT
         self.auto = Config.AUTO_MODE_DEFAULT   # AUTO mode (max loud + keeper)
         self.loop = False                  # .loop — current track repeat
         self.loop_left = -1                # -1 = infinite, warna baaki counts
@@ -76,6 +77,7 @@ class ChatState:
             "echo_level": self.echo_level, "boost": self.boost,
             "relay_volume": self.relay_volume, "gain": self.gain,
             "treble": self.treble, "voice": self.voice,
+            "live_volume": self.live_volume,
             "auto": self.auto, "loop": self.loop,
         }
 
@@ -95,6 +97,7 @@ class UserVC:
         self.chats: Dict[int, ChatState] = {}
         self._keepers: Dict[int, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+        self.live_volume = Config.LIVE_BOOST_DEFAULT
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     async def start(self):
@@ -110,6 +113,12 @@ class UserVC:
         self.account_id = me.id
         self.account_name = me.first_name or ""
         self.account_username = me.username or ""
+        try:
+            from helpers.database import db
+            saved = await db.get_settings(self.owner_id)
+            self.live_volume = saved.get("live_volume", Config.LIVE_BOOST_DEFAULT)
+        except Exception:
+            pass
 
         self.calls = PyTgCalls(self.client)
 
@@ -147,6 +156,7 @@ class UserVC:
     def state(self, chat_id: int) -> ChatState:
         if chat_id not in self.chats:
             self.chats[chat_id] = ChatState()
+            self.chats[chat_id].live_volume = self.live_volume
         return self.chats[chat_id]
 
     # ── events ───────────────────────────────────────────────────────────────
@@ -212,7 +222,7 @@ class UserVC:
             if Config.AUTO_LIVE_BOOST:
                 asyncio.create_task(
                     self.set_participant_volume(
-                        chat_id, self.account_id, Config.LIVE_BOOST_DEFAULT, quiet=True
+                        chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True
                     )
                 )
             return
@@ -250,7 +260,7 @@ class UserVC:
                 if not st or not st.auto:
                     return
                 await self.set_participant_volume(
-                    chat_id, self.account_id, VOL_MAX, quiet=True
+                    chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True
                 )
                 # Meri aavaj sabse zyada: khud 200%, baaki sirf normal (100%).
                 # Kisi ki aavaj kam nahi ki jaati, bas mujhse upar nahi jaati.
@@ -285,7 +295,7 @@ class UserVC:
             st.boost, st.echo, st.echo_level = LEVEL_MAX, True, LEVEL_MAX
             self._start_keeper(chat_id)
             await self.set_participant_volume(
-                chat_id, self.account_id, VOL_MAX, quiet=True
+                chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True
             )
             if Config.ME_LOUDEST:
                 await self.normalize_others(chat_id)

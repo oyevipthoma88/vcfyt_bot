@@ -116,6 +116,7 @@ async def apply_settings_live(user_id: int) -> int:
         st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
         st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
         st.voice = s.get("voice", "normal")
+        st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
         st.echo = bool(s["echo"])
         st.echo_level = s["echo_level"]
         st.boost = s["boost"]

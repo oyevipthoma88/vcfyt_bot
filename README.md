@@ -90,7 +90,7 @@ se generate karke bot ko bhej dein (ya `/addstring <session>`).
 
 **Effects:** `.vol 1-20000` `.bass 0-60` `.boost 0-10` `.echo on|off` `.echolvl 0-10` `.max` `.reset`
 
-**Live mic:** `.myboost` `.vcboost [user] [1-20000]` `.boostall`
+**Live mic:** `.myboost [1-20000]` / `/livegain [1-20000]` se active session ki apni live voice gain set karein. Ye value save hoti hai aur session kisi VC mein join/reconnect hone par re-apply hoti hai. `.vcboost [user] [1-20000]` aur `.boostall` participant controls ke liye hain.
 
 **Owner:** `/owner` `/users` `/broadcast` `/stats` `/ban` `/unban` `/restart`
 

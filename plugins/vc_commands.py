@@ -78,6 +78,7 @@ async def load_state_settings(user_id: int, uvc, chat_id: int):
     st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
     st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
     st.voice = s.get("voice", "normal")
+    st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
     st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
     if s.get("auto"):
         await uvc.set_auto(chat_id, True)
@@ -460,6 +461,7 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
             st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
             st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
             st.voice = s.get("voice", "normal")
+            st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
             st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
             if s.get("auto") and not st.auto:
                 await uvc.set_auto(cid, True)
@@ -557,13 +559,13 @@ async def cmd_reset(bot, msg: Message):
 
 
 # ── live mic boost ───────────────────────────────────────────────────────────
-@Client.on_message(filters.regex(r"^[./]myboost\b") & (filters.group | filters.private))
+@Client.on_message(filters.regex(r"^[./](myboost|livegain|livevolume)\b") & (filters.group | filters.private))
 async def cmd_myboost(bot: Client, msg: Message):
     uvc = await get_engine(msg)
     if not uvc:
         return
     parts = msg.text.strip().split()
-    vol = Config.LIVE_BOOST_DEFAULT
+    vol = None
     cid_arg = None
     for p in parts[1:]:
         try:
@@ -577,10 +579,16 @@ async def cmd_myboost(bot: Client, msg: Message):
     cid = await need_chat(msg, cid_arg)
     if not cid:
         return
+    st = uvc.state(cid)
+    if vol is None:
+        vol = st.live_volume
+    st.live_volume = vol
+    await db.save_settings(msg.from_user.id, live_volume=vol)
     ok = await uvc.set_participant_volume(cid, uvc.account_id, vol)
     await msg.reply_text(
         f"🔊 <b>Live mic boost {'lag gaya' if ok else 'fail'}</b>\n"
-        f"👤 <code>{uvc.account_id}</code> → {vol} ({round(vol/100)}%)\n\n"
+        f"👤 <code>{uvc.account_id}</code> → {vol} ({round(vol/100)}%)\n"
+        "Ab is session ke VC join/reconnect par bhi ye live gain re-apply hoga.\n\n"
         + ("Ab VC mein bolte hi aapki aavaj max loud jayegi."
            if ok else "VC on hai? Aapka account VC mein hai? Check karein.")
     )
@@ -862,6 +870,7 @@ async def cmd_relaystatus(bot: Client, msg: Message):
         f"├ Gain: <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/150</code>\n"
         f"├ Bass: <code>{s.get('bass', Config.RELAY_DEFAULT_BASS)}/100</code>\n"
         f"├ Treble: <code>{s.get('treble', Config.RELAY_DEFAULT_TREBLE)}/100</code>\n"
+        f"├ Live mic: <code>{s.get('live_volume', Config.LIVE_BOOST_DEFAULT)}/20000</code>\n"
         f"└ Voice: <code>{s.get('voice', 'normal')}</code>"
     )
 

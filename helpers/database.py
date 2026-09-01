@@ -70,7 +70,8 @@ class Database:
                 relay_volume INTEGER,
                 gain       INTEGER,
                 treble     INTEGER,
-                voice      TEXT DEFAULT 'normal'
+                voice      TEXT DEFAULT 'normal',
+                live_volume INTEGER
             )
         """)
         # Migrations for databases created by older bot versions.
@@ -80,6 +81,7 @@ class Database:
             "ALTER TABLE settings ADD COLUMN gain INTEGER",
             "ALTER TABLE settings ADD COLUMN treble INTEGER",
             "ALTER TABLE settings ADD COLUMN voice TEXT DEFAULT 'normal'",
+            "ALTER TABLE settings ADD COLUMN live_volume INTEGER",
         ):
             try:
                 c.execute(statement)
@@ -204,6 +206,7 @@ class Database:
             "gain": Config.RELAY_DEFAULT_GAIN,
             "treble": Config.RELAY_DEFAULT_TREBLE,
             "voice": "normal",
+            "live_volume": Config.LIVE_BOOST_DEFAULT,
 
         }
         if self._use_mongo:
@@ -228,12 +231,13 @@ class Database:
             self._sql("INSERT OR IGNORE INTO settings (user_id) VALUES (?)", (user_id,))
             self._sql(
                 "UPDATE settings SET volume=?, bass=?, echo=?, echo_level=?, "
-                "boost=?, auto=?, relay_volume=?, gain=?, treble=?, voice=? "
+                "boost=?, auto=?, relay_volume=?, gain=?, treble=?, voice=?, live_volume=? "
                 "WHERE user_id=?",
                 (current["volume"], current["bass"], int(current["echo"]),
                  current["echo_level"], current["boost"],
                  int(current.get("auto") or 0), current["relay_volume"],
-                 current["gain"], current["treble"], current["voice"], user_id),
+                 current["gain"], current["treble"], current["voice"],
+                 current["live_volume"], user_id),
             )
 
 
