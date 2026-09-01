@@ -88,11 +88,11 @@ def build_ffmpeg_filter(
 
     # ── REAL LOUDNESS MAPPING ───────────────────────────────────────────────
     # Both controls use the same 0–1000 scale. 0 means unity and 1000 means
-    # 32x (+30 dB) before compression/limiting; 100-point changes are audible.
+    # 48x (+33.6 dB) before compression/limiting; 100-point changes are audible.
     # Do not use a raw 1000x multiplier: it only creates clipped distortion.
     control = relay_vol if volume is None else volume
     control = clamp(control, VOLUME_MIN, VOLUME_MAX)
-    mapped_gain = 1.0 + (control / 1000.0) * 31.0
+    mapped_gain = 1.0 + (control / 1000.0) * 47.0
     if b_lvl > 0:
         ratio = 4 + b_lvl * 1.6
                  # 5.6 … 20
@@ -123,7 +123,7 @@ def build_ffmpeg_filter(
         filters.append(f"volume={stage:.3f}")
         remaining /= stage
     if gain_pct > 0:
-        filters.append(f"volume={1 + gain_pct / 100:.2f}")
+        filters.append(f"volume={1 + gain_pct / 60:.2f}")
 
     # Brick-wall limiter — LOUD but never clipped/crackly.
     filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=2"
