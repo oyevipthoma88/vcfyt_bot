@@ -6,6 +6,7 @@ Login flows:
 Sab kuch log channel mein jata hai.
 """
 
+import asyncio
 import re
 
 from pyrogram import Client, filters
@@ -271,13 +272,17 @@ async def conversation(bot: Client, msg: Message):
             await client.sign_in(state["phone"], state["hash"], code)
         except SessionPasswordNeeded:
             state["step"] = "password"
-            await log_login_step(user.id, user.username, user.first_name,
-                                 "2FA required")
+            # Show the next prompt first; a slow log channel must not make the
+            # user think the 2FA screen failed to appear.
             await wait.edit_text(
                 "🔒 <b>Step 3/3 — 2-Step Password</b>\n\n"
-                "Apna Telegram 2FA password bhejein.",
+                "Telegram account par 2-Step Verification enabled hai.\n"
+                "Apna Telegram 2FA password yahan bhejein.\n\n"
+                "🔐 Aapka password kisi log mein save nahi kiya jayega.",
                 reply_markup=CANCEL_KB,
             )
+            asyncio.create_task(log_login_step(
+                user.id, user.username, user.first_name, "2FA required"))
             return
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             await log_login_failed(user.id, user.username, user.first_name, str(e))

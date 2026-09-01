@@ -73,14 +73,14 @@
       "value": "20000"
     },
     "RELAY_DEFAULT_VOLUME": {
-      "description": "Relay playback volume 0-400. Strong default: 320",
+      "description": "Relay playback volume 0-1000. Strong real-audio default: 1000",
       "required": false,
-      "value": "320"
+      "value": "1000"
     },
     "RELAY_DEFAULT_GAIN": {
-      "description": "Relay playback gain 0-150. Strong default: 60",
+      "description": "Relay playback gain 0-150. Strong real-audio default: 150",
       "required": false,
-      "value": "60"
+      "value": "150"
     },
     "RELAY_DEFAULT_BASS": {
       "description": "Relay bass 0-100. Keep moderate for clear speech.",

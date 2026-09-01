@@ -69,8 +69,8 @@ class Config:
     DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 9)             # 0-10 loudness stage
 
     # Relay controls (user-facing compact controls).
-    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 320)  # 0-400
-    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 60)       # 0-150
+    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 1000)  # 0-400
+    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 150)       # 0-150
     RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 8)        # 0-100
     RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 62)      # 0-100
 
