@@ -45,7 +45,7 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         ],
         [
             B("🎙️ VC Commands", callback_data="tut:play"),
-            B("🔊 Live Boost", callback_data="tut:boost"),
+            B("🎧 Audio Library", callback_data="aud:menu"),
         ],
         [
             B("👤 My Status", callback_data="menu:status"),
@@ -120,7 +120,7 @@ def settings_text(s: dict) -> str:
     return (
         "🎚️ <b>Audio Settings</b> (aapke account ke liye)\n\n"
         f"{LINE}\n"
-        f"🤖 <b>AUTO mode:</b> {'ON 🔥 (sab automatic, max aavaj)' if s.get('auto') else 'OFF'}\n"
+        f"🤖 <b>AUTO mode:</b> {'ON 🔥 (real max preset)' if s.get('auto') else 'OFF'}\n"
         f"🔊 <b>Playback Volume:</b> <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
         f"📈 <b>Gain:</b> <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/150</code>\n"
         f"🎸 <b>Bass:</b> <code>+{s['bass']} dB</code>  (0 – 100)\n"
@@ -130,7 +130,7 @@ def settings_text(s: dict) -> str:
         f"🌀 <b>Echo:</b> {'ON' if s['echo'] else 'OFF'} "
         f"<code>{bars(int(s['echo_level']))} {s['echo_level']}/10</code>\n"
         f"{LINE}\n\n"
-        "Buttons se ghata/badha sakte hain — jo VC chal raha hai us par "
+        "Buttons se ghata/badha sakte hain — audio par real FFmpeg controls apply hote hain. "
         "<b>Apply Live</b> se turant lag jayega."
     )
 

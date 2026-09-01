@@ -346,6 +346,7 @@ async def cmd_padd(bot: Client, msg: Message):
 
 # ── transport controls ───────────────────────────────────────────────────────
 async def _transport(msg: Message, action: str):
+    """Run a transport action against the caller's selected VC."""
     uvc = await get_engine(msg)
     if not uvc:
         return
@@ -363,9 +364,16 @@ async def _transport(msg: Message, action: str):
         ok = await uvc.skip(cid)
         await msg.reply_text("⏭️ Skipped." if ok else "⚠️ Active VC nahi.")
     elif action == "stop":
-        await uvc.leave(cid, reason="Manual stop")
-        await msg.reply_text("⏹️ <b>Stopped</b> — VC chhod diya. "
-                             "Kisi ki aavaj kam nahi ki gayi.")
+        if cid not in uvc.chats:
+            await msg.reply_text("⚠️ Is VC mein bot ka active session nahi hai.")
+            return
+        try:
+            await uvc.leave(cid, reason="Manual stop")
+        except Exception as exc:
+            await log_error("transport_stop", exc)
+            await msg.reply_text(f"❌ Stop fail hua: <code>{exc}</code>")
+            return
+        await msg.reply_text("⏹️ <b>Stopped</b> — bot ne VC playback session chhod diya.")
 
 
 @Client.on_message(filters.regex(r"^[./]pause\b") & (filters.group | filters.private))
@@ -383,7 +391,7 @@ async def cmd_skip(bot, msg):
     await _transport(msg, "skip")
 
 
-@Client.on_message(filters.regex(r"^[./]stop\b") & (filters.group | filters.private))
+@Client.on_message(filters.regex(r"^[./](stop|end|leave)\b") & (filters.group | filters.private))
 async def cmd_stop(bot, msg):
     await _transport(msg, "stop")
 
@@ -449,8 +457,8 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
             st.voice = s.get("voice", "normal")
             st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
             st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
-            if s.get("auto") and not st.auto:
-                await uvc.set_auto(cid, True)
+            if bool(s.get("auto")) != bool(st.auto):
+                await uvc.set_auto(cid, bool(s.get("auto")))
             if st.is_playing and await uvc.reapply(cid):
                 applied += 1
     await msg.reply_text(
@@ -478,7 +486,7 @@ def _num_arg(msg: Message):
 async def cmd_vol(bot, msg: Message):
     n = _num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>.vol &lt;1-20000&gt;</code>")
+        await msg.reply_text("Usage: <code>.vol &lt;0-1000&gt;</code>")
         return
     await _apply_and_reply(msg, f"🔊 Volume set: <b>{clamp(n, VOLUME_MIN, VOLUME_MAX)}x</b>",
                            volume=clamp(n, VOLUME_MIN, VOLUME_MAX))
@@ -543,10 +551,14 @@ async def cmd_max(bot, msg: Message):
 @Client.on_message(filters.regex(r"^[./]reset\b") & (filters.group | filters.private))
 async def cmd_reset(bot, msg: Message):
     await _apply_and_reply(msg, "♻️ <b>Defaults restored</b>",
-                           volume=Config.DEFAULT_VOLUME, bass=Config.DEFAULT_BASS,
-                           boost=Config.DEFAULT_BOOST,
+                           volume=Config.DEFAULT_VOLUME,
+                           relay_volume=Config.RELAY_DEFAULT_VOLUME,
+                           gain=Config.RELAY_DEFAULT_GAIN,
+                           bass=Config.DEFAULT_BASS,
+                           treble=Config.RELAY_DEFAULT_TREBLE,
+                           voice="normal", boost=Config.DEFAULT_BOOST,
                            echo=1 if Config.DEFAULT_ECHO else 0,
-                           echo_level=Config.DEFAULT_ECHO_LEVEL)
+                           echo_level=Config.DEFAULT_ECHO_LEVEL, auto=0)
 
 
 # ── live mic boost ───────────────────────────────────────────────────────────
@@ -711,7 +723,7 @@ async def cmd_auto(bot: Client, msg: Message):
         "🤖 <b>AUTO MODE ON</b> — ab sab automatic hai 🔥\n\n"
         f"🔊 Volume <code>{VOLUME_MAX}/1000</code> (max)\n"
         f"🎸 Bass <code>+{min(BASS_MAX, 20)} dB</code> (voice-safe max)\n"
-        f"✨ Treble <code>75/100</code> + Gain <code>80/150</code>\n"
+        f"✨ Treble <code>75/100</code> + Gain <code>150/150</code>\n"
         f"💥 Boost <code>{LEVEL_MAX}/10</code> (max)\n"
         f"🌀 Echo <code>OFF</code> (clear voice)\n"
         f"🎤 Live mic <code>{VOL_MAX}</code> (200% — Telegram max)\n"

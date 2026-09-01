@@ -35,6 +35,7 @@ def panel_kb() -> K:
          B("📊 Stats", callback_data="adm_stats")],
         [B("🎙️ Active VCs", callback_data="adm_vcs"),
          B("📢 Broadcast", callback_data="adm_broadcast")],
+        [B("🎧 Add Audio", callback_data="adm_addaudio")],
         [B("♻️ Restart", callback_data="adm_restart")],
         [B("🏠 Home", callback_data="menu:home")],
     ])
@@ -93,6 +94,15 @@ async def cb_admin(bot, cq):
         await cq.message.edit_text(
             "🎙️ <b>Active VCs</b>\n" + ("\n".join(lines) or "— none —"),
             reply_markup=back)
+
+    elif action == "addaudio":
+        await cq.message.edit_text(
+            "🎧 <b>Add Bot Audio</b>\n\n"
+            "Audio/video message ko reply karke:\n"
+            "<code>/addaudio &lt;title&gt;</code>\n\n"
+            "Save hone ke baad sab users ke <b>Bot Audios</b> section mein dikhega.",
+            reply_markup=back,
+        )
 
     elif action == "broadcast":
         await cq.message.edit_text(

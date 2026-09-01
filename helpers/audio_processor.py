@@ -51,7 +51,7 @@ def build_ffmpeg_filter(
 
     # 0..1000 => -12..+24 dB; 0..150 => -6..+18 dB.
     # These ranges keep every setting measurable while leaving headroom for
-    # the final limiter instead of pretending that 1000x amplitude is useful.
+    # the final limiter instead of allowing uncontrolled clipping.
     volume_db = -12.0 + (36.0 * vol / VOLUME_MAX)
     gain_db = -6.0 + (24.0 * gain_value / 150.0)
     boost_db = 2.5 * boost_value

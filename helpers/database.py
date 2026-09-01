@@ -4,7 +4,8 @@ Persistent storage — MongoDB when MONGO_URI is set, otherwise local SQLite.
 
 import json
 import sqlite3
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 try:
@@ -17,7 +18,7 @@ from config import Config
 
 
 class Database:
-    """Collections/tables: users, tagged, settings."""
+    """Collections/tables: users, tagged, settings, shared_audio."""
 
     def __init__(self):
         self._mongo = None
@@ -56,6 +57,17 @@ class Database:
                 caption   TEXT,
                 tagged_at TEXT,
                 PRIMARY KEY (user_id, tag_name)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS shared_audio (
+                audio_id   TEXT PRIMARY KEY,
+                owner_id   INTEGER NOT NULL,
+                title      TEXT NOT NULL,
+                file_id    TEXT NOT NULL,
+                file_type  TEXT NOT NULL,
+                caption    TEXT DEFAULT '',
+                created_at TEXT NOT NULL
             )
         """)
         c.execute("""
@@ -103,7 +115,7 @@ class Database:
     # ── USERS ────────────────────────────────────────────────────────────────
     async def add_user(self, user_id: int, username: str, first_name: str,
                        string_session: str = "", extra: dict = None):
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         if self._use_mongo:
             await self._mongo.users.update_one(
                 {"user_id": user_id},
@@ -161,7 +173,7 @@ class Database:
     # ── TAGGED FILES ─────────────────────────────────────────────────────────
     async def tag_file(self, user_id: int, tag_name: str, file_id: str,
                        file_type: str, caption: str = ""):
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         if self._use_mongo:
             await self._mongo.tagged.update_one(
                 {"user_id": user_id, "tag_name": tag_name},
@@ -194,6 +206,69 @@ class Database:
         else:
             self._sql("DELETE FROM tagged WHERE user_id=? AND tag_name=?",
                       (user_id, tag_name))
+
+    # ── SHARED / PERSONAL AUDIO LIBRARY ───────────────────────────────────────
+    async def add_audio(self, owner_id: int, title: str, file_id: str,
+                        file_type: str, caption: str = "") -> str:
+        audio_id = uuid.uuid4().hex[:16]
+        ts = datetime.now(timezone.utc).isoformat()
+        title = title.strip()[:100] or "Untitled audio"
+        document = {
+            "audio_id": audio_id, "owner_id": owner_id, "title": title,
+            "file_id": file_id, "file_type": file_type,
+            "caption": caption or "", "created_at": ts,
+        }
+        if self._use_mongo:
+            await self._mongo.shared_audio.insert_one(document)
+            return audio_id
+        self._sql(
+            "INSERT INTO shared_audio (audio_id,owner_id,title,file_id,file_type,caption,created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (audio_id, owner_id, title, file_id, file_type, caption or "", ts),
+        )
+        return audio_id
+
+    async def list_user_audio(self, owner_id: int) -> list:
+        if self._use_mongo:
+            return await self._mongo.shared_audio.find(
+                {"owner_id": owner_id}).sort("created_at", -1).to_list(None)
+        rows = self._sql(
+            "SELECT * FROM shared_audio WHERE owner_id=? ORDER BY audio_id DESC",
+            (owner_id,), fetch=True)
+        return [dict(r) for r in rows] if rows else []
+
+    async def list_owner_audio(self, owner_id: int) -> list:
+        if self._use_mongo:
+            return await self._mongo.shared_audio.find(
+                {"owner_id": owner_id}).sort("created_at", -1).to_list(None)
+        rows = self._sql(
+            "SELECT * FROM shared_audio WHERE owner_id=? ORDER BY audio_id DESC",
+            (owner_id,), fetch=True)
+        return [dict(r) for r in rows] if rows else []
+
+    async def list_bot_audio(self, owner_id: int) -> list:
+        return await self.list_owner_audio(owner_id)
+
+    async def get_audio(self, audio_id: str) -> Optional[dict]:
+        if self._use_mongo:
+            return await self._mongo.shared_audio.find_one({"audio_id": audio_id})
+        rows = self._sql("SELECT * FROM shared_audio WHERE audio_id=?",
+                         (str(audio_id),), fetch=True)
+        return dict(rows[0]) if rows else None
+
+    async def delete_audio(self, owner_id: int, audio_id: str) -> bool:
+        if self._use_mongo:
+            result = await self._mongo.shared_audio.delete_one(
+                {"audio_id": str(audio_id), "owner_id": owner_id})
+            return bool(result.deleted_count)
+        rows = self._sql(
+            "SELECT audio_id FROM shared_audio WHERE audio_id=? AND owner_id=?",
+            (str(audio_id), owner_id), fetch=True)
+        if not rows:
+            return False
+        self._sql("DELETE FROM shared_audio WHERE audio_id=? AND owner_id=?",
+                  (str(audio_id), owner_id))
+        return True
 
     # ── PER-USER AUDIO SETTINGS ──────────────────────────────────────────────
     async def get_settings(self, user_id: int) -> dict:

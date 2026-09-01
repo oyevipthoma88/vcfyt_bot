@@ -57,6 +57,10 @@
       "description": "Your Heroku app name (e.g. my-vc-bot). Used for deep links.",
       "required": false
     },
+    "START_PIC": {
+      "description": "Optional Telegram file_id or public image URL used by /start.",
+      "required": false
+    },
     "DEFAULT_ECHO_LEVEL": {
       "description": "Echo strength 0-10. Default: 2 (only used when echo is enabled)",
       "required": false,

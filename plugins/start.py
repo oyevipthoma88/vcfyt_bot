@@ -39,11 +39,16 @@ async def cmd_start(bot: Client, msg: Message):
     logged = await _is_logged_in(user.id)
     uvc = session_manager.users.get(user.id)
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
-    await msg.reply_text(
-        home_text(user.first_name or "friend", logged),
-        reply_markup=home_kb(Config.is_owner(user.id), logged, active_chat_id),
-        disable_web_page_preview=True,
-    )
+    text = home_text(user.first_name or "friend", logged)
+    markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
+    if Config.START_PIC:
+        try:
+            await msg.reply_photo(Config.START_PIC, caption=text, reply_markup=markup)
+            return
+        except Exception:
+            # Invalid/expired Telegram file_id or inaccessible URL must not break /start.
+            pass
+    await msg.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
 
 
 @Client.on_callback_query(filters.regex(r"^menu:home$"))

@@ -26,6 +26,7 @@ def tutorial_kb() -> K:
          B("🚀 Setup / Login", callback_data="tut:setup")],
         [B("🎵 Play & Queue", callback_data="tut:play"),
          B("🎚️ Audio Settings", callback_data="tut:effects")],
+        [B("🎧 Audio Library", callback_data="tut:library")],
         [B("🏷️ Tags", callback_data="tut:tags"),
          B("🔊 Live Voice Boost", callback_data="tut:boost")],
         [B("🎛️ VC Control", callback_data="tut:vc"),
@@ -118,6 +119,21 @@ SECTIONS = {
         "🎙️ Voice ke liye: bass moderate, treble 55–75, gain 50–70.\n"
         "🎵 Music ke liye: bass 15–30 try karein; distortion aaye to gain kam karein."
     ),
+    "library": (
+        "🎧 <b>Audio Library — examples</b>\n\n"
+        f"{LINE}\n"
+        "<b>Apna audio save karein</b>\n"
+        "1️⃣ Audio/video message ko reply karein.\n"
+        "2️⃣ <code>.saveaudio My Intro</code> bhejein.\n"
+        "3️⃣ <code>.audio</code> ➜ <b>My Audio</b> se list dekhein.\n\n"
+        "<b>Owner ke shared audios</b>\n"
+        "Owner audio ko reply karke <code>/addaudio Welcome</code> bhejega.\n"
+        "Sab users <code>.audio</code> ➜ <b>Bot Audios</b> mein use dekh sakte hain.\n\n"
+        "<b>Play</b>\n"
+        "Pehle apna logged-in account VC mein join karein, phir audio ke saamne "
+        "<b>Play in active VC</b> dabayein.\n"
+        "My Audio sirf aap delete kar sakte hain; Bot Audios owner manage karta hai."
+    ),
     "boost": (
         "🔊 <b>Live Voice Boost</b>\n\n"
         f"{LINE}\n"
@@ -183,7 +199,9 @@ SECTIONS = {
         ".vol  .boost  .echo  .echolvl  .max  .reset\n\n"
         f"{LINE}\n<b>Live</b>\n{LINE}\n"
         ".myboost\n\n"
-        f"{LINE}\n<b>Owner</b>\n{LINE}\n"
+        f"<b>Library</b>\n{LINE}\n"
+        ".audio  .saveaudio  /addaudio\n\n"
+        f"<b>Owner</b>\n{LINE}\n"
         "/owner /users /broadcast /stats /restart /ban /unban"
     ),
 }

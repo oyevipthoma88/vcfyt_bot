@@ -13,6 +13,7 @@ Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven co
 | Loud and clear playback | FFmpeg speech normalization, presence EQ, compression, loudnorm, and a safety limiter are applied to recordings and downloaded audio. |
 | Live participant volume | On playback and reconnect, the bot attempts to apply the logged-in account’s saved Telegram participant volume up to `20000` / `200%`. |
 | Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
+| Audio library | Users can save My Audio; owner-saved files appear for everyone under Bot Audios. |
 | Multi-user sessions | Each owner gets an isolated Pyrogram + PyTgCalls engine and separate settings. |
 | Participant volume | The logged-in voice-chat account can be set to Telegram’s supported participant-volume maximum; other participants are not modified. |
 | Logging | Login, VC activity, commands, boosts, errors, and broadcasts can be sent to the configured log channel. |
@@ -67,7 +68,8 @@ pip install -U yt-dlp
 | `RELAY_DEFAULT_TREBLE` | No | `62` | Presence/clarity control from `0` to `100`. |
 | `DEFAULT_ECHO` | No | `false` | Keep off for maximum speech clarity. |
 | `DEFAULT_ECHO_LEVEL` | No | `2` | Echo intensity from `0` to `10`. |
-| `LIVE_BOOST_DEFAULT` | No | `20000` | Live participant volume; Telegram maximum is `20000`. |
+| `LIVE_BOOST_DEFAULT` | No | `20000` | Logged-in account participant volume; Telegram maximum is `20000`. |
+| `START_PIC` | No | — | Telegram file ID or public image URL shown on `/start`. |
 | `AUTO_LIVE_BOOST` | No | `true` | Re-apply live boost after joins and reconnects. |
 
 `OWNER_ID` is kept for backward compatibility. For multiple owners, use `OWNER_IDS=123456789,987654321`.
@@ -79,19 +81,21 @@ pip install -U yt-dlp
 3. Add the logged-in account to the target group and start a Telegram Voice Chat.
 4. Reply to an audio/video message with `.play`, or send `.play <YouTube/SoundCloud URL>`.
 5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
-6. Use `.myboost 20000` for the logged-in account's live microphone. The bot automatically re-applies this value when configured.
+6. Reply to an audio/video message with `.saveaudio <title>` for My Audio. The owner can use `/addaudio <title>`; those files appear for every user under Bot Audios.
+7. Use `.myboost 20000` for the logged-in account's live participant volume. The bot attempts to re-apply this value when the account joins or reconnects.
 
 ## Command reference
 
 | Category | Commands |
 |---|---|
 | Account | `/start`, `/login`, `/addstring`, `/logout`, `/mystatus`, `/settings`, `/help` |
-| Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.queue`, `.vcinfo` |
+| Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.end`, `.leave`, `.queue`, `.vcinfo` |
 | Tags | `.tag <name>`, `.untag <name>`, `.tags` |
 | Audio | `/volume <0-1000>` (0 = -12 dB, 1000 = +24 dB), `/gain <0-150>` (0 = -6 dB, 150 = +18 dB), `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
 | Effects | `.vol`, `.boost`, `.echo`, `.echolvl`, `.max`, `.reset` |
-| Live voice | `.myboost`, `/livegain`, `.vcboost`, `.boostall`, `.meloud` |
+| Live voice | `.myboost`, `/livegain`, `.livevolume` |
 | Automation | `.auto`, `.auto off`, `.ultra` |
+| Library | `.audio`, `.audios`, `.myaudio`, `.saveaudio`; owner: `/addaudio` |
 | Owner | `/owner`, `/users`, `/broadcast`, `/stats`, `/ban`, `/unban`, `/restart` |
 
 Both `.` and `/` prefixes are supported where applicable.

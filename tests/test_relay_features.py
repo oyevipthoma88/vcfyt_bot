@@ -67,6 +67,33 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertNotIn("log_external_mute", combined)
         self.assertNotIn("gain=80", combined.replace(" ", ""))
 
+    def test_shared_audio_round_trip_and_scope(self):
+        async def run():
+            with tempfile.TemporaryDirectory() as directory:
+                db = Database()
+                db._sqlite_path = os.path.join(directory, "bot.db")
+                await db.connect()
+                owner_id = await db.add_audio(101, "Owner Intro", "file-owner", "audio")
+                user_id = await db.add_audio(404, "Private Clip", "file-user", "audio")
+                owner_items = await db.list_bot_audio(101)
+                user_items = await db.list_user_audio(404)
+                self.assertEqual([x["audio_id"] for x in owner_items], [owner_id])
+                self.assertEqual([x["audio_id"] for x in user_items], [user_id])
+                self.assertEqual((await db.get_audio(owner_id))["file_id"], "file-owner")
+                self.assertTrue(await db.delete_audio(404, user_id))
+                self.assertFalse(await db.list_user_audio(404))
+
+        asyncio.run(run())
+
+    def test_transport_aliases_and_start_picture_are_wired(self):
+        root = pathlib.Path(__file__).parents[1]
+        commands = (root / "plugins" / "vc_commands.py").read_text()
+        config = (root / "config.py").read_text()
+        start = (root / "plugins" / "start.py").read_text()
+        self.assertIn("(stop|end|leave)", commands)
+        self.assertIn("START_PIC", config)
+        self.assertIn("reply_photo", start)
+
     def test_settings_round_trip(self):
         async def run():
             with tempfile.TemporaryDirectory() as directory:

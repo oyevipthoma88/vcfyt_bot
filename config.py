@@ -83,11 +83,10 @@ class Config:
     MIC_DSP: bool = _bool("MIC_DSP", True)
 
     # ── AUTO MODE ────────────────────────────────────────────────────────────
-    # ".auto on" karte hi: max volume + max bass + max boost + echo on,
-    # aur ek background "volume keeper" jo har KEEPER_INTERVAL second par
-    # apni live mic ko wapas 20000 (200%) par pin kar deta hai. Telegram
-    # participant volume server-side reset ho jata hai (naya join, admin
-    # action, reconnect) — yeh loop uska jugaad hai.
+    # ".auto on" real maximum playback controls apply karta hai, echo off
+    # rakhta hai for clarity, aur saved live participant volume ko repeatably
+    # apply karta hai. Telegram participant volume ka server-side maximum
+    # 20000 (200%) hai.
     AUTO_MODE_DEFAULT: bool = _bool("AUTO_MODE_DEFAULT", False)
     KEEPER_INTERVAL: int = _int("KEEPER_INTERVAL", 15)   # seconds
 
@@ -96,5 +95,7 @@ class Config:
     # ── MongoDB (recommended for persistence) ────────────────────────────────
     MONGO_URI: str = os.environ.get("MONGO_URI", "")
 
-    # ── Heroku ───────────────────────────────────────────────────────────────
+    # ── Heroku / public UI ────────────────────────────────────────────────────
     HEROKU_APP_NAME: str = os.environ.get("HEROKU_APP_NAME", "")
+    # Telegram file_id or publicly reachable image URL. Empty = text-only /start.
+    START_PIC: str = os.environ.get("START_PIC", "").strip()
