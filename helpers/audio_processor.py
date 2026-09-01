@@ -1,28 +1,13 @@
-"""
-Audio processing using FFmpeg.
+"""Fast, real FFmpeg audio processing for Telegram voice-chat playback."""
 
-Chain (order matters):
-  1. highpass + lowpass  — remove rumble and hiss outside the speech band
-  2. speech normalization — lift quiet recordings without pumping too hard
-  3. bass/presence EQ      — controlled warmth plus 3 kHz/8 kHz intelligibility
-  4. gain + compression   — increase perceived loudness while retaining dynamics
-  5. loudnorm + limiter   — stable broadcast loudness, no digital clipping
-  6. optional echo        — disabled by default because it reduces clarity
-
-Everything is adjustable up AND down, so the same knobs can make audio
-softer as well as brutally loud.
-"""
-
-import os
 import asyncio
+import os
 import subprocess
 import tempfile
 from typing import Optional
 
 from config import Config
 
-# Practical user-facing scale: 0 is unity, 1000 is the safe maximum.
-# The mapping below is intentionally non-linear so each step is audible.
 VOLUME_MIN, VOLUME_MAX = 0, 1000
 BASS_MIN, BASS_MAX = 0, 100
 LEVEL_MIN, LEVEL_MAX = 0, 10
@@ -30,6 +15,10 @@ LEVEL_MIN, LEVEL_MAX = 0, 10
 
 def clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, int(value)))
+
+
+def _db(value: float) -> str:
+    return f"{value:.2f}"
 
 
 def build_ffmpeg_filter(
@@ -43,115 +32,75 @@ def build_ffmpeg_filter(
     treble: int = None,
     extra_filters: str = "",
 ) -> str:
-    """Return an -af filter string for ffmpeg."""
-    vol = clamp(volume if volume is not None else Config.DEFAULT_VOLUME,
-                VOLUME_MIN, VOLUME_MAX)
-    bass_db = clamp(bass if bass is not None else Config.DEFAULT_BASS,
-                    BASS_MIN, BASS_MAX)
+    """Build a single-pass FFmpeg filter chain with real audible controls.
+
+    Volume and gain are mapped to dB, not arbitrary repeated multipliers. The
+    source is normalized before those controls are applied, so quiet input is
+    lifted consistently and the controls remain distinguishable instead of
+    being flattened by multiple compressors/limiters.
+    """
+    vol = clamp(volume if volume is not None else (
+        relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
+    ), VOLUME_MIN, VOLUME_MAX)
+    bass_value = clamp(bass if bass is not None else Config.DEFAULT_BASS, BASS_MIN, BASS_MAX)
     use_echo = Config.DEFAULT_ECHO if echo is None else bool(echo)
-    e_lvl = clamp(echo_level if echo_level is not None else Config.DEFAULT_ECHO_LEVEL,
-                  LEVEL_MIN, LEVEL_MAX)
-    b_lvl = clamp(boost if boost is not None else Config.DEFAULT_BOOST,
-                  LEVEL_MIN, LEVEL_MAX)
-    relay_vol = clamp(relay_volume if relay_volume is not None
-                      else Config.RELAY_DEFAULT_VOLUME, 0, VOLUME_MAX)
-    gain_pct = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN,
-                     0, 150)
-    treble_pct = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE,
-                       0, 100)
+    echo_value = clamp(echo_level if echo_level is not None else Config.DEFAULT_ECHO_LEVEL, LEVEL_MIN, LEVEL_MAX)
+    boost_value = clamp(boost if boost is not None else Config.DEFAULT_BOOST, LEVEL_MIN, LEVEL_MAX)
+    gain_value = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN, 0, 150)
+    treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, 100)
 
-    # Speech-first cleanup: remove sub-rumble and extreme hiss before boosting.
-    filters = ["highpass=f=55", "lowpass=f=16000"]
+    # 0..1000 => -18..+18 dB; 0..150 => -12..+12 dB.
+    # These ranges keep every setting measurable while leaving headroom for
+    # the final limiter instead of pretending that 1000x amplitude is useful.
+    volume_db = -18.0 + (36.0 * vol / VOLUME_MAX)
+    gain_db = -12.0 + (24.0 * gain_value / 150.0)
+    boost_db = 1.5 * boost_value
 
-    # ── STAGE 0: pehle hi source ko normal level par le aao ─────────────────
-    # Bohot dheemi recording par volume multiplier bekaar hai kyunki limiter
-    # baad me kaat deta hai. speechnorm yahan har syllable ko full-scale tak
-    # khinchta hai — asli "slow aavaj ko loud" karne wali cheez yahi hai.
+    filters = [
+        "highpass=f=55",
+        "lowpass=f=16000",
+        "aresample=48000",
+        "loudnorm=I=-16:TP=-1.5:LRA=11:linear=false",
+    ]
 
-    # ── Bass ────────────────────────────────────────────────────────────────
-    if bass_db > 0:
-        filters.append(f"equalizer=f=80:t=o:w=1:g={min(bass_db, 30)}")
-        if bass_db > 30:
-            filters.append(f"equalizer=f=55:t=o:w=1:g={min(bass_db - 30, 30)}")
-            filters.append("asubboost=dry=1:wet=1:decay=0.4:feedback=0.7")
-        if bass_db > 60:
-            filters.append(f"equalizer=f=110:t=o:w=1.2:g={bass_db - 60}")
+    if bass_value:
+        bass_db = min(12.0, bass_value * 0.12)
+        filters.append(f"equalizer=f=90:t=q:w=1:g={_db(bass_db)}")
+    # 0..100 => -6..+6 dB presence range.
+    filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(-6.0 + treble_value * 0.12)}")
+    filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(-4.0 + treble_value * 0.08)}")
 
-    filters.append(f"equalizer=f=3000:t=o:w=1.5:g={treble_pct * 0.12 - 6:.2f}")
-    filters.append(f"equalizer=f=8000:t=o:w=1.5:g={treble_pct * 0.10 - 4:.2f}")
+    # Compress only enough to make quiet speech intelligible; do not stack
+    # multiple compressors because that destroys the effect of user controls.
+    ratio = 2.0 + (boost_value * 0.35)
+    threshold = max(0.08, 0.28 - boost_value * 0.012)
+    filters.append(
+        f"acompressor=threshold={threshold:.3f}:ratio={ratio:.2f}:"
+        "attack=8:release=100:makeup=1.0"
+    )
+    filters.append(f"volume={_db(volume_db)}dB")
+    filters.append(f"volume={_db(gain_db + boost_db)}dB")
 
-    # Keep the chain fast: heavy single-pass loudnorm/dynaudnorm made every
-    # button feel slow. The compressor's makeup gain restores quiet sources.
-    filters.append("acompressor=threshold=0.12:ratio=8:attack=5:release=80:makeup=3.5")
-
-    # ── REAL LOUDNESS MAPPING ───────────────────────────────────────────────
-    # Both controls use the same 0–1000 scale. 0 means unity and 1000 means
-    # 64x (+36 dB) before compression/limiting; 100-point changes are audible.
-    # Do not use a raw 1000x multiplier: it only creates clipped distortion.
-    control = relay_vol if volume is None else volume
-    control = clamp(control, VOLUME_MIN, VOLUME_MAX)
-    mapped_gain = 1.0 + (control / 1000.0) * 63.0
-    if b_lvl > 0:
-        ratio = 4 + b_lvl * 1.6
-                 # 5.6 … 20
-        makeup = 1 + b_lvl * 0.8                # 1.8 … 9
-        threshold = max(0.012, 0.4 - b_lvl * 0.038)
-        # Extra makeup is applied only when boost is requested; no slow
-        # compand/dynaudnorm passes that flatten the response or add latency.
-        filters.append(
-            f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}"
-            f":attack=5:release=80:makeup={min(makeup, 3.5):.2f}"
-        )
-    # Apply user controls after dynamics so compression cannot hide the
-    # difference between volume/gain values. The limiter is the final guard.
-    remaining = float(mapped_gain)
-    while remaining > 1.0:
-        stage = min(remaining, 32.0)
-        filters.append(f"volume={stage:.3f}")
-        remaining /= stage
-    if gain_pct > 0:
-        filters.append(f"volume={1 + gain_pct / 50:.2f}")
-
-    # Brick-wall limiter — LOUD but never clipped/crackly.
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=2"
-                   ":release=30:level=false")
-
-    # ── ECHO (ab actually apply hota hai) ───────────────────────────────────
-    if use_echo and e_lvl > 0:
-        d1 = 70 + e_lvl * 22                       # 92 … 290 ms
+    if use_echo and echo_value:
+        d1 = 70 + echo_value * 22
         d2, d3 = d1 * 2, d1 * 3
-        dec = min(0.92, 0.22 + e_lvl * 0.07)
+        decay = min(0.85, 0.20 + echo_value * 0.06)
         filters.append(
-            f"aecho=0.95:0.9:{d1}|{d2}|{d3}:"
-            f"{dec:.2f}|{dec * 0.72:.2f}|{dec * 0.5:.2f}"
+            f"aecho=0.85:0.75:{d1}|{d2}|{d3}:"
+            f"{decay:.2f}|{decay * 0.65:.2f}|{decay * 0.4:.2f}"
         )
-        if e_lvl >= 7:
-            # Bada hall reverb feel — sirf high echo levels par.
-            filters.append(
-                f"aecho=0.9:0.85:{d1 // 2}|{d1 + 37}:{dec * 0.6:.2f}|{dec * 0.4:.2f}"
-            )
-        # Echo ke baad level wapas upar.
-        filters.append(f"volume={1.1 + e_lvl * 0.06:.2f}")
 
     if extra_filters:
         filters.append(extra_filters)
-
-    # Boost is already applied in the dynamics chain; only a small makeup
-    # push remains here before the final safety limiter.
-    if b_lvl > 0:
-        filters.append(f"volume={1 + b_lvl * 0.04:.2f}")
     filters.append("alimiter=limit=0.98:attack=5:release=60:level=false")
-
     return ",".join(filters)
 
 
 def get_ffmpeg_piped_input(source: str, **kwargs) -> list:
-    """ffmpeg command that writes raw PCM to stdout (for raw streams)."""
     af = build_ffmpeg_filter(**kwargs)
     return [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
-        "-i", source, "-af", af,
-        "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
+        "-af", af, "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
     ]
 
 
@@ -168,57 +117,42 @@ async def process_audio_to_file(
     treble: int = None,
     extra_filters: str = "",
 ) -> str:
-    """Process an audio/video file, return path to the processed .mp3."""
+    """Process an audio/video file and return an MP3 path."""
     if output_path is None:
         fd, output_path = tempfile.mkstemp(suffix=".mp3", prefix="vc_processed_")
         os.close(fd)
-
     af = build_ffmpeg_filter(
-        volume, bass, echo, echo_level, boost, relay_volume, gain, treble,
-        extra_filters,
+        volume=volume, bass=bass, echo=echo, echo_level=echo_level,
+        boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
+        extra_filters=extra_filters,
     )
-
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-i", input_path, "-af", af,
-        "-ar", "48000", "-ac", "2", "-b:a", "320k",
-        output_path,
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", input_path,
+        "-af", af, "-ar", "48000", "-ac", "2", "-b:a", "320k", output_path,
     ]
-
     proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
+        *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
     _, stderr = await proc.communicate()
-
     if proc.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed: {stderr.decode()[-500:]}")
-
+        raise RuntimeError(f"FFmpeg failed: {stderr.decode(errors='replace')[-500:]}")
     return output_path
 
 
 async def download_yt(url: str) -> str:
-    """Download audio from YouTube / SoundCloud / etc using yt-dlp."""
+    """Download audio from supported sites using yt-dlp."""
     fd, base_path = tempfile.mkstemp(suffix="", prefix="vc_ytdl_")
     os.close(fd)
     os.unlink(base_path)
-
     out_tmpl = base_path + ".%(ext)s"
     final_path = base_path + ".mp3"
-
-    cmd = [
-        "yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "0",
-        "--no-playlist", "-o", out_tmpl, url,
-    ]
+    cmd = ["yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "0", "--no-playlist", "-o", out_tmpl, url]
     proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
+        *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed: {stderr.decode()[-400:]}")
+        raise RuntimeError(f"yt-dlp failed: {stderr.decode(errors='replace')[-400:]}")
     return final_path
 
 

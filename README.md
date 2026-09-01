@@ -61,8 +61,8 @@ pip install -U yt-dlp
 | `STRING_SESSION` | No | — | Optional owner session; users can also use `/login`. |
 | `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
 | `DEFAULT_BOOST` | No | `9` | Loudness stage from `0` to `10`. |
-| `RELAY_DEFAULT_VOLUME` | No | `320` | Playback volume from `0` to `1000`; every step changes real FFmpeg gain. |
-| `RELAY_DEFAULT_GAIN` | No | `60` | Playback gain from `0` to `150`. |
+| `RELAY_DEFAULT_VOLUME` | No | `1000` | Playback volume from `0` to `1000`; mapped to a real `-18 dB` to `+18 dB` FFmpeg range. |
+| `RELAY_DEFAULT_GAIN` | No | `150` | Playback gain from `0` to `150`; mapped to a real `-12 dB` to `+12 dB` FFmpeg range. |
 | `RELAY_DEFAULT_BASS` | No | `8` | Controlled low-end lift from `0` to `100`. |
 | `RELAY_DEFAULT_TREBLE` | No | `62` | Presence/clarity control from `0` to `100`. |
 | `DEFAULT_ECHO` | No | `false` | Keep off for maximum speech clarity. |
@@ -78,7 +78,7 @@ pip install -U yt-dlp
 2. Open **Login** and complete phone, OTP, and optional 2FA steps, or send a String Session.
 3. Add the logged-in account to the target group and start a Telegram Voice Chat.
 4. Reply to an audio/video message with `.play`, or send `.play <YouTube/SoundCloud URL>`.
-5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg gain changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
+5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
 6. Use `.myboost 20000` for the logged-in account's live microphone. The bot automatically re-applies this value when configured.
 
 ## Command reference
@@ -88,7 +88,7 @@ pip install -U yt-dlp
 | Account | `/start`, `/login`, `/addstring`, `/logout`, `/mystatus`, `/settings`, `/help` |
 | Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.queue`, `.vcinfo` |
 | Tags | `.tag <name>`, `.untag <name>`, `.tags` |
-| Audio | `/volume <0-1000>`, `/gain <0-150>`, `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
+| Audio | `/volume <0-1000>` (0 = -18 dB, 1000 = +18 dB), `/gain <0-150>` (0 = -12 dB, 150 = +12 dB), `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
 | Effects | `.vol`, `.boost`, `.echo`, `.echolvl`, `.max`, `.reset` |
 | Live voice | `.myboost`, `/livegain`, `.vcboost`, `.boostall`, `.meloud` |
 | Automation | `.auto`, `.auto off`, `.ultra` |
