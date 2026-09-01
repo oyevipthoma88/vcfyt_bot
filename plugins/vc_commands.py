@@ -549,9 +549,14 @@ async def cmd_echo(bot, msg: Message):
 
 @Client.on_message(filters.regex(r"^[./]max\b") & (filters.group | filters.private))
 async def cmd_max(bot, msg: Message):
-    await _apply_and_reply(msg, "🔥 <b>MAXIMUM MODE</b>", volume=VOLUME_MAX,
-                           bass=BASS_MAX, boost=LEVEL_MAX, echo=1,
-                           echo_level=LEVEL_MAX)
+    # Same public limits, but max mode stays voice-clear: excessive bass/echo
+    # makes a track feel quieter even when the waveform is technically louder.
+    await _apply_and_reply(
+        msg, "🔥 <b>MAXIMUM CLEAR MODE</b>",
+        volume=VOLUME_MAX, relay_volume=VOLUME_MAX,
+        bass=min(BASS_MAX, 20), gain=80, treble=75,
+        boost=LEVEL_MAX, echo=0, echo_level=0, auto=1,
+    )
 
 
 @Client.on_message(filters.regex(r"^[./]reset\b") & (filters.group | filters.private))
