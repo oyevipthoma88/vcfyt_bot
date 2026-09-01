@@ -8,6 +8,8 @@ TgCrypto==1.2.5
 # Voice chat
 # PyPI name is "py-tgcalls" — imports as "pytgcalls"
 py-tgcalls==2.3.3
+# Telethon raw schema supplies Telegram KeyboardButtonStyle for coloured buttons
+telethon==1.44.0
 
 # Audio processing
 yt-dlp>=2024.1.1

@@ -85,14 +85,31 @@ class RelayFeatureTests(unittest.TestCase):
 
         asyncio.run(run())
 
-    def test_buttons_are_plain_and_callback_safe(self):
+    def test_buttons_encode_real_telegram_styles(self):
+        from pyrogram.types import InlineKeyboardMarkup
         from helpers.buttons import ikb
-        button = ikb("🏠 Home", callback_data="menu:home", style="danger",
-                     icon_custom_emoji_id="123", icon="456")
-        self.assertEqual(button.text, "🏠 Home")
-        self.assertEqual(button.callback_data, "menu:home")
-        self.assertFalse(hasattr(button, "style"))
-        self.assertFalse(hasattr(button, "icon_custom_emoji_id"))
+
+        async def run():
+            markup = InlineKeyboardMarkup([[
+                ikb("✅ Save", callback_data="save:1"),
+                ikb("🗑️ Delete", callback_data="delete:1"),
+                ikb("🔗 Docs", url="https://example.com"),
+            ]])
+            raw_markup = await markup.write(None)
+            payload = raw_markup.write()
+            self.assertGreater(len(payload), 20)
+            buttons = [await item.write(None) for item in markup.inline_keyboard[0]]
+            encoded = [item.write() for item in buttons]
+            # style is flag 10 on KeyboardButtonCallback; nested style flags
+            # are success=4, danger=2, primary=1.
+            self.assertIn(bytes.fromhex("00040000"), encoded[0])
+            self.assertIn(bytes.fromhex("04000000"), encoded[0])
+            self.assertIn(bytes.fromhex("00040000"), encoded[1])
+            self.assertIn(bytes.fromhex("02000000"), encoded[1])
+            self.assertIn(bytes.fromhex("00040000"), encoded[2])
+            self.assertIn(bytes.fromhex("01000000"), encoded[2])
+
+        asyncio.run(run())
 
     def test_transport_aliases_and_start_picture_are_wired(self):
         root = pathlib.Path(__file__).parents[1]

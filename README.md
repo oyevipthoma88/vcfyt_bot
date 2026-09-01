@@ -1,6 +1,6 @@
 # VC Fyt Bot
 
-Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, PyTgCalls, FFmpeg, and yt-dlp**.
+Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, Telethon raw schema, PyTgCalls, FFmpeg, and yt-dlp**.
 
 > **Important:** This bot needs a Telegram user session to join voice chats. The bot account handles commands, while the logged-in user account is the voice-chat participant.
 
@@ -9,7 +9,7 @@ Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven co
 | Feature | What it does |
 |---|---|
 | In-bot login | Phone + OTP + optional 2FA flow, or a String Session from the session generator. |
-| Button-first interface | `/start`, `/help`, settings, tutorial, playback, and audio controls are accessible through inline buttons. |
+| Button-first interface | `/start`, `/help`, settings, tutorial, playback, and audio controls are accessible through inline buttons with real Telegram primary/success/danger backgrounds on compatible Telegram clients. |
 | Loud and clear playback | FFmpeg speech normalization, presence EQ, compression, loudnorm, and a safety limiter are applied to recordings and downloaded audio. |
 | Live participant volume | On playback and reconnect, the bot attempts to apply the logged-in account’s saved Telegram participant volume up to `20000` / `200%`. |
 | Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
@@ -121,4 +121,4 @@ Telegram limits participant volume server-side. Therefore, the logged-in account
 
 Keep `.env`, bot tokens, API credentials, MongoDB URIs, and String Sessions private. Rotate any credential immediately if it is exposed in a chat, issue, log, or public repository.
 
-Made with Pyrofork, PyTgCalls, FFmpeg, and yt-dlp.
+Made with Pyrofork, Telethon raw schema, PyTgCalls, FFmpeg, and yt-dlp.

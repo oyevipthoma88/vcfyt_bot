@@ -1,14 +1,15 @@
 """Premium inline-button factory — shared across all bots.
 
 This helper keeps one reliable inline-button construction path for every
-bot screen. It intentionally uses ordinary Telegram text buttons so the same
-keyboard renders consistently across Pyrogram forks and Telegram clients.
+bot screen. It uses Telegram's raw `KeyboardButtonStyle` when the compatible
+Telethon schema is installed, while preserving ordinary-button fallback in
+minimal environments.
 
-NORMAL BUTTONS
---------------
-Custom style and icon support differs between Telegram clients and library
-forks. The wrapper therefore drops decoration arguments and always sends a
-standard text/callback button, which is the reliable cross-client path.
+COLOURED BUTTONS
+----------------
+Success, danger, and primary backgrounds are encoded with Telegram's real
+`KeyboardButtonStyle` flags. Unsupported custom icon fields are ignored so
+callback data and normal button rendering remain safe.
 
 USAGE
 -----
@@ -30,6 +31,11 @@ import inspect
 import os
 import re
 from typing import Any, Optional
+
+try:
+    from telethon.tl import types as _tl_types
+except Exception:  # pragma: no cover - optional until requirements install
+    _tl_types = None
 
 # ── glyph -> real premium custom-emoji id (reference pack) ────────────────
 EMOJI_ID_MAP: dict = {
@@ -317,19 +323,109 @@ SUPPORTS_ICON: bool = bool({"icon_custom_emoji_id", "icon"} & _PYRO_PARAMS)
 SUPPORTS_STYLE: bool = "style" in _PYRO_PARAMS
 
 
+class _RawCompat:
+    """Expose a Telethon raw object through Pyrogram's async write contract."""
+
+    __slots__ = ("_raw",)
+
+    def __init__(self, raw_button: Any):
+        self._raw = raw_button
+
+    def write(self, *args: Any) -> bytes:
+        return self._raw._bytes()
+
+
+class _StyledInlineButton:
+    """Pyrogram-compatible public button backed by Telegram's styled TL type."""
+
+    def __init__(self, text: Any, **kwargs: Any):
+        self.text = str(text)
+        self.callback_data = kwargs.get("callback_data")
+        self.url = kwargs.get("url")
+        self.web_app = kwargs.get("web_app")
+        self.login_url = kwargs.get("login_url")
+        self.user_id = kwargs.get("user_id")
+        self.switch_inline_query = kwargs.get("switch_inline_query")
+        self.switch_inline_query_current_chat = kwargs.get("switch_inline_query_current_chat")
+        self.callback_game = kwargs.get("callback_game")
+        self.requires_password = kwargs.get("requires_password")
+        self.copy_text = kwargs.get("copy_text")
+        self._style = kwargs.pop("_style", "primary")
+
+    async def write(self, client: Any) -> _RawCompat:
+        if _tl_types is None:
+            raise RuntimeError("Telethon is required for Telegram button styles")
+        style_cls = _tl_types.KeyboardButtonStyle
+        style = {
+            "danger": style_cls(bg_danger=True),
+            "success": style_cls(bg_success=True),
+            "primary": style_cls(bg_primary=True),
+        }.get(self._style, style_cls(bg_primary=True))
+        if self.callback_data is not None:
+            data = (self.callback_data.encode("utf-8")
+                    if isinstance(self.callback_data, str) else self.callback_data)
+            return _RawCompat(_tl_types.KeyboardButtonCallback(
+                text=self.text, data=data,
+                requires_password=self.requires_password, style=style,
+            ))
+        if self.url is not None:
+            return _RawCompat(_tl_types.KeyboardButtonUrl(
+                text=self.text, url=self.url, style=style,
+            ))
+        if self.web_app is not None:
+            return _RawCompat(_tl_types.KeyboardButtonWebView(
+                text=self.text, url=self.web_app.url, style=style,
+            ))
+        # Non-callback button types are uncommon in this bot; use Pyrogram's
+        # verified standard writer for them rather than guessing TL fields.
+        if _PyroButton is None:
+            raise RuntimeError("no Telegram button implementation available")
+        standard = _PyroButton(
+            self.text, url=self.url, user_id=self.user_id,
+            switch_inline_query=self.switch_inline_query,
+            switch_inline_query_current_chat=self.switch_inline_query_current_chat,
+            callback_game=self.callback_game, copy_text=self.copy_text,
+        )
+        return _RawCompat(await standard.write(client))
+
+
+def _style_name(style: Any, text: Any) -> str:
+    value = str(style or "").lower()
+    if "danger" in value:
+        return "danger"
+    if "success" in value:
+        return "success"
+    if style is None:
+        inferred = str(infer_style(text)).lower()
+        if "danger" in inferred:
+            return "danger"
+        if "success" in inferred:
+            return "success"
+    return "primary"
+
+
 def ikb(text: Any = "", *args: Any, style: Any = None, icon: Optional[str] = None,
         auto_icon: bool = True, **kwargs: Any):
-    """Build a plain Telegram-compatible inline button.
-
-    ``style``, ``icon`` and ``auto_icon`` remain accepted for source
-    compatibility, but decoration is deliberately ignored.
-    """
+    """Build a Telegram inline button with a real Telegram button style."""
     if _PyroButton is None:  # pragma: no cover
         raise ImportError("no Telegram library (pyrogram/python-telegram-bot) installed")
-    kwargs.pop("style", None)
+    if _tl_types is None:
+        # Keep ordinary buttons usable if an incomplete environment starts up;
+        # production requirements install Telethon for genuine colour styles.
+        kwargs.pop("style", None)
+        kwargs.pop("icon_custom_emoji_id", None)
+        kwargs.pop("icon", None)
+        return _PyroButton(text, *args, **kwargs)
+    if args:
+        # Existing call sites use keyword fields; preserve positional callback
+        # compatibility for simple InlineKeyboardButton(text, callback_data).
+        if len(args) > 1:
+            raise TypeError("button accepts at most one positional callback_data")
+        kwargs.setdefault("callback_data", args[0])
     kwargs.pop("icon_custom_emoji_id", None)
     kwargs.pop("icon", None)
-    return _PyroButton(text, *args, **kwargs)
+    kwargs["_style"] = _style_name(style, text)
+    return _StyledInlineButton(text, **kwargs)
 
 
 def _safe(factory: Any, text: Any, *args: Any, **kwargs: Any):
