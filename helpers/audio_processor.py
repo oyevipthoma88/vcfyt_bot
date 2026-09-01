@@ -82,9 +82,9 @@ def build_ffmpeg_filter(
     filters.append(f"equalizer=f=3000:t=o:w=1.5:g={treble_pct * 0.12 - 6:.2f}")
     filters.append(f"equalizer=f=8000:t=o:w=1.5:g={treble_pct * 0.10 - 4:.2f}")
 
-    # Normalize the source before applying the user's gain. If loudnorm came
-    # after this point, it would erase the difference between 100 and 1000.
-    filters.append("loudnorm=I=-16:LRA=7:TP=-1.5:dual_mono=true:linear=false")
+    # Keep the chain fast: heavy single-pass loudnorm/dynaudnorm made every
+    # button feel slow. The compressor's makeup gain restores quiet sources.
+    filters.append("acompressor=threshold=0.12:ratio=8:attack=5:release=80:makeup=3.5")
 
     # ── REAL LOUDNESS MAPPING ───────────────────────────────────────────────
     # Both controls use the same 0–1000 scale. 0 means unity and 1000 means
@@ -98,22 +98,11 @@ def build_ffmpeg_filter(
                  # 5.6 … 20
         makeup = 1 + b_lvl * 0.8                # 1.8 … 9
         threshold = max(0.012, 0.4 - b_lvl * 0.038)
+        # Extra makeup is applied only when boost is requested; no slow
+        # compand/dynaudnorm passes that flatten the response or add latency.
         filters.append(
             f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}"
             f":attack=5:release=80:makeup={min(makeup, 3.5):.2f}"
-        )
-        # Heavy broadcast-style compand: waveform ko lagbhag flat kar deta hai,
-        # yaani perceived loudness maximum.
-        knee = 6 + b_lvl
-        filters.append(
-            "compand=attacks=0:decays=0.15:"
-            f"points=-90/-90|-70/-{max(6, 30 - b_lvl * 2)}|-40/-{max(3, 14 - b_lvl)}"
-            f"|-20/-{max(2, 8 - b_lvl // 2)}|0/-1:soft-knee={knee}:gain={b_lvl}"
-        )
-        filters.append(f"dynaudnorm=f=200:g=12:p=0.97:m={min(20, 8 + b_lvl * 1.5):.1f}:s=0.7:r=0.85")
-        # A small presence lift is clearer than aggressive soft-clipping.
-        filters.append(
-            f"speechnorm=e={min(32.0, 10 + b_lvl * 3.0):.1f}:r=0.0005:l=1:p=0.98"
         )
     # Apply user controls after dynamics so compression cannot hide the
     # difference between volume/gain values. The limiter is the final guard.

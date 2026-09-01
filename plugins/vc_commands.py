@@ -693,6 +693,7 @@ async def cb_vc(bot, cq):
         )
         await cq.answer("Now Playing updated")
     elif action == "reset":
+        await cq.answer("♻️ Reset apply ho raha hai…")
         await db.save_settings(
             cq.from_user.id, volume=Config.DEFAULT_VOLUME,
             relay_volume=Config.RELAY_DEFAULT_VOLUME, gain=Config.RELAY_DEFAULT_GAIN,
@@ -703,20 +704,28 @@ async def cb_vc(bot, cq):
         )
         from plugins.start import apply_settings_live
         await apply_settings_live(cq.from_user.id)
-        await cq.answer("♻️ Audio reset ho gaya", show_alert=True)
+        try:
+            await cq.message.edit_reply_markup(reply_markup=now_playing_kb(cid))
+        except Exception:
+            pass
     elif action == "auto":
+        await cq.answer("🤖 Auto apply ho raha hai…")
         s = await db.get_settings(cq.from_user.id)
         on = not bool(s.get("auto"))
         if on:
             s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                      "boost": LEVEL_MAX, "bass": BASS_MAX, "echo": 0,
+                      "boost": LEVEL_MAX, "bass": min(BASS_MAX, 20),
+                      "gain": 80, "treble": 75, "echo": 0,
                       "echo_level": 0, "auto": 1})
         else:
             s["auto"] = 0
         await db.save_settings(cq.from_user.id, **s)
         from plugins.start import apply_settings_live
         await apply_settings_live(cq.from_user.id)
-        await cq.answer("🤖 Auto ON" if on else "🤖 Auto OFF", show_alert=True)
+        try:
+            await cq.message.edit_reply_markup(reply_markup=now_playing_kb(cid))
+        except Exception:
+            pass
     elif action == "pause":
         await cq.answer("⏸️ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
     elif action == "resume":
@@ -736,8 +745,8 @@ async def cb_vc(bot, cq):
             st.loop_left = -1
             await cq.answer("🔁 Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
     elif action == "boostall":
-        n = await uvc.boost_everyone(cid, VOL_MAX)
-        await cq.answer(f"🔊 {n} users boosted", show_alert=True)
+        await cq.answer("🔊 Sab participants boost ho rahe hain…")
+        await uvc.boost_everyone(cid, VOL_MAX)
 
 
 # ── AUTO MODE ────────────────────────────────────────────────────────────────
