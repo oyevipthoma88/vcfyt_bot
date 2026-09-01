@@ -54,6 +54,19 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("st.live_volume, quiet=True", text)
         self.assertNotIn("VOL_MAX if st.auto else Config.LIVE_BOOST_DEFAULT", text)
 
+    def test_unsupported_claims_and_noops_are_removed(self):
+        root = pathlib.Path(__file__).parents[1]
+        combined = "\n".join(
+            (root / name).read_text()
+            for name in ("README.md", "config.py", "helpers/vc_manager.py",
+                         "helpers/logger_channel.py", "plugins/vc_commands.py")
+        )
+        self.assertNotIn("speechnorm", combined.lower())
+        self.assertNotIn("log_auto_pause", combined)
+        self.assertNotIn("log_mute_action", combined)
+        self.assertNotIn("log_external_mute", combined)
+        self.assertNotIn("gain=80", combined.replace(" ", ""))
+
     def test_settings_round_trip(self):
         async def run():
             with tempfile.TemporaryDirectory() as directory:

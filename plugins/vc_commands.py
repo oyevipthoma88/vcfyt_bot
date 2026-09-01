@@ -535,7 +535,7 @@ async def cmd_max(bot, msg: Message):
     await _apply_and_reply(
         msg, "🔥 <b>MAXIMUM CLEAR MODE</b>",
         volume=VOLUME_MAX, relay_volume=VOLUME_MAX,
-        bass=min(BASS_MAX, 20), gain=80, treble=75,
+        bass=min(BASS_MAX, 20), gain=150, treble=75,
         boost=LEVEL_MAX, echo=0, echo_level=0, auto=1,
     )
 
@@ -633,7 +633,7 @@ async def cb_vc(bot, cq):
         if on:
             s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
                       "boost": LEVEL_MAX, "bass": min(BASS_MAX, 20),
-                      "gain": 80, "treble": 75, "echo": 0,
+                      "gain": 150, "treble": 75, "echo": 0,
                       "echo_level": 0, "auto": 1})
         else:
             s["auto"] = 0
@@ -687,7 +687,7 @@ async def cmd_auto(bot: Client, msg: Message):
         msg.from_user.id,
         auto=1 if on else 0,
         **({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-            "bass": min(BASS_MAX, 20), "gain": 80, "treble": 75,
+            "bass": min(BASS_MAX, 20), "gain": 150, "treble": 75,
             "boost": LEVEL_MAX, "echo": 0, "echo_level": 0} if on else {}),
     )
 
@@ -717,11 +717,11 @@ async def cmd_auto(bot: Client, msg: Message):
         f"🎤 Live mic <code>{VOL_MAX}</code> (200% — Telegram max)\n"
         f"♻️ Volume keeper: har {Config.KEEPER_INTERVAL}s par volume wapas "
         f"max par pin ho jayega (reset/reconnect ke baad bhi)\n"
-        f"👥 Baaki sab participants bhi upar (kisi ki aavaj kam nahi)\n\n"
+        f"👤 Sirf logged-in account ka live participant volume apply hota hai.\n\n"
         + (f"⚡ Live VC par turant apply ho gaya." if applied else
            "💾 Save ho gaya — <code>.play</code> karte hi khud lag jayega.")
         + "\n\n<i>Note: 200% Telegram ka server-side hard cap hai; usse aage "
-          "loudness FFmpeg chain (volume + compressor + speechnorm + limiter) "
+          "loudness FFmpeg chain (volume + compressor + loudnorm + limiter) "
           "se aati hai, jo AUTO me poori max par hai.</i>",
         reply_markup=AUTO_KB,
     )
@@ -733,7 +733,7 @@ async def cmd_ultra(bot: Client, msg: Message):
     await _apply_and_reply(
         msg, "🔥🔥 <b>ULTRA LOUD</b> — sab knobs absolute max par.",
         volume=VOLUME_MAX, relay_volume=VOLUME_MAX, bass=min(BASS_MAX, 20),
-        gain=80, treble=75, boost=LEVEL_MAX,
+        gain=150, treble=75, boost=LEVEL_MAX,
         echo=0, echo_level=0, auto=1,
     )
 

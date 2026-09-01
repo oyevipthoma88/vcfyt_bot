@@ -260,18 +260,6 @@ async def log_auto_mode(user_id, chat_id, on: bool, detail: str = ""):
     )
 
 
-async def log_external_mute(user_id, chat_id, muted: bool):
-    await _send(
-        f"{'🔕' if muted else '🔔'} <b>External "
-        f"{'Mute' if muted else 'Unmute'} Detected</b>\n"
-        f"├ <b>Account:</b> <code>{_e(user_id)}</code>\n"
-        f"├ <b>Chat:</b> <code>{_e(chat_id)}</code>\n"
-        f"├ <b>Action:</b> "
-        f"{'stream held (muted rehne diya)' if muted else 'next audio resumed'}\n"
-        f"└ <b>Time:</b> {_ts()}"
-    )
-
-
 async def log_command(user_id, username, chat_id, command: str):
     await _send(
         f"⚡ <b>Command</b>\n"
@@ -300,12 +288,3 @@ async def log_broadcast(owner_id, total: int, success: int):
         f"├ <b>Delivered:</b> {success}\n"
         f"└ <b>Time:</b> {_ts()}"
     )
-
-
-# Legacy names kept so nothing breaks if referenced elsewhere.
-async def log_mute_action(*_args, **_kwargs):
-    return
-
-
-async def log_auto_pause(*_args, **_kwargs):
-    return

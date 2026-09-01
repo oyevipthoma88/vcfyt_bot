@@ -67,7 +67,7 @@ async def _finish_login(bot, msg_or_cq_msg, user, string_session: str,
         f"🆔 <code>{account.get('id')}</code>\n"
         f"{note}\n\n"
         "Ab group ke VC mein <code>.play</code> use karein.\n"
-        "🔊 Aapki live mic automatically max boost par set hai.",
+        "🔊 VC join/play ke waqt aapki saved live mic volume apply karne ki koshish hogi.",
         reply_markup=home_kb(Config.is_owner(user.id), True),
     )
 

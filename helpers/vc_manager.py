@@ -9,10 +9,8 @@ Rules baked in (as requested):
   • Nobody's volume is EVER lowered. We only ever raise participant volume.
   • The user's own mic and the bot's audio can be live at the same time —
     there is no auto-pause when the user speaks.
-  • The logged-in account is auto-boosted to Telegram's max participant
-    volume (20000 = 200%) so the user's LIVE voice is genuinely louder.
-  • If somebody else mutes our account in the VC, the stream is held (stays
-    muted) and on unmute it continues / moves to the next queued audio.
+  • On playback and reconnect, the bot attempts to set the logged-in account
+    to Telegram's supported participant-volume maximum (20000 = 200%).
 """
 
 import asyncio
@@ -192,8 +190,7 @@ class UserVC:
         Telegram participant volume server par store hota hai aur reconnect /
         admin action / naye join par reset ho sakta hai. Yeh loop har
         KEEPER_INTERVAL second par:
-          • apni live mic ko wapas 20000 (200% = Telegram max) par pin karta hai
-          • baaki sab ko normal se neeche nahi rehne deta (kabhi kam nahi karta)
+          • apne logged-in account ki live mic volume ko saved value par pin karta hai
         Yahi "live aavaj badhane" ka available jugaad hai — 200% Telegram ka
         hard server-side cap hai, usse aage client side kuch nahi kar sakta,
         isliye baaki loudness FFmpeg chain se aati hai.
@@ -230,8 +227,16 @@ class UserVC:
         st.auto = bool(on)
         if on:
             from helpers.audio_processor import BASS_MAX, LEVEL_MAX, VOLUME_MAX
-            st.volume, st.bass = VOLUME_MAX, BASS_MAX
-            st.boost, st.echo, st.echo_level = LEVEL_MAX, True, LEVEL_MAX
+            # AUTO uses the same real, clarity-first preset as the UI MAX mode.
+            # It must not silently enable echo or claim to control other users.
+            st.volume = VOLUME_MAX
+            st.relay_volume = VOLUME_MAX
+            st.bass = min(BASS_MAX, 20)
+            st.gain = 150
+            st.treble = 75
+            st.boost = LEVEL_MAX
+            st.echo = False
+            st.echo_level = 0
             self._start_keeper(chat_id)
             await self.set_participant_volume(
                 chat_id, self.account_id, self.state(chat_id).live_volume, quiet=True

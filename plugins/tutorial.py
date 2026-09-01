@@ -62,8 +62,9 @@ SECTIONS = {
         "3️⃣ Group mein <b>Voice Chat start</b> karein.\n"
         "4️⃣ Group mein <code>.play</code> (audio reply karke) — bas!\n"
         f"{LINE}\n\n"
-        "💡 Bot ko group mein admin banane se participant-volume aur "
-        "mute-state handling zyada reliably kaam karti hai.\n\n"
+        "💡 Bot ko group mein admin banane se logged-in account ka "
+        "participant-volume control zyada reliably kaam karta hai.\n"
+        "External admin mute ko bot automatically undo nahi karta.\n\n"
         "🔐 <b>Security:</b> OTP, 2FA password aur String Session kisi "
         "ke saath share na karein."
     ),
@@ -99,8 +100,8 @@ SECTIONS = {
     "effects": (
         "🎚️ <b>Audio Effects — high bhi, low bhi</b>\n\n"
         f"{LINE}\n"
-        "<code>/volume &lt;0-1000&gt;</code> — playback volume (default 320)\n"
-        "<code>/gain &lt;0-150&gt;</code> — loudness gain (default 60)\n"
+        "<code>/volume &lt;0-1000&gt;</code> — playback volume (default 1000)\n"
+        "<code>/gain &lt;0-150&gt;</code> — loudness gain (default 150)\n"
         "<code>/bass &lt;0-100&gt;</code> — controlled bass (default 8)\n"
         "<code>/treble &lt;0-100&gt;</code> — voice clarity/presence (default 62)\n"
         "<code>/voice female|male|normal</code> — voice profile\n"
@@ -134,7 +135,8 @@ SECTIONS = {
     "vc": (
         "🎛️ <b>VC Control</b>\n\n"
         f"{LINE}\n"
-        "• Bot ab other participants ki volume ya mute state ko touch nahi karta.\n"
+        "• Bot other participants ki volume ya mute state ko touch nahi karta.\n"
+        "• Live participant-volume control sirf logged-in account par apply hota hai.\n"
         "• Aapka mic aur bot ka audio <b>ek saath</b> chal sakte hain.\n"
         "• Playback controls sirf bot ke apne audio stream par apply hote hain.\n"
         f"{LINE}\n"

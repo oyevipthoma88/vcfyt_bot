@@ -92,16 +92,7 @@ class Config:
     KEEPER_INTERVAL: int = _int("KEEPER_INTERVAL", 15)   # seconds
 
     # ── Behaviour ────────────────────────────────────────────────────────────
-    # Never reduce anybody's volume. Kept as a hard switch so the old
-    # "mute everyone" behaviour can never come back by accident.
-    NEVER_LOWER_OTHERS: bool = True
-
-    # Meri live aavaj VC ke baaki sab users se zyada rahegi:
-    # khud 200% (Telegram max) par pinned, baaki 100% (normal) par.
-    ME_LOUDEST: bool = _bool("ME_LOUDEST", True)
     # Bot audio and the user's own mic can be live in the VC at the same time.
-    AUTO_PAUSE_ON_SPEAK: bool = _bool("AUTO_PAUSE_ON_SPEAK", False)
-
     # ── MongoDB (recommended for persistence) ────────────────────────────────
     MONGO_URI: str = os.environ.get("MONGO_URI", "")
 

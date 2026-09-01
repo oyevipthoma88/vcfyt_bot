@@ -164,7 +164,7 @@ async def cb_settings_change(bot, cq):
         if s["auto"]:
             # AUTO = maximum real gain, but voice-safe EQ (not muddy bass).
             s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                      "bass": min(BASS_MAX, 20), "gain": 80,
+                      "bass": min(BASS_MAX, 20), "gain": 150,
                       "treble": 75, "boost": LEVEL_MAX,
                       "echo": 0, "echo_level": 0})
     elif action == "reset":
@@ -176,7 +176,7 @@ async def cb_settings_change(bot, cq):
                   "auto": 0})
     elif action == "max":
         s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                  "bass": min(BASS_MAX, 20), "gain": 80, "treble": 75,
+                  "bass": min(BASS_MAX, 20), "gain": 150, "treble": 75,
                   "echo": 0, "echo_level": 0, "boost": LEVEL_MAX, "auto": 1})
     elif action == "apply":
         n = await apply_settings_live(uid)

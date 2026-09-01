@@ -11,10 +11,10 @@ Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven co
 | In-bot login | Phone + OTP + optional 2FA flow, or a String Session from the session generator. |
 | Button-first interface | `/start`, `/help`, settings, tutorial, playback, and audio controls are accessible through inline buttons. |
 | Loud and clear playback | FFmpeg speech normalization, presence EQ, compression, loudnorm, and a safety limiter are applied to recordings and downloaded audio. |
-| Live voice boost | The logged-in account is automatically kept at Telegram's maximum participant volume, `20000` / `200%`. |
+| Live participant volume | On playback and reconnect, the bot attempts to apply the logged-in account’s saved Telegram participant volume up to `20000` / `200%`. |
 | Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
 | Multi-user sessions | Each owner gets an isolated Pyrogram + PyTgCalls engine and separate settings. |
-| Mute handling | If the voice-chat account is muted externally, playback pauses and resumes after unmute. |
+| Participant volume | The logged-in voice-chat account can be set to Telegram’s supported participant-volume maximum; other participants are not modified. |
 | Logging | Login, VC activity, commands, boosts, errors, and broadcasts can be sent to the configured log channel. |
 
 ## One-click Heroku deployment
@@ -100,13 +100,13 @@ Both `.` and `/` prefixes are supported where applicable.
 
 Playback recordings and downloaded audio are processed server-side by FFmpeg. The clarity-first default keeps echo disabled, removes rumble, lifts quiet speech, adds controlled presence, and normalizes the final loudness before limiting peaks. The `.echo on` option remains available, but echo can make speech less intelligible in a busy VC.
 
-Telegram limits participant volume server-side. Therefore, live microphone audio can be boosted to `20000` / `200%`, but server-side bass, echo, and compressor effects cannot be applied to a phone microphone. Those DSP effects are available for bot playback audio.
+Telegram limits participant volume server-side. Therefore, the logged-in account’s live microphone can be set up to `20000` / `200%`, but other participants are not modified and server-side bass, echo, or compressor effects cannot be applied to a phone microphone. Those DSP effects are available for bot playback audio. The bot does not automatically detect or undo an external mute.
 
 ## Troubleshooting
 
 | Problem | Check |
 |---|---|
-| `.play` does not start | Confirm that a VC is active, the logged-in account is a group member, and the source is valid. |
+| `.play` does not start | Confirm that a VC is active, the logged-in account is a group member, the account is not muted by an administrator, and the source is valid. |
 | Login fails | Recheck API credentials, OTP formatting, and 2FA password. Never share a String Session publicly. |
 | Heroku bot is offline | Open **Resources** and enable the `worker` dyno; then inspect Heroku logs. |
 | Audio is not loud enough | Use `.max`, or increase `/volume`, `/gain`, and `.boost` gradually. Keep `/bass` moderate for clarity. |
