@@ -157,9 +157,10 @@ async def cb_settings_change(bot, cq):
     elif action == "auto":
         s["auto"] = 0 if s.get("auto") else 1
         if s["auto"]:
-            # AUTO = practical max playback, with clarity-safe bass/echo.
+            # AUTO = maximum real gain, but voice-safe EQ (not muddy bass).
             s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                      "bass": BASS_MAX, "boost": LEVEL_MAX,
+                      "bass": min(BASS_MAX, 20), "gain": 80,
+                      "treble": 75, "boost": LEVEL_MAX,
                       "echo": 0, "echo_level": 0})
     elif action == "reset":
         s.update({"volume": Config.DEFAULT_VOLUME, "relay_volume": Config.RELAY_DEFAULT_VOLUME,
@@ -170,8 +171,8 @@ async def cb_settings_change(bot, cq):
                   "auto": 0})
     elif action == "max":
         s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                  "bass": BASS_MAX, "echo": 0, "echo_level": 0,
-                  "boost": LEVEL_MAX, "auto": 1})
+                  "bass": min(BASS_MAX, 20), "gain": 80, "treble": 75,
+                  "echo": 0, "echo_level": 0, "boost": LEVEL_MAX, "auto": 1})
     elif action == "apply":
         n = await apply_settings_live(uid)
         await cq.answer(f"⚡ {n} VC par apply ho gaya" if n

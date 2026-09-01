@@ -757,8 +757,9 @@ async def cmd_auto(bot: Client, msg: Message):
     await db.save_settings(
         msg.from_user.id,
         auto=1 if on else 0,
-        **({"volume": VOLUME_MAX, "bass": BASS_MAX, "boost": LEVEL_MAX,
-            "echo": 1, "echo_level": LEVEL_MAX} if on else {}),
+        **({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
+            "bass": min(BASS_MAX, 20), "gain": 80, "treble": 75,
+            "boost": LEVEL_MAX, "echo": 0, "echo_level": 0} if on else {}),
     )
 
     cid = await target_chat(msg, parts[2] if len(parts) > 2 else None)
@@ -780,9 +781,10 @@ async def cmd_auto(bot: Client, msg: Message):
     await msg.reply_text(
         "🤖 <b>AUTO MODE ON</b> — ab sab automatic hai 🔥\n\n"
         f"🔊 Volume <code>{VOLUME_MAX}/1000</code> (max)\n"
-        f"🎸 Bass <code>+{BASS_MAX} dB</code> (max)\n"
+        f"🎸 Bass <code>+{min(BASS_MAX, 20)} dB</code> (voice-safe max)\n"
+        f"✨ Treble <code>75/100</code> + Gain <code>80/150</code>\n"
         f"💥 Boost <code>{LEVEL_MAX}/10</code> (max)\n"
-        f"🌀 Echo <code>ON {LEVEL_MAX}/10</code>\n"
+        f"🌀 Echo <code>OFF</code> (clear voice)\n"
         f"🎤 Live mic <code>{VOL_MAX}</code> (200% — Telegram max)\n"
         f"♻️ Volume keeper: har {Config.KEEPER_INTERVAL}s par volume wapas "
         f"max par pin ho jayega (reset/reconnect ke baad bhi)\n"
@@ -801,8 +803,9 @@ async def cmd_ultra(bot: Client, msg: Message):
     """Ek hi command: audio chain ko absolute max par le jao."""
     await _apply_and_reply(
         msg, "🔥🔥 <b>ULTRA LOUD</b> — sab knobs absolute max par.",
-        volume=VOLUME_MAX, bass=BASS_MAX, boost=LEVEL_MAX,
-        echo=1, echo_level=LEVEL_MAX, auto=1,
+        volume=VOLUME_MAX, relay_volume=VOLUME_MAX, bass=min(BASS_MAX, 20),
+        gain=80, treble=75, boost=LEVEL_MAX,
+        echo=0, echo_level=0, auto=1,
     )
 
 

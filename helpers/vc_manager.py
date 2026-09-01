@@ -102,6 +102,9 @@ class UserVC:
         self.account_username: str = ""
         self.chats: Dict[int, ChatState] = {}
         self._keepers: Dict[int, asyncio.Task] = {}
+        # Explicit .stop creates a tombstone so late stream-end callbacks or
+        # keeper tasks cannot immediately recreate the VC state.
+        self._stopped_chats: set[int] = set()
         self._lock = asyncio.Lock()
         self.live_volume = Config.LIVE_BOOST_DEFAULT
 
@@ -167,6 +170,8 @@ class UserVC:
 
     # ── events ───────────────────────────────────────────────────────────────
     async def _on_stream_end(self, chat_id: int):
+        if chat_id in self._stopped_chats:
+            return
         st = self.chats.get(chat_id)
         if not st:
             return
@@ -404,6 +409,8 @@ class UserVC:
 
     # ── playback ─────────────────────────────────────────────────────────────
     async def _stream(self, chat_id: int, path: str, source_name: str):
+        if chat_id in self._stopped_chats:
+            raise RuntimeError("Playback stopped manually; start .play again")
         st = self.state(chat_id)
         effective_volume = (
             st.volume if st.volume != Config.DEFAULT_VOLUME else st.relay_volume
@@ -513,6 +520,7 @@ class UserVC:
                 "Voice chat sirf group/supergroup mein hota hai — chat ID negative honi chahiye."
             )
         async with self._lock:
+            self._stopped_chats.discard(chat_id)
             st = self.state(chat_id)
             if chat_title:
                 st.chat_title = chat_title
@@ -530,6 +538,7 @@ class UserVC:
                 "Voice chat sirf group/supergroup mein hota hai — chat ID negative honi chahiye."
             )
         async with self._lock:
+            self._stopped_chats.discard(chat_id)
             st = self.state(chat_id)
             if chat_title:
                 st.chat_title = chat_title
@@ -585,6 +594,10 @@ class UserVC:
         return True
 
     async def leave(self, chat_id: int, reason: str = "Manual stop"):
+        # Mark explicit/manual stops before leaving so callbacks that arrive
+        # from PyTgCalls cannot trigger queue playback or a rejoin.
+        if reason != "Queue empty":
+            self._stopped_chats.add(chat_id)
         self._stop_keeper(chat_id)
         st = self.chats.get(chat_id)
         if st:

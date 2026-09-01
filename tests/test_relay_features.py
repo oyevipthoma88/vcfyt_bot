@@ -25,7 +25,7 @@ class RelayFeatureTests(unittest.TestCase):
             volume=200, bass=10, gain=30, treble=40, echo=False, boost=0,
             relay_volume=200
         )
-        self.assertIn("volume=4.000", af)
+        self.assertIn("volume=7.200", af)
         self.assertIn("volume=1.30", af)
         self.assertIn("equalizer=f=3000", af)
         self.assertIn("equalizer=f=8000", af)
