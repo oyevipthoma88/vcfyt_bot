@@ -35,7 +35,10 @@ class RelayFeatureTests(unittest.TestCase):
         text = source.read_text()
         self.assertIn("MediaDevices.microphone_devices()", text)
         self.assertIn("async def play_microphone", text)
-        self.assertIn("MediaStream(\n                device", text)
+        self.assertIn("MediaSource.SHELL", text)
+        self.assertIn("AudioStream(", text)
+        self.assertIn("build_ffmpeg_filter(", text)
+        self.assertIn('"-f", "s16le"', text)
 
     def test_mic_command_is_registered(self):
         source = pathlib.Path(__file__).parents[1] / "plugins" / "vc_commands.py"

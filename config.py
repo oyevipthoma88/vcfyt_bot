@@ -79,6 +79,8 @@ class Config:
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)
     # Optional server/VM microphone or virtual microphone device metadata/name.
     MIC_DEVICE: str = os.environ.get("MIC_DEVICE", "")
+    MIC_INPUT_FORMAT: str = os.environ.get("MIC_INPUT_FORMAT", "pulse")
+    MIC_DSP: bool = _bool("MIC_DSP", True)
 
     # ── AUTO MODE ────────────────────────────────────────────────────────────
     # ".auto on" karte hi: max volume + max bass + max boost + echo on,

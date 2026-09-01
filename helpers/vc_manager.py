@@ -17,18 +17,21 @@ Rules baked in (as requested):
 
 import asyncio
 import os
+import shlex
 from typing import Dict, Optional
 
 from pyrogram import Client
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.phone import EditGroupCallParticipant, GetGroupParticipants
+from ntgcalls import MediaSource
 
 from pytgcalls import MediaDevices, PyTgCalls
 from pytgcalls import filters as call_filters
 from pytgcalls.types import AudioQuality, ChatUpdate, MediaStream, StreamEnded
+from pytgcalls.types.raw import AudioParameters, AudioStream, Stream
 
 from config import Config
-from helpers.audio_processor import process_audio_to_file
+from helpers.audio_processor import build_ffmpeg_filter, process_audio_to_file
 from helpers.logger_channel import (
     log_auto_mode, log_error, log_external_mute, log_live_boost, log_vc_join,
     log_vc_leave,
@@ -470,13 +473,30 @@ class UserVC:
         st = self.state(chat_id)
         st.mic_enabled = True
         st.mic_device = device.metadata
-        await self.calls.play(
-            chat_id,
-            MediaStream(
-                device, AudioQuality.STUDIO,
-                video_flags=MediaStream.Flags.IGNORE,
-            ),
+        mic_filter = build_ffmpeg_filter(
+            volume=st.relay_volume,
+            bass=st.bass,
+            echo=False,
+            echo_level=0,
+            boost=st.boost,
+            relay_volume=st.relay_volume,
+            gain=st.gain,
+            treble=st.treble,
+        ) if Config.MIC_DSP else "anull"
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", Config.MIC_INPUT_FORMAT, "-i", device.metadata,
+            "-af", mic_filter,
+            "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
+        ]
+        stream = Stream(
+            microphone=AudioStream(
+                MediaSource.SHELL,
+                shlex.join(command),
+                AudioParameters(48000, 2),
+            )
         )
+        await self.calls.play(chat_id, stream)
         await self.set_participant_volume(
             chat_id, self.account_id, st.live_volume, quiet=True
         )
