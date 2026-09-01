@@ -34,7 +34,7 @@ async def main():
         filters = [build_ffmpeg_filter(volume=level, relay_volume=level, gain=0, boost=0, echo=False)
                    for level in (0, 250, 500, 750, 1000)]
         controls = [next(line for line in af.split(",") if line.startswith("volume=")) for af in filters]
-        assert controls == ["volume=-18.00dB", "volume=-9.00dB", "volume=0.00dB", "volume=9.00dB", "volume=18.00dB"]
+        assert controls == ["volume=-12.00dB", "volume=-3.00dB", "volume=6.00dB", "volume=15.00dB", "volume=24.00dB"]
         print("distinct_real_gain_levels=true", len(set(controls)))
 
 
@@ -57,8 +57,8 @@ def test_filter_has_loudness_safety():
 
 def test_relay_controls_remain_active():
     af = build_ffmpeg_filter(volume=200, bass=10, gain=30, treble=40, echo=False, boost=0)
-    assert "volume=-10.80dB" in af
-    assert "volume=-7.20dB" in af
+    assert "volume=-4.80dB" in af
+    assert "volume=0.80dB" in af
     assert "equalizer=f=3000" in af
     assert "equalizer=f=8000" in af
     assert "aecho=" not in af

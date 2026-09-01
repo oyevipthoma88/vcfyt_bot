@@ -61,8 +61,8 @@ pip install -U yt-dlp
 | `STRING_SESSION` | No | — | Optional owner session; users can also use `/login`. |
 | `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
 | `DEFAULT_BOOST` | No | `9` | Loudness stage from `0` to `10`. |
-| `RELAY_DEFAULT_VOLUME` | No | `1000` | Playback volume from `0` to `1000`; mapped to a real `-18 dB` to `+18 dB` FFmpeg range. |
-| `RELAY_DEFAULT_GAIN` | No | `150` | Playback gain from `0` to `150`; mapped to a real `-12 dB` to `+12 dB` FFmpeg range. |
+| `RELAY_DEFAULT_VOLUME` | No | `1000` | Playback volume from `0` to `1000`; mapped to a real `-12 dB` to `+24 dB` FFmpeg range. |
+| `RELAY_DEFAULT_GAIN` | No | `150` | Playback gain from `0` to `150`; mapped to a real `-6 dB` to `+18 dB` FFmpeg range. |
 | `RELAY_DEFAULT_BASS` | No | `8` | Controlled low-end lift from `0` to `100`. |
 | `RELAY_DEFAULT_TREBLE` | No | `62` | Presence/clarity control from `0` to `100`. |
 | `DEFAULT_ECHO` | No | `false` | Keep off for maximum speech clarity. |
@@ -88,7 +88,7 @@ pip install -U yt-dlp
 | Account | `/start`, `/login`, `/addstring`, `/logout`, `/mystatus`, `/settings`, `/help` |
 | Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.queue`, `.vcinfo` |
 | Tags | `.tag <name>`, `.untag <name>`, `.tags` |
-| Audio | `/volume <0-1000>` (0 = -18 dB, 1000 = +18 dB), `/gain <0-150>` (0 = -12 dB, 150 = +12 dB), `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
+| Audio | `/volume <0-1000>` (0 = -12 dB, 1000 = +24 dB), `/gain <0-150>` (0 = -6 dB, 150 = +18 dB), `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
 | Effects | `.vol`, `.boost`, `.echo`, `.echolvl`, `.max`, `.reset` |
 | Live voice | `.myboost`, `/livegain`, `.vcboost`, `.boostall`, `.meloud` |
 | Automation | `.auto`, `.auto off`, `.ultra` |

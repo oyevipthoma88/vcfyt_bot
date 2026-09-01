@@ -49,18 +49,18 @@ def build_ffmpeg_filter(
     gain_value = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN, 0, 150)
     treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, 100)
 
-    # 0..1000 => -18..+18 dB; 0..150 => -12..+12 dB.
+    # 0..1000 => -12..+24 dB; 0..150 => -6..+18 dB.
     # These ranges keep every setting measurable while leaving headroom for
     # the final limiter instead of pretending that 1000x amplitude is useful.
-    volume_db = -18.0 + (36.0 * vol / VOLUME_MAX)
-    gain_db = -12.0 + (24.0 * gain_value / 150.0)
-    boost_db = 1.5 * boost_value
+    volume_db = -12.0 + (36.0 * vol / VOLUME_MAX)
+    gain_db = -6.0 + (24.0 * gain_value / 150.0)
+    boost_db = 2.0 * boost_value
 
     filters = [
         "highpass=f=55",
         "lowpass=f=16000",
         "aresample=48000",
-        "loudnorm=I=-16:TP=-1.5:LRA=11:linear=false",
+        "loudnorm=I=-12:TP=-0.5:LRA=7:linear=false",
     ]
 
     if bass_value:
@@ -72,11 +72,11 @@ def build_ffmpeg_filter(
 
     # Compress only enough to make quiet speech intelligible; do not stack
     # multiple compressors because that destroys the effect of user controls.
-    ratio = 2.0 + (boost_value * 0.35)
-    threshold = max(0.08, 0.28 - boost_value * 0.012)
+    ratio = 3.0 + (boost_value * 0.50)
+    threshold = max(0.06, 0.24 - boost_value * 0.014)
     filters.append(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.2f}:"
-        "attack=8:release=100:makeup=1.0"
+        "attack=5:release=80:makeup=2.0"
     )
     filters.append(f"volume={_db(volume_db)}dB")
     filters.append(f"volume={_db(gain_db + boost_db)}dB")
