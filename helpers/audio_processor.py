@@ -2,13 +2,12 @@
 Audio processing using FFmpeg.
 
 Chain (order matters):
-  1. highpass 35 Hz      — drop sub rumble that wastes headroom
-  2. bass boost          — peaking EQ @80 Hz (0-40 dB, user controlled)
-  3. presence/air EQ     — 3 kHz + 8 kHz so vocals stay clear when very loud
-  4. volume              — raw amplitude multiplier (1 … 5000, user controlled)
-  5. boost stage         — loudnorm-style gain + compressor, strength 0-10
-  6. alimiter            — brick wall so it is LOUD but never clipped/muddy
-  7. echo                — multi-tap echo, strength 0-10 (0 = off)
+  1. highpass + lowpass  — remove rumble and hiss outside the speech band
+  2. speech normalization — lift quiet recordings without pumping too hard
+  3. bass/presence EQ      — controlled warmth plus 3 kHz/8 kHz intelligibility
+  4. gain + compression   — increase perceived loudness while retaining dynamics
+  5. loudnorm + limiter   — stable broadcast loudness, no digital clipping
+  6. optional echo        — disabled by default because it reduces clarity
 
 Everything is adjustable up AND down, so the same knobs can make audio
 softer as well as brutally loud.
@@ -59,14 +58,15 @@ def build_ffmpeg_filter(
     treble_pct = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE,
                        0, 100)
 
-    filters = ["highpass=f=35"]
+    # Speech-first cleanup: remove sub-rumble and extreme hiss before boosting.
+    filters = ["highpass=f=55", "lowpass=f=16000"]
 
     # ── STAGE 0: pehle hi source ko normal level par le aao ─────────────────
     # Bohot dheemi recording par volume multiplier bekaar hai kyunki limiter
     # baad me kaat deta hai. speechnorm yahan har syllable ko full-scale tak
     # khinchta hai — asli "slow aavaj ko loud" karne wali cheez yahi hai.
-    filters.append("speechnorm=e=50:r=0.0004:l=1:p=0.95")
-    filters.append("dynaudnorm=f=150:g=15:p=0.95:m=100:s=0:r=0.9")
+    filters.append("speechnorm=e=25:r=0.0004:l=1:p=0.95")
+    filters.append("dynaudnorm=f=150:g=9:p=0.95:m=12:s=0.7:r=0.85")
 
     # ── Bass ────────────────────────────────────────────────────────────────
     if bass_db > 0:
@@ -101,7 +101,7 @@ def build_ffmpeg_filter(
         threshold = max(0.012, 0.4 - b_lvl * 0.038)
         filters.append(
             f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}"
-            f":attack=2:release=40:makeup={makeup:.2f}"
+            f":attack=5:release=80:makeup={min(makeup, 3.5):.2f}"
         )
         # Heavy broadcast-style compand: waveform ko lagbhag flat kar deta hai,
         # yaani perceived loudness maximum.
@@ -111,12 +111,12 @@ def build_ffmpeg_filter(
             f"points=-90/-90|-70/-{max(6, 30 - b_lvl * 2)}|-40/-{max(3, 14 - b_lvl)}"
             f"|-20/-{max(2, 8 - b_lvl // 2)}|0/-1:soft-knee={knee}:gain={b_lvl}"
         )
-        filters.append(f"dynaudnorm=f=200:g=21:p=0.97:m={5 + b_lvl * 5.0:.1f}")
+        filters.append(f"dynaudnorm=f=200:g=12:p=0.97:m={min(20, 8 + b_lvl * 1.5):.1f}:s=0.7:r=0.85")
+        # A small presence lift is clearer than aggressive soft-clipping.
         filters.append(
-            f"speechnorm=e={min(50.0, 12 + b_lvl * 6.0):.1f}:r=0.0005:l=1:p=0.99"
+            f"speechnorm=e={min(32.0, 10 + b_lvl * 3.0):.1f}:r=0.0005:l=1:p=0.98"
         )
-        # Soft clipping = aur loud, bina crackle ke.
-        filters.append(f"asoftclip=type=tanh:threshold=1:output={1 + b_lvl * 0.12:.2f}")
+        filters.append("loudnorm=I=-14:LRA=7:TP=-1.5:dual_mono=true:linear=false")
 
     # Brick-wall limiter — LOUD but never clipped/crackly.
     filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=2"
@@ -142,11 +142,11 @@ def build_ffmpeg_filter(
     if extra_filters:
         filters.append(extra_filters)
 
-    # Final push + safety limiter (echo tails clip na karein).
+    # Final modest push + safety limiter. The loudnorm stage above does the
+    # heavy lifting; a huge post-limiter multiplier only creates distortion.
     if b_lvl > 0:
-        filters.append(f"volume={1 + b_lvl * 0.5:.2f}")
-
-    filters.append("alimiter=limit=0.995:attack=2:release=25:level=false")
+        filters.append(f"volume={1 + b_lvl * 0.08:.2f}")
+    filters.append("alimiter=limit=0.98:attack=5:release=60:level=false")
 
     return ",".join(filters)
 

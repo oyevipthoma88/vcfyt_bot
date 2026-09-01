@@ -22,7 +22,8 @@ class RelayFeatureTests(unittest.TestCase):
 
     def test_relay_filter_contains_controls(self):
         af = build_ffmpeg_filter(
-            volume=200, bass=10, gain=30, treble=40, echo=False, boost=0
+            volume=200, bass=10, gain=30, treble=40, echo=False, boost=0,
+            relay_volume=200
         )
         self.assertIn("volume=2.000", af)
         self.assertIn("volume=1.30", af)

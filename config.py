@@ -63,16 +63,16 @@ class Config:
 
     # ── Audio defaults (per-user overridable at runtime) ─────────────────────
     DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 50000)  # amplitude multiplier (1-100000)
-    DEFAULT_BASS: int = _int("DEFAULT_BASS", 55)          # dB @ 80 Hz (0-80)
-    DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", True)
-    DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 8)   # 0-10
-    DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)            # 0-10 loudness stage
+    DEFAULT_BASS: int = _int("DEFAULT_BASS", 8)           # controlled low-end lift (0-100)
+    DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)  # clarity-first; enable only when wanted
+    DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)   # 0-10
+    DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 7)             # 0-10 loudness stage
 
     # Relay controls (user-facing compact controls).
-    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 200)  # 0-400
-    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 30)       # 0-150
-    RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 10)       # 0-100
-    RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 40)   # 0-100
+    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 260)  # 0-400
+    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 45)       # 0-150
+    RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 8)        # 0-100
+    RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 62)      # 0-100
 
     # ── Live mic boost (Telegram participant volume: 1-20000) ────────────────
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)  # 200% = max
