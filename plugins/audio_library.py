@@ -4,7 +4,7 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup as K, Message
 
 from config import Config
-from helpers.buttons import ikb as B
+from pyrogram.types import InlineKeyboardButton as B
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error
 from helpers.vc_manager import session_manager

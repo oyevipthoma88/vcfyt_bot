@@ -1,7 +1,21 @@
-"""Fast, real FFmpeg audio processing for Telegram voice-chat playback."""
+"""Real FFmpeg loudness pipeline for Telegram voice-chat playback.
+
+Design goal: maximum clean loudness. Every stage is a standard FFmpeg filter
+that exists in every FFmpeg >= 4.x build (including the Heroku buildpack):
+
+  highpass -> aresample -> dynaudnorm -> EQ -> acompressor -> volume -> alimiter
+
+* ``dynaudnorm`` lifts quiet input towards full scale block-by-block (up to
+  50x), so a whisper-quiet recording comes out as loud as a mastered track.
+* ``acompressor`` squashes peaks so the average level can be pushed higher.
+* ``volume`` is the user's control in real dB.
+* ``alimiter`` is a true brick-wall limiter so we never send clipped samples.
+"""
 
 import asyncio
+import glob
 import os
+import shlex
 import subprocess
 import tempfile
 from typing import Optional
@@ -11,6 +25,8 @@ from config import Config
 VOLUME_MIN, VOLUME_MAX = 0, 1000
 BASS_MIN, BASS_MAX = 0, 100
 LEVEL_MIN, LEVEL_MAX = 0, 10
+GAIN_MAX = 150
+TREBLE_MAX = 100
 
 
 def clamp(value: int, low: int, high: int) -> int:
@@ -19,6 +35,19 @@ def clamp(value: int, low: int, high: int) -> int:
 
 def _db(value: float) -> str:
     return f"{value:.2f}"
+
+
+def volume_to_db(vol: int) -> float:
+    """0..1000 -> -30..+18 dB (500 = unity)."""
+    vol = clamp(vol, VOLUME_MIN, VOLUME_MAX)
+    if vol <= 500:
+        return -30.0 + (30.0 * vol / 500.0)
+    return 18.0 * (vol - 500) / 500.0
+
+
+def gain_to_db(gain: int) -> float:
+    """0..150 -> 0..+12 dB extra drive into the limiter."""
+    return 12.0 * clamp(gain, 0, GAIN_MAX) / GAIN_MAX
 
 
 def build_ffmpeg_filter(
@@ -32,75 +61,63 @@ def build_ffmpeg_filter(
     treble: int = None,
     extra_filters: str = "",
 ) -> str:
-    """Build a single-pass FFmpeg filter chain with real audible controls.
-
-    Volume and gain are mapped to dB, not arbitrary repeated multipliers. The
-    source is normalized before those controls are applied, so quiet input is
-    lifted consistently and the controls remain distinguishable instead of
-    being flattened by multiple compressors/limiters.
-    """
-    vol = clamp(volume if volume is not None else (
-        relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
-    ), VOLUME_MIN, VOLUME_MAX)
+    """Build the single-pass FFmpeg ``-af`` chain."""
+    if volume is None:
+        volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
+    vol = clamp(volume, VOLUME_MIN, VOLUME_MAX)
     bass_value = clamp(bass if bass is not None else Config.DEFAULT_BASS, BASS_MIN, BASS_MAX)
     use_echo = Config.DEFAULT_ECHO if echo is None else bool(echo)
     echo_value = clamp(echo_level if echo_level is not None else Config.DEFAULT_ECHO_LEVEL, LEVEL_MIN, LEVEL_MAX)
     boost_value = clamp(boost if boost is not None else Config.DEFAULT_BOOST, LEVEL_MIN, LEVEL_MAX)
-    gain_value = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN, 0, 150)
-    treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, 100)
-
-    # 0..1000 => -12..+24 dB; 0..150 => -6..+18 dB.
-    # These ranges keep every setting measurable while leaving headroom for
-    # the final limiter instead of allowing uncontrolled clipping.
-    volume_db = -12.0 + (36.0 * vol / VOLUME_MAX)
-    gain_db = -6.0 + (24.0 * gain_value / 150.0)
-    boost_db = 2.5 * boost_value
+    gain_value = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN, 0, GAIN_MAX)
+    treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, TREBLE_MAX)
 
     filters = [
-        "highpass=f=55",
-        "lowpass=f=16000",
+        "highpass=f=60",
         "aresample=48000",
-        "loudnorm=I=-10:TP=-0.5:LRA=5:linear=false",
+        # Adaptive normaliser: short 150 ms frames, 15-frame window, up to 50x
+        # gain -> quiet sources are lifted to full scale almost immediately.
+        "dynaudnorm=f=150:g=15:p=0.95:m=50:r=0.9:s=0",
     ]
 
     if bass_value:
-        bass_db = min(12.0, bass_value * 0.12)
-        filters.append(f"equalizer=f=90:t=q:w=1:g={_db(bass_db)}")
-    # 0..100 => -6..+6 dB presence range.
+        filters.append(f"equalizer=f=90:t=q:w=1:g={_db(min(12.0, bass_value * 0.12))}")
+    # Presence / air: 0..100 -> -6..+6 dB and -4..+4 dB.
     filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(-6.0 + treble_value * 0.12)}")
     filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(-4.0 + treble_value * 0.08)}")
 
-    # Compress only enough to make quiet speech intelligible; do not stack
-    # multiple compressors because that destroys the effect of user controls.
-    ratio = 3.0 + (boost_value * 0.50)
-    threshold = max(0.06, 0.24 - boost_value * 0.014)
+    # Boost 0..10 -> compression ratio 2..12 and makeup 0..+10 dB. Higher boost
+    # means denser, louder audio.
+    ratio = 2.0 + boost_value
+    threshold = max(0.05, 0.30 - boost_value * 0.025)
+    makeup = boost_value * 1.0
     filters.append(
-        f"acompressor=threshold={threshold:.3f}:ratio={ratio:.2f}:"
-        "attack=5:release=80:makeup=3.0"
+        f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
+        f"attack=3:release=120:makeup={makeup:.1f}:knee=4"
     )
-    filters.append(f"volume={_db(volume_db)}dB")
-    filters.append(f"volume={_db(gain_db + boost_db)}dB")
 
     if use_echo and echo_value:
         d1 = 70 + echo_value * 22
-        d2, d3 = d1 * 2, d1 * 3
         decay = min(0.85, 0.20 + echo_value * 0.06)
         filters.append(
-            f"aecho=0.85:0.75:{d1}|{d2}|{d3}:"
+            f"aecho=0.85:0.75:{d1}|{d1 * 2}|{d1 * 3}:"
             f"{decay:.2f}|{decay * 0.65:.2f}|{decay * 0.4:.2f}"
         )
 
+    filters.append(f"volume={_db(volume_to_db(vol) + gain_to_db(gain_value))}dB")
+
     if extra_filters:
         filters.append(extra_filters)
-    filters.append("alimiter=limit=0.98:attack=5:release=60:level=false")
+    # Brick-wall: nothing above -0.2 dBFS, fast attack so no sample clips.
+    filters.append("alimiter=limit=0.977:attack=2:release=50:level=false:asc=1")
     return ",".join(filters)
 
 
 def get_ffmpeg_piped_input(source: str, **kwargs) -> list:
-    af = build_ffmpeg_filter(**kwargs)
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
-        "-af", af, "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
+        "-vn", "-af", build_ffmpeg_filter(**kwargs),
+        "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
     ]
 
 
@@ -117,9 +134,13 @@ async def process_audio_to_file(
     treble: int = None,
     extra_filters: str = "",
 ) -> str:
-    """Process an audio/video file and return an MP3 path."""
+    """Render ``input_path`` through the loudness chain.
+
+    Output is 48 kHz stereo 16-bit WAV: no encoder stage, so a 5 minute track
+    renders in ~2-3 s and playback starts almost instantly.
+    """
     if output_path is None:
-        fd, output_path = tempfile.mkstemp(suffix=".mp3", prefix="vc_processed_")
+        fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="vc_processed_")
         os.close(fd)
     af = build_ffmpeg_filter(
         volume=volume, bass=bass, echo=echo, echo_level=echo_level,
@@ -127,33 +148,55 @@ async def process_audio_to_file(
         extra_filters=extra_filters,
     )
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", input_path,
-        "-af", af, "-ar", "48000", "-ac", "2", "-b:a", "320k", output_path,
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        "-i", input_path, "-vn", "-af", af,
+        "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", output_path,
     ]
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
     _, stderr = await proc.communicate()
-    if proc.returncode != 0:
+    if proc.returncode != 0 or not os.path.exists(output_path):
+        try:
+            os.unlink(output_path)
+        except OSError:
+            pass
         raise RuntimeError(f"FFmpeg failed: {stderr.decode(errors='replace')[-500:]}")
     return output_path
 
 
-async def download_yt(url: str) -> str:
-    """Download audio from supported sites using yt-dlp."""
+async def download_yt(query: str) -> tuple[str, str]:
+    """Download best audio for a URL or a search phrase.
+
+    Returns ``(path, title)``. No re-encode step: FFmpeg processes whatever
+    container yt-dlp delivers, which makes this several times faster than
+    ``--audio-format mp3``.
+    """
     fd, base_path = tempfile.mkstemp(suffix="", prefix="vc_ytdl_")
     os.close(fd)
     os.unlink(base_path)
-    out_tmpl = base_path + ".%(ext)s"
-    final_path = base_path + ".mp3"
-    cmd = ["yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "0", "--no-playlist", "-o", out_tmpl, url]
+    target = query if query.startswith(("http://", "https://")) else f"ytsearch1:{query}"
+    cmd = [
+        "yt-dlp", "--no-playlist", "--no-warnings", "-f", "bestaudio/best",
+        "--max-filesize", "200m", "--socket-timeout", "20",
+        "-o", base_path + ".%(ext)s", "--print", "after_move:filepath",
+        "--print", "title", "--no-simulate", target,
+    ]
     proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
-    _, stderr = await proc.communicate()
+    stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
         raise RuntimeError(f"yt-dlp failed: {stderr.decode(errors='replace')[-400:]}")
-    return final_path
+    lines = [ln.strip() for ln in stdout.decode(errors="replace").splitlines() if ln.strip()]
+    title = lines[0] if lines else query[:60]
+    path = next((ln for ln in lines if os.path.exists(ln)), None)
+    if not path:
+        matches = glob.glob(base_path + ".*")
+        if not matches:
+            raise RuntimeError("yt-dlp finished but produced no file")
+        path = matches[0]
+    return path, title[:80]
 
 
 def ffmpeg_available() -> bool:
@@ -162,3 +205,7 @@ def ffmpeg_available() -> bool:
         return True
     except (FileNotFoundError, subprocess.CalledProcessError):
         return False
+
+
+def shell_quote(args: list) -> str:
+    return shlex.join(args)

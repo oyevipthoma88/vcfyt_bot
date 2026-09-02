@@ -8,7 +8,7 @@ Prefix: . or /
 import os
 
 from pyrogram import Client, filters
-from helpers.buttons import ikb as B  # premium-emoji + coloured inline buttons (safe on every fork)
+from pyrogram.types import InlineKeyboardButton as B
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
@@ -21,7 +21,7 @@ from helpers.database import db
 from helpers.logger_channel import (
     get_channel, log_command, log_error, set_channel, verify_log_channel,
 )
-from helpers.vc_manager import VOL_MAX, VOL_NORMAL, session_manager
+from helpers.vc_manager import AUTO_PRESET, VOL_MAX, VOL_NORMAL, session_manager
 
 LOGIN_KB = K([
     [B("🔐 Login karein", callback_data="menu:login")],
@@ -88,15 +88,9 @@ async def load_state_settings(user_id: int, uvc, chat_id: int):
     """Make sure a chat state starts from the user's saved settings."""
     s = await db.get_settings(user_id)
     st = uvc.state(chat_id)
-    st.volume, st.bass = s["volume"], s["bass"]
-    st.relay_volume = s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME)
-    st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
-    st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
-    st.voice = s.get("voice", "normal")
-    st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
-    st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
-    if s.get("auto"):
-        await uvc.set_auto(chat_id, True)
+    st.apply_settings(s)
+    if bool(s.get("auto")) != bool(st.auto):
+        await uvc.set_auto(chat_id, bool(s.get("auto")))
     return st
 
 
@@ -163,46 +157,47 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
             await stat.delete()
             return path, getattr(media, "file_name", None) or "Reply media"
 
-    if arg and arg.startswith("http"):
-        stat = await msg.reply_text("⬇️ URL se download ho raha hai…")
+    if arg:
+        # 1) saved tag  2) URL  3) YouTube search phrase
+        tag = await db.get_tag(msg.from_user.id, arg.split()[0].lower())
+        if tag:
+            stat = await msg.reply_text("⬇️ Tagged file download ho rahi hai…")
+            try:
+                path = await bot.download_media(tag["file_id"])
+            except Exception as e:
+                await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
+                return None, None
+            await stat.delete()
+            return path, arg
+        is_url = arg.startswith(("http://", "https://"))
+        stat = await msg.reply_text(
+            "⬇️ URL se download ho raha hai…" if is_url
+            else f"🔎 YouTube par <b>{arg}</b> search ho raha hai…"
+        )
         try:
-            path = await download_yt(arg)
+            path, title = await download_yt(arg)
         except Exception as e:
             await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
             await log_error("resolve_source_url", e)
             return None, None
         await stat.delete()
-        return path, arg[:60]
-
-    if arg:
-        tag = await db.get_tag(msg.from_user.id, arg.lower())
-        if not tag:
-            await msg.reply_text(
-                f"❌ Tag <code>{arg}</code> nahi mila. <code>.tags</code> dekhein.")
-            return None, None
-        stat = await msg.reply_text("⬇️ Tagged file download ho rahi hai…")
-        try:
-            path = await bot.download_media(tag["file_id"])
-        except Exception as e:
-            await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
-            return None, None
-        await stat.delete()
-        return path, arg
+        return path, title
 
     await msg.reply_text(
         "<b>Usage</b>\n"
         "• audio/video reply + <code>.play</code>\n"
         "• <code>.play &lt;tag&gt;</code>\n"
         "• <code>.play &lt;youtube url&gt;</code>\n"
+        "• <code>.play &lt;song name&gt;</code> (YouTube search)\n"
         "• <code>.play &lt;source&gt; &lt;group_chat_id&gt;</code>"
     )
     return None, None
 
 
 def _split_args(msg: Message):
-    """Return (source_arg, chat_id_arg)."""
+    """Return (source_arg, chat_id_arg). Source may be multi-word (search)."""
     parts = msg.text.strip().split()
-    source, cid = None, None
+    words, cid = [], None
     for p in parts[1:]:
         try:
             if int(p) < 0:
@@ -210,9 +205,8 @@ def _split_args(msg: Message):
                 continue
         except ValueError:
             pass
-        if source is None:
-            source = p
-    return source, cid
+        words.append(p)
+    return (" ".join(words) or None), cid
 
 
 # ── .play / .padd ────────────────────────────────────────────────────────────
@@ -443,28 +437,15 @@ async def cmd_vcinfo(bot: Client, msg: Message):
 
 # ── effects ──────────────────────────────────────────────────────────────────
 async def _apply_and_reply(msg: Message, label: str, **changes):
+    from plugins.start import apply_settings_live
     uid = msg.from_user.id
     await db.save_settings(uid, **changes)
     s = await db.get_settings(uid)
-    uvc = session_manager.users.get(uid)
-    applied = 0
-    if uvc:
-        for cid, st in list(uvc.chats.items()):
-            st.volume, st.bass = s["volume"], s["bass"]
-            st.relay_volume = s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME)
-            st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
-            st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
-            st.voice = s.get("voice", "normal")
-            st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
-            st.echo, st.echo_level, st.boost = bool(s["echo"]), s["echo_level"], s["boost"]
-            if bool(s.get("auto")) != bool(st.auto):
-                await uvc.set_auto(cid, bool(s.get("auto")))
-            if st.is_playing and await uvc.reapply(cid):
-                applied += 1
+    applied = await apply_settings_live(uid)
     await msg.reply_text(
         f"{label}\n\n"
-        f"🔊 Vol <code>{s['volume']}x</code> | 🎸 Bass <code>+{s['bass']}dB</code> | "
-        f"💥 Boost <code>{s['boost']}/10</code> | 🌀 Echo "
+        f"🔊 Vol <code>{s['volume']}/1000</code> | 📈 Gain <code>{s['gain']}/150</code> | "
+        f"🎸 Bass <code>{s['bass']}</code> | 💥 Boost <code>{s['boost']}/10</code> | 🌀 Echo "
         f"<code>{'On' if s['echo'] else 'Off'} {s['echo_level']}/10</code>\n"
         + (f"⚡ {applied} live VC par apply hua." if applied else
            "💾 Saved — agli play par lagega."),
@@ -488,8 +469,8 @@ async def cmd_vol(bot, msg: Message):
     if n is None:
         await msg.reply_text("Usage: <code>.vol &lt;0-1000&gt;</code>")
         return
-    await _apply_and_reply(msg, f"🔊 Volume set: <b>{clamp(n, VOLUME_MIN, VOLUME_MAX)}x</b>",
-                           volume=clamp(n, VOLUME_MIN, VOLUME_MAX))
+    n = clamp(n, VOLUME_MIN, VOLUME_MAX)
+    await _apply_and_reply(msg, f"🔊 Volume set: <b>{n}/1000</b>", volume=n, relay_volume=n)
 
 
 @Client.on_message(filters.regex(r"^[./]bass\b") & (filters.group | filters.private))
@@ -536,16 +517,12 @@ async def cmd_echo(bot, msg: Message):
                            echo=1 if on else 0)
 
 
-@Client.on_message(filters.regex(r"^[./]max\b") & (filters.group | filters.private))
+@Client.on_message(filters.regex(r"^[./](max|ultra)\b") & (filters.group | filters.private))
 async def cmd_max(bot, msg: Message):
-    # Same public limits, but max mode stays voice-clear: excessive bass/echo
-    # makes a track feel quieter even when the waveform is technically louder.
-    await _apply_and_reply(
-        msg, "🔥 <b>MAXIMUM CLEAR MODE</b>",
-        volume=VOLUME_MAX, relay_volume=VOLUME_MAX,
-        bass=min(BASS_MAX, 20), gain=150, treble=75,
-        boost=LEVEL_MAX, echo=0, echo_level=0, auto=1,
-    )
+    # Max mode stays voice-clear: excessive bass/echo makes a track feel
+    # quieter even when the waveform is technically louder.
+    await _apply_and_reply(msg, "🔥 <b>MAXIMUM LOUD MODE</b> — sab knobs max par.",
+                           auto=1, **AUTO_PRESET)
 
 
 @Client.on_message(filters.regex(r"^[./]reset\b") & (filters.group | filters.private))
@@ -624,38 +601,17 @@ async def cb_vc(bot, cq):
         await cq.answer("Now Playing updated")
     elif action == "reset":
         await cq.answer("♻️ Reset apply ho raha hai…")
-        await db.save_settings(
-            cq.from_user.id, volume=Config.DEFAULT_VOLUME,
-            relay_volume=Config.RELAY_DEFAULT_VOLUME, gain=Config.RELAY_DEFAULT_GAIN,
-            bass=Config.DEFAULT_BASS, treble=Config.RELAY_DEFAULT_TREBLE,
-            voice="normal", boost=Config.DEFAULT_BOOST,
-            echo=1 if Config.DEFAULT_ECHO else 0,
-            echo_level=Config.DEFAULT_ECHO_LEVEL, auto=0,
-        )
-        from plugins.start import apply_settings_live
+        from plugins.start import DEFAULT_SETTINGS, apply_settings_live
+        await db.save_settings(cq.from_user.id, **DEFAULT_SETTINGS)
         await apply_settings_live(cq.from_user.id)
-        try:
-            await cq.message.edit_reply_markup(reply_markup=now_playing_kb(cid))
-        except Exception:
-            pass
     elif action == "auto":
         await cq.answer("🤖 Auto apply ho raha hai…")
+        from plugins.start import apply_settings_live
         s = await db.get_settings(cq.from_user.id)
         on = not bool(s.get("auto"))
-        if on:
-            s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                      "boost": LEVEL_MAX, "bass": min(BASS_MAX, 20),
-                      "gain": 150, "treble": 75, "echo": 0,
-                      "echo_level": 0, "auto": 1})
-        else:
-            s["auto"] = 0
-        await db.save_settings(cq.from_user.id, **s)
-        from plugins.start import apply_settings_live
+        await db.save_settings(cq.from_user.id, auto=1 if on else 0,
+                               **(AUTO_PRESET if on else {}))
         await apply_settings_live(cq.from_user.id)
-        try:
-            await cq.message.edit_reply_markup(reply_markup=now_playing_kb(cid))
-        except Exception:
-            pass
     elif action == "pause":
         await cq.answer("⏸️ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
     elif action == "resume":
@@ -683,36 +639,22 @@ AUTO_KB = K([[B("🎚️ Settings Panel", callback_data="menu:settings")]])
 @Client.on_message(filters.regex(r"^[./]auto\b") & (filters.group | filters.private))
 async def cmd_auto(bot: Client, msg: Message):
     """
-    .auto        → auto mode ON (sab kuch automatic, ekdam max aavaj)
+    .auto        → auto mode ON (max loudness preset + volume keeper)
     .auto off    → auto mode OFF
     """
+    from plugins.start import apply_settings_live
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".auto")
     parts = msg.text.strip().split()
-    on = not (len(parts) > 1 and parts[1].lower() in ("off", "0", "no", "band"))
+    on = not any(p.lower() in ("off", "0", "no", "band") for p in parts[1:])
 
     uvc = await get_engine(msg)
     if not uvc:
         return
 
-    # Save karo — har agli play par khud lag jayega.
-    await db.save_settings(
-        msg.from_user.id,
-        auto=1 if on else 0,
-        **({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-            "bass": min(BASS_MAX, 20), "gain": 150, "treble": 75,
-            "boost": LEVEL_MAX, "echo": 0, "echo_level": 0} if on else {}),
-    )
-
-    cid = await target_chat(msg, parts[2] if len(parts) > 2 else None)
-    applied = 0
-    if cid:
-        await uvc.set_auto(cid, on)
-        st = uvc.chats.get(cid)
-        if st and st.is_playing and await uvc.reapply(cid):
-            applied = 1
-    for other_cid, st in list(uvc.chats.items()):
-        if other_cid != cid:
-            await uvc.set_auto(other_cid, on)
+    # Save — every next .play picks it up automatically.
+    await db.save_settings(msg.from_user.id, auto=1 if on else 0,
+                           **(AUTO_PRESET if on else {}))
+    applied = await apply_settings_live(msg.from_user.id)
 
     if not on:
         await msg.reply_text("🛑 <b>AUTO MODE OFF</b> — manual control wapas.",
@@ -722,31 +664,19 @@ async def cmd_auto(bot: Client, msg: Message):
     await msg.reply_text(
         "🤖 <b>AUTO MODE ON</b> — ab sab automatic hai 🔥\n\n"
         f"🔊 Volume <code>{VOLUME_MAX}/1000</code> (max)\n"
-        f"🎸 Bass <code>+{min(BASS_MAX, 20)} dB</code> (voice-safe max)\n"
-        f"✨ Treble <code>75/100</code> + Gain <code>150/150</code>\n"
+        f"🎸 Bass <code>+{AUTO_PRESET['bass']}</code> (voice-safe max)\n"
+        f"✨ Treble <code>{AUTO_PRESET['treble']}/100</code> + Gain <code>150/150</code>\n"
         f"💥 Boost <code>{LEVEL_MAX}/10</code> (max)\n"
         f"🌀 Echo <code>OFF</code> (clear voice)\n"
         f"🎤 Live mic <code>{VOL_MAX}</code> (200% — Telegram max)\n"
         f"♻️ Volume keeper: har {Config.KEEPER_INTERVAL}s par volume wapas "
-        f"max par pin ho jayega (reset/reconnect ke baad bhi)\n"
-        f"👤 Sirf logged-in account ka live participant volume apply hota hai.\n\n"
-        + (f"⚡ Live VC par turant apply ho gaya." if applied else
+        f"max par pin ho jayega (reset/reconnect ke baad bhi)\n\n"
+        + (f"⚡ {applied} live VC par turant apply ho gaya." if applied else
            "💾 Save ho gaya — <code>.play</code> karte hi khud lag jayega.")
         + "\n\n<i>Note: 200% Telegram ka server-side hard cap hai; usse aage "
-          "loudness FFmpeg chain (volume + compressor + loudnorm + limiter) "
+          "loudness FFmpeg chain (dynaudnorm + compressor + volume + limiter) "
           "se aati hai, jo AUTO me poori max par hai.</i>",
         reply_markup=AUTO_KB,
-    )
-
-
-@Client.on_message(filters.regex(r"^[./]ultra\b") & (filters.group | filters.private))
-async def cmd_ultra(bot: Client, msg: Message):
-    """Ek hi command: audio chain ko absolute max par le jao."""
-    await _apply_and_reply(
-        msg, "🔥🔥 <b>ULTRA LOUD</b> — sab knobs absolute max par.",
-        volume=VOLUME_MAX, relay_volume=VOLUME_MAX, bass=min(BASS_MAX, 20),
-        gain=150, treble=75, boost=LEVEL_MAX,
-        echo=0, echo_level=0, auto=1,
     )
 
 
@@ -866,20 +796,6 @@ async def cmd_relaystatus(bot: Client, msg: Message):
 
 
 
-@Client.on_message(filters.regex(r"^[./]stats\b") & filters.private)
-async def cmd_relay_stats(bot: Client, msg: Message):
-    if not Config.is_owner(msg.from_user.id):
-        await msg.reply_text("⛔ Ye command sirf owner ke liye hai.")
-        return
-    users = await db.all_users()
-    logged = sum(bool(u.get("string_session")) for u in users)
-    await msg.reply_text(
-        "📊 <b>Bot Stats</b>\n\n"
-        f"├ Users: <code>{len(users)}</code>\n"
-        f"├ Saved sessions: <code>{logged}</code>\n"
-        f"├ Live engines: <code>{len(session_manager.users)}</code>\n"
-        f"└ Active VCs: <code>{session_manager.active_chats()}</code>"
-    )
 
 
 @Client.on_message(filters.regex(r"^[./]mic\b") & (filters.group | filters.private))

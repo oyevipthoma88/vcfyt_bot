@@ -1,6 +1,6 @@
 # VC Fyt Bot
 
-Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, Telethon raw schema, PyTgCalls, FFmpeg, and yt-dlp**.
+Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, PyTgCalls, FFmpeg, and yt-dlp**.
 
 > **Important:** This bot needs a Telegram user session to join voice chats. The bot account handles commands, while the logged-in user account is the voice-chat participant.
 
@@ -9,8 +9,8 @@ Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven co
 | Feature | What it does |
 |---|---|
 | In-bot login | Phone + OTP + optional 2FA flow, or a String Session from the session generator. |
-| Button-first interface | `/start`, `/help`, settings, tutorial, playback, and audio controls are accessible through inline buttons with real Telegram primary/success/danger backgrounds on compatible Telegram clients. |
-| Loud and clear playback | FFmpeg speech normalization, presence EQ, compression, loudnorm, and a safety limiter are applied to recordings and downloaded audio. |
+| Button-first interface | `/start`, `/help`, settings, tutorial, playback, and audio controls are accessible through inline buttons. |
+| Loud and clear playback | FFmpeg adaptive normalisation (`dynaudnorm`), presence EQ, compression, up to +30 dB of real gain and a brick-wall limiter are applied to every track before it hits the voice chat. Output is rendered as WAV so playback starts in seconds. |
 | Live participant volume | On playback and reconnect, the bot attempts to apply the logged-in account’s saved Telegram participant volume up to `20000` / `200%`. |
 | Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
 | Audio library | Users can save My Audio; owner-saved files appear for everyone under Bot Audios. |
@@ -121,4 +121,4 @@ Telegram limits participant volume server-side. Therefore, the logged-in account
 
 Keep `.env`, bot tokens, API credentials, MongoDB URIs, and String Sessions private. Rotate any credential immediately if it is exposed in a chat, issue, log, or public repository.
 
-Made with Pyrofork, Telethon raw schema, PyTgCalls, FFmpeg, and yt-dlp.
+Made with Pyrofork, PyTgCalls, FFmpeg, and yt-dlp.

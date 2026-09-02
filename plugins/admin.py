@@ -7,7 +7,7 @@ import os
 import sys
 
 from pyrogram import Client, filters
-from helpers.buttons import ikb as B  # premium-emoji + coloured inline buttons (safe on every fork)
+from pyrogram.types import InlineKeyboardButton as B
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 

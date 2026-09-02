@@ -10,8 +10,8 @@ from helpers.audio_processor import (
     BASS_MAX, BASS_MIN, LEVEL_MAX, LEVEL_MIN, VOLUME_MAX, VOLUME_MIN, clamp,
 )
 from helpers.database import db
-from helpers.logger_channel import log_command, log_new_user
-from helpers.vc_manager import session_manager
+from helpers.logger_channel import log_command, log_error, log_new_user
+from helpers.vc_manager import AUTO_PRESET, session_manager
 from plugins.ui import (
     home_kb, home_text, settings_kb, settings_text, status_text,
 )
@@ -112,6 +112,16 @@ async def cb_settings(bot, cq):
     await cq.answer()
 
 
+DEFAULT_SETTINGS = {
+    "volume": Config.DEFAULT_VOLUME, "relay_volume": Config.RELAY_DEFAULT_VOLUME,
+    "bass": Config.DEFAULT_BASS, "gain": Config.RELAY_DEFAULT_GAIN,
+    "treble": Config.RELAY_DEFAULT_TREBLE, "voice": "normal",
+    "echo": 1 if Config.DEFAULT_ECHO else 0,
+    "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
+    "auto": 0,
+}
+
+
 async def apply_settings_live(user_id: int) -> int:
     """Push the user's saved settings onto every VC they are streaming in."""
     uvc = session_manager.users.get(user_id)
@@ -120,20 +130,14 @@ async def apply_settings_live(user_id: int) -> int:
     s = await db.get_settings(user_id)
     applied = 0
     for chat_id, st in list(uvc.chats.items()):
-        st.volume = s["volume"]
-        st.bass = s["bass"]
-        st.relay_volume = s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME)
-        st.gain = s.get("gain", Config.RELAY_DEFAULT_GAIN)
-        st.treble = s.get("treble", Config.RELAY_DEFAULT_TREBLE)
-        st.voice = s.get("voice", "normal")
-        st.live_volume = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
-        st.echo = bool(s["echo"])
-        st.echo_level = s["echo_level"]
-        st.boost = s["boost"]
+        st.apply_settings(s)
         if bool(s.get("auto")) != bool(st.auto):
             await uvc.set_auto(chat_id, bool(s.get("auto")))
-        if st.is_playing and await uvc.reapply(chat_id):
-            applied += 1
+        try:
+            if st.is_playing and await uvc.reapply(chat_id):
+                applied += 1
+        except Exception as e:
+            await log_error("apply_settings_live", e)
     return applied
 
 
@@ -168,21 +172,11 @@ async def cb_settings_change(bot, cq):
         s["auto"] = 0 if s.get("auto") else 1
         if s["auto"]:
             # AUTO = maximum real gain, but voice-safe EQ (not muddy bass).
-            s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                      "bass": min(BASS_MAX, 20), "gain": 150,
-                      "treble": 75, "boost": LEVEL_MAX,
-                      "echo": 0, "echo_level": 0})
+            s.update(AUTO_PRESET)
     elif action == "reset":
-        s.update({"volume": Config.DEFAULT_VOLUME, "relay_volume": Config.RELAY_DEFAULT_VOLUME,
-                  "bass": Config.DEFAULT_BASS, "gain": Config.RELAY_DEFAULT_GAIN,
-                  "treble": Config.RELAY_DEFAULT_TREBLE, "voice": "normal",
-                  "echo": 1 if Config.DEFAULT_ECHO else 0,
-                  "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
-                  "auto": 0})
+        s.update(DEFAULT_SETTINGS)
     elif action == "max":
-        s.update({"volume": VOLUME_MAX, "relay_volume": VOLUME_MAX,
-                  "bass": min(BASS_MAX, 20), "gain": 150, "treble": 75,
-                  "echo": 0, "echo_level": 0, "boost": LEVEL_MAX, "auto": 1})
+        s.update(AUTO_PRESET, auto=1)
     elif action == "apply":
         n = await apply_settings_live(uid)
         await cq.answer(f"⚡ {n} VC par apply ho gaya" if n
