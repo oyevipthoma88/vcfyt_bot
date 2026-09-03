@@ -409,24 +409,34 @@ class UserVC:
         The input must exist on the machine running this userbot. Telegram does
         not expose a remote phone microphone to a bot session.
         """
-        devices = list(MediaDevices.microphone_devices())
-        if not devices:
-            raise RuntimeError(
-                "Server par koi microphone/virtual input device nahi mila. "
-                "ALSA/PulseAudio virtual mic configure karein."
+        if Config.MIC_RELAY_ENABLED:
+            device = None
+            title = "Android Chrome Live Relay"
+            input_args = [
+                "-f", "s16le", "-ar", "48000", "-ac", "1",
+                "-i", Config.MIC_RELAY_FIFO,
+            ]
+        else:
+            devices = list(MediaDevices.microphone_devices())
+            if not devices:
+                raise RuntimeError(
+                    "Server par koi microphone/virtual input device nahi mila. "
+                    "ALSA/PulseAudio virtual mic configure karein."
+                )
+            wanted = (device_hint or Config.MIC_DEVICE).strip().lower()
+            device = next(
+                (d for d in devices if wanted and (
+                    wanted in d.title.lower() or wanted in d.metadata.lower()
+                )),
+                devices[0],
             )
-        wanted = (device_hint or Config.MIC_DEVICE).strip().lower()
-        device = next(
-            (d for d in devices if wanted and (
-                wanted in d.title.lower() or wanted in d.metadata.lower()
-            )),
-            devices[0],
-        )
+            title = device.title
+            input_args = ["-f", Config.MIC_INPUT_FORMAT, "-i", device.metadata]
         st = self.state(chat_id)
         mic_filter = build_live_mic_filter() if Config.MIC_DSP else "anull"
         command = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", Config.MIC_INPUT_FORMAT, "-i", device.metadata,
+            *input_args,
             "-af", mic_filter,
             "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
         ]
@@ -444,14 +454,14 @@ class UserVC:
                 )
             await self.calls.play(chat_id, stream)
         st.mic_enabled = True
-        st.mic_device = device.metadata
+        st.mic_device = Config.MIC_RELAY_FIFO if Config.MIC_RELAY_ENABLED else device.metadata
         st.is_playing = True
         st.is_paused = False
-        st.source_name = f" {device.title}"
+        st.source_name = f" {title}"
         await self.set_participant_volume(
             chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
         )
-        return device.title
+        return title
 
     @staticmethod
     def microphone_devices() -> list:

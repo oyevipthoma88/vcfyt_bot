@@ -1,0 +1,29 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apex Live Mic</title>
+<style>body{font:16px system-ui;max-width:520px;margin:32px auto;padding:0 18px;background:#111;color:#eee}button{font-size:18px;padding:14px 20px;margin:8px 0;border:0;border-radius:10px;background:#1683ff;color:white}button:disabled{opacity:.45}#stop{background:#d83b3b}#status{padding:14px;border-radius:10px;background:#222;margin-top:16px;white-space:pre-wrap}</style>
+<h2>Apex Live Mic</h2>
+<p>Telegram Web ka mic mute rakho. Yahan Start dabao, phir VC mein bolo.</p>
+<button id="start">Start Live Mic</button><button id="stop" disabled>Stop</button>
+<div id="status">Ready</div>
+<script>
+const token=new URLSearchParams(location.search).get('token');
+let audio,ctx,source,processor,ws;
+const status=t=>document.querySelector('#status').textContent=t;
+function downsample(input, inRate, outRate){
+  if(inRate===outRate)return input;
+  const ratio=inRate/outRate, len=Math.round(input.length/ratio), out=new Float32Array(len);
+  for(let i=0;i<len;i++){let p=i*ratio, a=Math.floor(p), b=Math.min(a+1,input.length-1), f=p-a;out[i]=input[a]*(1-f)+input[b]*f}return out;
+}
+function pcm16(x){const b=new ArrayBuffer(x.length*2),v=new DataView(b);for(let i=0;i<x.length;i++){const n=Math.max(-1,Math.min(1,x[i]));v.setInt16(i*2,n<0?n*32768:n*32767,true)}return b}
+start.onclick=async()=>{try{
+ if(!token)throw Error('URL token missing');
+ audio=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+ ctx=new AudioContext();await ctx.resume();source=ctx.createMediaStreamSource(audio);processor=ctx.createScriptProcessor(4096,1,1);
+ ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/mic/stream?token='+encodeURIComponent(token));
+ ws.binaryType='arraybuffer';ws.onopen=()=>{source.connect(processor);processor.connect(ctx.destination);start.disabled=true;stop.disabled=false;status('LIVE. Telegram Web VC mein bot account se boosted voice jayegi.');};
+ ws.onerror=()=>status('Relay connection failed');ws.onclose=()=>{if(stop.disabled)status('Relay closed');};
+ processor.onaudioprocess=e=>{if(ws.readyState===1){const x=downsample(e.inputBuffer.getChannelData(0),ctx.sampleRate,48000);ws.send(pcm16(x))}};
+ }catch(e){status('Mic start failed: '+e.message)}};
+stop.onclick=()=>{if(processor)processor.disconnect();if(source)source.disconnect();if(ctx)ctx.close();if(audio)audio.getTracks().forEach(t=>t.stop());if(ws)ws.close();start.disabled=false;stop.disabled=true;status('Stopped')};
+</script>

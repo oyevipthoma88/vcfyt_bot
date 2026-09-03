@@ -82,6 +82,10 @@ class Config:
     MIC_DEVICE: str = os.environ.get("MIC_DEVICE", "")
     MIC_INPUT_FORMAT: str = os.environ.get("MIC_INPUT_FORMAT", "pulse")
     MIC_DSP: bool = _bool("MIC_DSP", True)
+    MIC_RELAY_ENABLED: bool = _bool("MIC_RELAY_ENABLED", False)
+    MIC_RELAY_FIFO: str = os.environ.get(
+        "MIC_RELAY_FIFO", "/tmp/apex_live_mic.pcm"
+    ).strip()
 
     # ── AUTO MODE ────────────────────────────────────────────────────────────
     # ".auto on" real maximum playback controls apply karta hai, echo off

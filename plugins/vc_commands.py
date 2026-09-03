@@ -851,6 +851,13 @@ async def cmd_mic(bot: Client, msg: Message):
     parts = msg.text.strip().split()
     action = parts[1].lower() if len(parts) > 1 else "devices"
     if action in {"devices", "list"}:
+        if Config.MIC_RELAY_ENABLED:
+            await msg.reply_text(
+                " <b>Android live relay ready</b>\n"
+                "VPS relay FIFO: <code>" + Config.MIC_RELAY_FIFO + "</code>\n"
+                "Chrome mic page par Start dabakar yahan <code>/mic on</code> karein."
+            )
+            return
         devices = uvc.microphone_devices()
         if not devices:
             await msg.reply_text(
