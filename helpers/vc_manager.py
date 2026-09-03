@@ -339,8 +339,11 @@ class UserVC:
             echo_level=st.echo_level, boost=st.boost,
             relay_volume=st.relay_volume, gain=st.gain, treble=st.treble,
         )
+        # process_audio_to_file renders 48 kHz stereo. HIGH is also 48 kHz;
+        # STUDIO expects 96 kHz and forces an extra conversion that can cause
+        # dropouts, choppy audio, and lower perceived loudness in the VC.
         stream = MediaStream(
-            processed, AudioQuality.STUDIO, video_flags=MediaStream.Flags.IGNORE,
+            processed, AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE,
         )
         try:
             try:
