@@ -12,10 +12,11 @@ from helpers.logger_channel import log_command
 from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen, safe_answer
 
 TUTORIAL_MENU_TEXT = (
-    " <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
-    "Naye ho? Pehle <b>Quick Start</b> follow karein.\n"
-    "Audio ko loud aur clear rakhne ke liye <b>Play & Queue</b> aur "
-    "<b>Audio Settings</b> dekhein.\n\n"
+    "📘 <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
+    "<blockquote>✨ Naye ho? Pehle <b>Quick Start</b> follow karein.\n"
+    "🎧 Play & Queue se audio control karein.\n"
+    "🎚️ Audio Settings se live controls badlein.\n"
+    "🗃️ Played audio archive se duplicate download avoid hota hai.</blockquote>\n\n"
     "Har button mein commands, examples aur important tips diye gaye hain."
 )
 
@@ -39,7 +40,7 @@ def tutorial_kb() -> K:
 
 SECTIONS = {
     "quick": (
-        " <b>Quick Start — 2 minute setup</b>\n\n"
+        "🚀 <b>Quick Start — 2 minute setup</b>\n\n"
         f"{LINE}\n"
         "1 `/start`  <b>Login</b>  phone/OTP/2FA complete karein.\n"
         "2 Logged-in account ko target group mein add karein.\n"
@@ -49,7 +50,7 @@ SECTIONS = {
         "<code>/volume 320</code> aur <code>/gain 60</code>.\n"
         "6 Live mic ke liye <code>.myboost 20000</code>.\n"
         f"{LINE}\n\n"
-        " Playback loud + clear default chain se process hota hai.\n"
+        "🔊 Playback maximum practical loudness chain se process hota hai.\n"
         " Speech clarity ke liye echo off rakhein; music ke liye hi echo on karein."
     ),
     "setup": (
@@ -124,7 +125,7 @@ SECTIONS = {
         " Music ke liye: bass 15–30 try karein; distortion aaye to gain kam karein."
     ),
     "library": (
-        " <b>Audio Library — examples</b>\n\n"
+        "🗃️ <b>Audio Library — examples</b>\n\n"
         f"{LINE}\n"
         "<b>Apna audio save karein</b>\n"
         "1 Audio/video message ko reply karein.\n"
@@ -139,7 +140,8 @@ SECTIONS = {
         "Phir target group ke VC mein <code>.play myaudio &lt;chat_id&gt;</code> likhein.\n"
         "Example: <code>.play myaudio -1001234567890</code>. Group ke andar ho to "
         "sirf <code>.play myaudio</code> bhi chalega.\n"
-        "My Audio sirf aap delete kar sakte hain; Bot Audios owner manage karta hai."
+        "My Audio sirf aap delete kar sakte hain; Bot Audios owner manage karta hai.\n\n"
+        "📌 Jo audio VC mein play hota hai, wo configured archive channel mein ek baar save hota hai; repeat par duplicate skip hota hai."
     ),
     "boost": (
         " <b>Live Voice Boost</b>\n\n"
@@ -179,7 +181,7 @@ SECTIONS = {
         " <code>/logout</code> se apna session hata sakte hain."
     ),
     "faq": (
-        " <b>FAQ</b>\n\n"
+        "❓ <b>FAQ / Fixes</b>\n\n"
         f"{LINE}\n"
         "<b>Q. String session kahan se laun?</b>\n"
         f"A. {GEN_NAME} — ya bot mein hi  Phone Login karein.\n\n"
@@ -191,6 +193,8 @@ SECTIONS = {
         "extra boosted hai; echo off rakhein. Zarurat par `/gain 150` + `/treble 75` try karein.\n\n"
         "<b>Q. Kisi ki aavaj mute kaise karun?</b>\n"
         "A. Bot ab kisi ki aavaj kam/mute nahi karta — by design.\n"
+        "\n<b>Q. Source Code button ka URL kaise badlein?</b>\n"
+        "A. Owner DM mein <code>/setsource https://...</code> ya <code>/clearsource</code> use kare.\n"
         f"{LINE}"
     ),
     "cmds": (

@@ -74,6 +74,8 @@ BOT_COMMANDS = [
     BotCommand("stats", " Stats (owner)"),
     BotCommand("restart", " Restart (owner)"),
     BotCommand("logtest", " Log channel test (owner)"),
+    BotCommand("setsource", " Set Source Code URL (owner)"),
+    BotCommand("clearsource", " Remove Source Code button (owner)"),
     BotCommand("stop", "⏹ Stop and leave VC"),
     BotCommand("end", "⏹ End playback session"),
     BotCommand("setlog", " Log channel set (owner)"),

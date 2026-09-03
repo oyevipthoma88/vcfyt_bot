@@ -4,6 +4,7 @@ consistent, professional look. Everything is button-driven.
 """
 
 from enum import Enum
+from urllib.parse import urlparse
 
 from pyrogram.types import InlineKeyboardButton as _InlineKeyboardButton
 from pyrogram.types import InlineKeyboardMarkup as K
@@ -13,6 +14,17 @@ from config import Config
 
 GEN = Config.SESSION_BOT_LINK
 GEN_NAME = f"@{Config.SESSION_BOT_USERNAME}"
+SOURCE_CODE_URL = Config.SOURCE_CODE_URL
+
+
+def set_source_code_url(url: str) -> str:
+    """Set or clear the owner-managed source URL."""
+    global SOURCE_CODE_URL
+    value = (url or "").strip()
+    if value and urlparse(value).scheme not in {"http", "https"}:
+        raise ValueError("URL must start with http:// or https://")
+    SOURCE_CODE_URL = value
+    return SOURCE_CODE_URL
 
 LINE = "━━━━━━━━━━━━━━━━━━━━"
 
@@ -115,8 +127,9 @@ def home_text(name: str, logged_in: bool) -> str:
     status = "✅ Logged in" if logged_in else "⚠️ Not logged in"
     return (
         f"👋 <b>Welcome, {name}!</b>\n\n"
-        f"🎧 <b>VC Audio Studio Bot</b> — voice chat mein high-power audio,\n"
-        f"🔊 live mic boost, bass, echo aur queue. Sab kuch buttons se.\n\n"
+        f"<blockquote>🎧 <b>VC Audio Studio Bot</b>\n"
+        f"🔊 High-power voice-chat audio • live mic boost\n"
+        f"🎚️ Bass • echo • boost • queue controls</blockquote>\n"
         f"{LINE}\n"
         f"<b>Status:</b> {status}\n"
         f"{LINE}\n\n"
@@ -124,7 +137,7 @@ def home_text(name: str, logged_in: bool) -> str:
         f"🧾 <b>Add String</b> — already string session hai? Yahan paste karein\n"
         f"📘 <b>Tutorial</b> — har feature ka step-by-step guide\n"
         f"🎚️ <b>Audio Settings</b> — volume / bass / echo / boost live control\n\n"
-        f"👥 Multi-user: har user apne account se, ek saath use kar sakta hai."
+        f"👥 <b>Multi-user:</b> har user apne account se, ek saath use kar sakta hai."
     )
 
 
@@ -149,6 +162,8 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         ],
         [B(f" Session Generator — {GEN_NAME}", url=GEN)],
     ]
+    if SOURCE_CODE_URL:
+        rows.append([B(" Source Code", url=SOURCE_CODE_URL)])
     if active_chat_id is not None:
         rows.insert(1, [B(" Now Playing", callback_data=f"vc:now:{active_chat_id}")])
     if logged_in:

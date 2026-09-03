@@ -7,7 +7,8 @@ import os
 import sys
 
 from pyrogram import Client, filters
-from plugins.ui import B, edit_screen, safe_answer
+from plugins.ui import B, edit_screen, safe_answer, set_source_code_url
+import plugins.ui as shared_ui
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
@@ -36,6 +37,7 @@ def panel_kb() -> K:
         [B(" Active VCs", callback_data="adm_vcs"),
          B(" Broadcast", callback_data="adm_broadcast")],
         [B(" Add Audio", callback_data="adm_addaudio")],
+        [B(" Source URL", callback_data="adm_source")],
         [B(" Restart", callback_data="adm_restart")],
         [B(" Home", callback_data="menu:home")],
     ])
@@ -104,6 +106,13 @@ async def cb_admin(bot, cq):
             reply_markup=back,
         )
 
+    elif action == "source":
+        await edit_screen(cq.message,
+            "🔗 <b>Source Code Button</b>\n\n"
+            f"Current: <code>{shared_ui.SOURCE_CODE_URL or 'disabled'}</code>\n\n"
+            "Set: <code>/setsource https://example.com/repo</code>\n"
+            "Remove: <code>/clearsource</code>", reply_markup=back)
+
     elif action == "broadcast":
         await edit_screen(cq.message,
             " <b>Broadcast</b>\n\n"
@@ -121,6 +130,28 @@ async def cb_admin(bot, cq):
         await edit_screen(cq.message, await _panel_text(), reply_markup=panel_kb())
 
     await safe_answer(cq)
+
+
+@Client.on_message(filters.command("setsource") & filters.private)
+@owner_only
+async def cmd_setsource(bot: Client, msg: Message):
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await msg.reply_text("🔗 Usage: <code>/setsource https://example.com/repo</code>")
+        return
+    try:
+        set_source_code_url(parts[1])
+    except ValueError as exc:
+        await msg.reply_text(f"❌ Invalid URL: <code>{exc}</code>")
+        return
+    await msg.reply_text("✅ Source Code button updated. /start dobara bhejein.")
+
+
+@Client.on_message(filters.command("clearsource") & filters.private)
+@owner_only
+async def cmd_clearsource(bot: Client, msg: Message):
+    set_source_code_url("")
+    await msg.reply_text("✅ Source Code button removed. /start dobara bhejein.")
 
 
 @Client.on_message(filters.command("broadcast") & filters.private)
