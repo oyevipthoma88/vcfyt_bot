@@ -9,9 +9,6 @@ TgCrypto>=1.2.5
 # PyPI name is "py-tgcalls" — imports as "pytgcalls"
 py-tgcalls==2.3.3
 
-# Audio processing
-yt-dlp>=2024.1.1
-
 # Database (MongoDB Atlas — persistent storage on Heroku)
 motor>=3.3.1
 pymongo>=4.6.0

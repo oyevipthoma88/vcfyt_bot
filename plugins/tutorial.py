@@ -74,7 +74,7 @@ SECTIONS = {
         f"{LINE}\n"
         "<code>.play</code> — audio/video message ko reply karke\n"
         "<code>.play &lt;tag&gt;</code> — saved tag chalayein\n"
-        "<code>.play &lt;youtube/soundcloud url&gt;</code>\n"
+        "Reply to a Telegram audio/video message or use a saved tag.\n"
         "<code>.play &lt;source&gt; &lt;chat_id&gt;</code> — PM se kisi group ke VC mein\n"
         "<code>.padd &lt;source&gt;</code> — queue mein add karein\n"
         "<code>.playforce</code> — sab hata kar turant chalao (alias <code>.fplay</code>)\n"

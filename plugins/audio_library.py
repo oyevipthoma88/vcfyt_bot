@@ -12,7 +12,7 @@ from helpers.vc_manager import session_manager
 
 def library_kb() -> K:
     return K([
-        [B("🎵 My Audio", callback_data="aud:my"),
+        [B("🎵 Available Audio", callback_data="aud:my"),
          B("👑 Bot Audios", callback_data="aud:bot")],
         [B("➕ Save My Audio", callback_data="aud:help")],
         [B("🏠 Home", callback_data="menu:home")],
@@ -40,7 +40,7 @@ def _item_kb(item: dict, can_delete: bool = False) -> K:
     return K(rows)
 
 
-async def _show_items(cq, items: list, heading: str, can_delete: bool = False):
+async def _show_items(cq, items: list, heading: str, user_id: int):
     if not items:
         await cq.message.edit_text(
             f"{heading}\n\n📭 Abhi koi audio saved nahi hai.",
@@ -58,7 +58,9 @@ async def _show_items(cq, items: list, heading: str, can_delete: bool = False):
             f"🎵 <b>{title}</b>\n"
             f"├ Type: <code>{kind}</code>\n"
             f"└ ID: <code>{str(item['audio_id'])[:8]}</code>",
-            reply_markup=_item_kb(item, can_delete),
+            reply_markup=_item_kb(
+                item, int(item.get("owner_id", 0)) == int(user_id)
+            ),
         )
 
 
@@ -70,7 +72,7 @@ async def cmd_audio_library(bot: Client, msg: Message):
     if len(parts) == 1:
         await msg.reply_text(
             "🎧 <b>Audio Library</b>\n\n"
-            "Apne saved audio ya owner ke shared Bot Audios browse karein.",
+            "Apne saved audio aur owner ke shared Bot Audios browse karein.",
             reply_markup=library_kb(),
         )
         return
@@ -133,7 +135,7 @@ async def cb_audio_library(bot, cq):
     if action == "menu":
         await cq.message.edit_text(
             "🎧 <b>Audio Library</b>\n\n"
-            "My Audio mein apne saved tracks aur Bot Audios mein owner ke shared tracks milenge.",
+            "Available Audio mein apne saved tracks aur owner ke shared tracks milenge.",
             reply_markup=library_kb(),
         )
         await cq.answer()
@@ -142,12 +144,18 @@ async def cb_audio_library(bot, cq):
         await cq.answer("Reply to audio/video, then .saveaudio <title> bhejein", show_alert=True)
         return
     if action == "my":
-        await _show_items(cq, await db.list_user_audio(uid), "🎵 <b>My Audio</b>", True)
+        owner = Config.primary_owner()
+        await _show_items(
+            cq, await db.list_available_audio(uid, owner),
+            "🎵 <b>My Audio + Bot Audios</b>", uid,
+        )
         await cq.answer()
         return
     if action == "bot":
         owner = Config.primary_owner()
-        await _show_items(cq, await db.list_bot_audio(owner), "👑 <b>Bot Audios</b>", False)
+        await _show_items(
+            cq, await db.list_bot_audio(owner), "👑 <b>Bot Audios</b>", uid
+        )
         await cq.answer()
         return
     if len(parts) < 3:

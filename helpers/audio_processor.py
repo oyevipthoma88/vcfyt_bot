@@ -13,7 +13,6 @@ that exists in every FFmpeg >= 4.x build (including the Heroku buildpack):
 """
 
 import asyncio
-import glob
 import os
 import shlex
 import subprocess
@@ -163,40 +162,6 @@ async def process_audio_to_file(
             pass
         raise RuntimeError(f"FFmpeg failed: {stderr.decode(errors='replace')[-500:]}")
     return output_path
-
-
-async def download_yt(query: str) -> tuple[str, str]:
-    """Download best audio for a URL or a search phrase.
-
-    Returns ``(path, title)``. No re-encode step: FFmpeg processes whatever
-    container yt-dlp delivers, which makes this several times faster than
-    ``--audio-format mp3``.
-    """
-    fd, base_path = tempfile.mkstemp(suffix="", prefix="vc_ytdl_")
-    os.close(fd)
-    os.unlink(base_path)
-    target = query if query.startswith(("http://", "https://")) else f"ytsearch1:{query}"
-    cmd = [
-        "yt-dlp", "--no-playlist", "--no-warnings", "-f", "bestaudio/best",
-        "--max-filesize", "200m", "--socket-timeout", "20",
-        "-o", base_path + ".%(ext)s", "--print", "after_move:filepath",
-        "--print", "title", "--no-simulate", target,
-    ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed: {stderr.decode(errors='replace')[-400:]}")
-    lines = [ln.strip() for ln in stdout.decode(errors="replace").splitlines() if ln.strip()]
-    title = lines[0] if lines else query[:60]
-    path = next((ln for ln in lines if os.path.exists(ln)), None)
-    if not path:
-        matches = glob.glob(base_path + ".*")
-        if not matches:
-            raise RuntimeError("yt-dlp finished but produced no file")
-        path = matches[0]
-    return path, title[:80]
 
 
 def ffmpeg_available() -> bool:

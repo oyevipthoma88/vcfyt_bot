@@ -15,7 +15,6 @@ from pyrogram.types import Message
 from config import Config
 from helpers.audio_processor import (
     BASS_MAX, BASS_MIN, LEVEL_MAX, LEVEL_MIN, VOLUME_MAX, VOLUME_MIN, clamp,
-    download_yt,
 )
 from helpers.database import db
 from helpers.logger_channel import (
@@ -158,7 +157,7 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
             return path, getattr(media, "file_name", None) or "Reply media"
 
     if arg:
-        # 1) saved tag  2) URL  3) YouTube search phrase
+        # Saved Telegram tag only. External URL/search downloads are disabled.
         tag = await db.get_tag(msg.from_user.id, arg.split()[0].lower())
         if tag:
             stat = await msg.reply_text("⬇️ Tagged file download ho rahi hai…")
@@ -169,26 +168,16 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
                 return None, None
             await stat.delete()
             return path, arg
-        is_url = arg.startswith(("http://", "https://"))
-        stat = await msg.reply_text(
-            "⬇️ URL se download ho raha hai…" if is_url
-            else f"🔎 YouTube par <b>{arg}</b> search ho raha hai…"
+        await msg.reply_text(
+            "⚠️ Sirf Telegram audio/video reply ya saved tag use karein. "
+            "External links aur search playback supported nahi hai."
         )
-        try:
-            path, title = await download_yt(arg)
-        except Exception as e:
-            await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
-            await log_error("resolve_source_url", e)
-            return None, None
-        await stat.delete()
-        return path, title
+        return None, None
 
     await msg.reply_text(
         "<b>Usage</b>\n"
         "• audio/video reply + <code>.play</code>\n"
         "• <code>.play &lt;tag&gt;</code>\n"
-        "• <code>.play &lt;youtube url&gt;</code>\n"
-        "• <code>.play &lt;song name&gt;</code> (YouTube search)\n"
         "• <code>.play &lt;source&gt; &lt;group_chat_id&gt;</code>"
     )
     return None, None

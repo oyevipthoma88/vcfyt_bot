@@ -249,6 +249,19 @@ class Database:
     async def list_bot_audio(self, owner_id: int) -> list:
         return await self.list_owner_audio(owner_id)
 
+    async def list_available_audio(self, user_id: int, owner_id: int) -> list:
+        """Return the caller's private audio plus the owner's shared audio."""
+        ids = {int(user_id), int(owner_id)}
+        if self._use_mongo:
+            return await self._mongo.shared_audio.find(
+                {"owner_id": {"$in": list(ids)}}
+            ).sort("created_at", -1).to_list(None)
+        placeholders = ",".join("?" for _ in ids)
+        rows = self._sql(
+            f"SELECT * FROM shared_audio WHERE owner_id IN ({placeholders}) ORDER BY audio_id DESC",
+            tuple(ids), fetch=True)
+        return [dict(r) for r in rows] if rows else []
+
     async def get_audio(self, audio_id: str) -> Optional[dict]:
         if self._use_mongo:
             return await self._mongo.shared_audio.find_one({"audio_id": audio_id})

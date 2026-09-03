@@ -102,8 +102,19 @@ class RelayFeatureTests(unittest.TestCase):
                 self.assertEqual((await db.get_audio(owner_id))["file_id"], "file-owner")
                 self.assertTrue(await db.delete_audio(404, user_id))
                 self.assertFalse(await db.list_user_audio(404))
+                available = await db.list_available_audio(404, 101)
+                self.assertEqual(len(available), 1)
+                self.assertEqual(available[0]["file_id"], "file-owner")
 
         asyncio.run(run())
+
+    def test_external_media_integration_is_removed(self):
+        downloader = "yt-" + "dlp"
+        for path in (ROOT / "README.md", ROOT / "requirements.txt"):
+            self.assertNotIn(downloader, path.read_text().lower())
+        removed_fn = "download_" + "yt"
+        self.assertNotIn(removed_fn, (ROOT / "helpers" / "audio_processor.py").read_text())
+        self.assertNotIn(removed_fn, (ROOT / "plugins" / "vc_commands.py").read_text())
 
 
 if __name__ == "__main__":

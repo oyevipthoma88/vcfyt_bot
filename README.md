@@ -1,6 +1,6 @@
 # VC Fyt Bot
 
-Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, PyTgCalls, FFmpeg, and yt-dlp**.
+Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, PyTgCalls, and FFmpeg**.
 
 > **Important:** This bot needs a Telegram user session to join voice chats. The bot account handles commands, while the logged-in user account is the voice-chat participant.
 
@@ -43,12 +43,11 @@ cp .env.example .env
 python main.py
 ```
 
-Install **FFmpeg** and **yt-dlp** on the host before starting the bot. On Ubuntu/Debian:
+Install **FFmpeg** on the host before starting the bot. On Ubuntu/Debian:
 
 ```bash
 sudo apt update
 sudo apt install -y ffmpeg
-pip install -U yt-dlp
 ```
 
 ## Configuration
@@ -79,7 +78,7 @@ pip install -U yt-dlp
 1. Send `/start` to the bot and open **Tutorial**.
 2. Open **Login** and complete phone, OTP, and optional 2FA steps, or send a String Session.
 3. Add the logged-in account to the target group and start a Telegram Voice Chat.
-4. Reply to an audio/video message with `.play`, or send `.play <YouTube/SoundCloud URL>`.
+4. Reply to an audio/video message with `.play`, or play a saved tag.
 5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
 6. Reply to an audio/video message with `.saveaudio <title>` for My Audio. The owner can use `/addaudio <title>`; those files appear for every user under Bot Audios.
 7. Use `.myboost 20000` for the logged-in account's live participant volume. The bot attempts to re-apply this value when the account joins or reconnects.
@@ -102,7 +101,7 @@ Both `.` and `/` prefixes are supported where applicable.
 
 ## Audio notes
 
-Playback recordings and downloaded audio are processed server-side by FFmpeg. The clarity-first default keeps echo disabled, removes rumble, lifts quiet speech, adds controlled presence, and normalizes the final loudness before limiting peaks. The `.echo on` option remains available, but echo can make speech less intelligible in a busy VC.
+Telegram audio/video files are processed server-side by FFmpeg. The clarity-first default keeps echo disabled, removes rumble, lifts quiet speech, adds controlled presence, and normalizes the final loudness before limiting peaks. The `.echo on` option remains available, but echo can make speech less intelligible in a busy VC.
 
 Telegram limits participant volume server-side. Therefore, the logged-in account’s live microphone can be set up to `20000` / `200%`, but other participants are not modified and server-side bass, echo, or compressor effects cannot be applied to a phone microphone. Those DSP effects are available for bot playback audio. The bot does not automatically detect or undo an external mute.
 
@@ -121,4 +120,4 @@ Telegram limits participant volume server-side. Therefore, the logged-in account
 
 Keep `.env`, bot tokens, API credentials, MongoDB URIs, and String Sessions private. Rotate any credential immediately if it is exposed in a chat, issue, log, or public repository.
 
-Made with Pyrofork, PyTgCalls, FFmpeg, and yt-dlp.
+Made with Pyrofork, PyTgCalls, and FFmpeg.
