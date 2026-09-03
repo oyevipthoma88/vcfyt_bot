@@ -106,10 +106,11 @@ def build_ffmpeg_filter(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
         f"attack=1:release=60:makeup={makeup:.1f}:knee=1"
     )
-    # Second compressor: squash peaks further so we can push even more gain.
+    # Second compressor: aggressive mastering-style density for maximum
+    # perceived loudness, while the final limiter prevents digital clipping.
     filters.append(
-        f"acompressor=threshold=0.05:ratio=8.0:"
-        f"attack=1:release=50:makeup=8.0:knee=1"
+        f"acompressor=threshold=0.08:ratio=20.0:"
+        f"attack=1:release=50:makeup=12.0:knee=4"
     )
 
     if use_echo and echo_value:
