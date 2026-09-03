@@ -38,6 +38,10 @@ openssl rand -hex 32
 
 Keep `MIC_RELAY_TOKEN` identical in the bot service and relay service.
 
+For Heroku, set `MIC_RELAY_ENABLED=true` and a random `MIC_RELAY_TOKEN` as Config Vars. The repository's `Procfile` uses one `web` process, so the bot and relay share the same process and FIFO. Heroku supplies `PORT` automatically; do not hard-code a public port. The app must be opened through an HTTPS Heroku URL. A separate worker must not be enabled because it would start a duplicate bot session.
+
+For a VPS, `MIC_RELAY_PORT=8765` and Nginx/TLS are recommended. The bot and relay can run in one systemd service, or the standalone `live_relay.py` service below can be used only if the bot service uses the same FIFO and environment.
+
 ## 3. Start the relay service
 
 Create `/etc/systemd/system/apex-mic-relay.service`:

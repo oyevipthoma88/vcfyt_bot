@@ -8,11 +8,12 @@ import asyncio
 import os
 from pathlib import Path
 from aiohttp import web
+from config import Config
 
-HOST = os.getenv("MIC_RELAY_BIND", "127.0.0.1")
-PORT = int(os.getenv("MIC_RELAY_PORT", "8765"))
-TOKEN = os.getenv("MIC_RELAY_TOKEN", "")
-FIFO = Path(os.getenv("MIC_RELAY_FIFO", "/tmp/apex_live_mic.pcm"))
+HOST = os.getenv("MIC_RELAY_BIND", "0.0.0.0")
+PORT = int(os.getenv("MIC_RELAY_PORT") or os.getenv("PORT") or "8765")
+TOKEN = os.getenv("MIC_RELAY_TOKEN") or Config.MIC_RELAY_TOKEN
+FIFO = Path(os.getenv("MIC_RELAY_FIFO") or Config.MIC_RELAY_FIFO)
 
 HTML = Path(__file__).with_name("live_mic.html").read_text(encoding="utf-8")
 
@@ -67,6 +68,17 @@ async def _write_pcm(ws):
 app = web.Application()
 app.router.add_get("/mic", index)
 app.router.add_get("/mic/stream", stream)
+
+async def serve():
+    """Run the relay as a background service inside the bot process."""
+    if not TOKEN:
+        raise RuntimeError("MIC_RELAY_TOKEN must be set")
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, HOST, PORT)
+    await site.start()
+    return runner
+
 
 if __name__ == "__main__":
     if not TOKEN:

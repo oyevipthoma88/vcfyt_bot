@@ -23,6 +23,7 @@ from helpers.logger_channel import (
 )
 from helpers.vc_manager import session_manager
 from helpers.styled_client import StyledBotClient
+from live_relay import serve as serve_mic_relay
 from plugins.ui import set_source_code_url
 
 logging.basicConfig(
@@ -86,6 +87,13 @@ BOT_COMMANDS = [
 async def main():
     validate_config()
     await db.connect()
+    relay_runner = None
+    if Config.MIC_RELAY_ENABLED:
+        if not Config.MIC_RELAY_TOKEN:
+            logger.warning("MIC_RELAY_ENABLED=true but MIC_RELAY_TOKEN is empty; relay disabled")
+        else:
+            relay_runner = await serve_mic_relay()
+            logger.info("Live mic relay listening on %s:%s", Config.MIC_RELAY_BIND, Config.MIC_RELAY_PORT)
     stored_source = await db.get_app_value("source_code_url")
     if stored_source is not None:
         set_source_code_url(stored_source)
@@ -156,6 +164,8 @@ async def main():
     await idle()
 
     logger.info("Shutting down…")
+    if relay_runner:
+        await relay_runner.cleanup()
     await log_shutdown()
     for uid in list(session_manager.users):
         await session_manager.remove(uid)
