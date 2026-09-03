@@ -109,8 +109,8 @@ def build_ffmpeg_filter(
     # Second compressor: aggressive mastering-style density for maximum
     # perceived loudness, while the final limiter prevents digital clipping.
     filters.append(
-        f"acompressor=threshold=0.08:ratio=20.0:"
-        f"attack=1:release=50:makeup=12.0:knee=4"
+        f"acompressor=threshold=0.04:ratio=20.0:"
+        f"attack=1:release=50:makeup=16.0:knee=8"
     )
 
     if use_echo and echo_value:
@@ -129,7 +129,7 @@ def build_ffmpeg_filter(
     # music relays) with a tight loudness range so quiet parts stay loud too.
     # The extra headroom is always followed by a true-peak limiter, so the louder
     # default remains unclipped.
-    filters.append("loudnorm=I=-5:LRA=3:TP=-0.05:dual_mono=true:linear=false")
+    filters.append("loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false")
     filters.append("volume=20.00dB")
     # Second loudness stage: extra clean gain before the brick-wall limiter.
     filters.append("volume=10.00dB")
