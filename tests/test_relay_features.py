@@ -50,6 +50,13 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertNotIn("aecho=", af)
         self.assertIn("loudnorm=I=-5", af)
 
+    def test_filter_uses_ffmpeg_compatible_compressor_and_limiter_ranges(self):
+        af = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)
+        self.assertNotIn("knee=0", af)
+        self.assertIn("knee=1", af)
+        self.assertNotIn("attack=0:", af)
+        self.assertIn("attack=0.1", af)
+
     def test_echo_only_when_enabled(self):
         self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))
         self.assertNotIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=0))
