@@ -107,11 +107,11 @@ def build_ffmpeg_filter(
 
     if extra_filters:
         filters.append(extra_filters)
-    # Perceived loudness target: make the average level comparable to loud
-    # music relays instead of only raising occasional peaks. This changes
-    # amplitude, not pitch or timbre, and is followed by a true peak limiter.
+    # Perceived loudness target: keep playback clearly above ordinary music
+    # relays without changing pitch or timbre. The extra headroom is followed
+    # by a true-peak limiter, so the stronger default remains unclipped.
     filters.append("loudnorm=I=-5:LRA=7:TP=-0.5:dual_mono=true:linear=false")
-    filters.append("volume=2.00dB")
+    filters.append("volume=4.00dB")
     # Brick-wall: nothing above -0.2 dBFS, fast attack so no sample clips.
     filters.append("alimiter=limit=0.977:attack=2:release=50:level=false:asc=1")
     return ",".join(filters)

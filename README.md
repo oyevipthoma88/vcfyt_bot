@@ -61,8 +61,8 @@ sudo apt install -y ffmpeg
 | `STRING_SESSION` | No | — | Optional owner session; users can also use `/login`. |
 | `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
 | `DEFAULT_BOOST` | No | `10` | Loudness stage from `0` to `10`. |
-| `RELAY_DEFAULT_VOLUME` | No | `1000` | Playback volume from `0` to `1000`; mapped to a real `-12 dB` to `+24 dB` FFmpeg range. |
-| `RELAY_DEFAULT_GAIN` | No | `150` | Playback gain from `0` to `150`; mapped to a real `-6 dB` to `+18 dB` FFmpeg range. |
+| `RELAY_DEFAULT_VOLUME` | No | `1000` | Playback volume from `0` to `1000`; mapped to a real `-30 dB` to `+18 dB` FFmpeg range. |
+| `RELAY_DEFAULT_GAIN` | No | `150` | Additional playback drive from `0` to `150`; mapped to `0 dB` to `+12 dB` into the limiter. |
 | `RELAY_DEFAULT_BASS` | No | `8` | Controlled low-end lift from `0` to `100`. |
 | `RELAY_DEFAULT_TREBLE` | No | `75` | Presence/clarity control from `0` to `100`. |
 | `DEFAULT_ECHO` | No | `false` | Keep off for maximum speech clarity. |
@@ -80,7 +80,7 @@ sudo apt install -y ffmpeg
 3. Add the logged-in account to the target group and start a Telegram Voice Chat.
 4. Reply to an audio/video message with `.play`, or play a saved tag.
 5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
-6. Open **Audio Library**, select an item, and the bot will send it to your DM. Reply to that DM audio with `.tag myaudio`, then use `.play myaudio` in the group. For new library items, reply to an audio/video message with `.saveaudio <title>`; the owner can use `/addaudio <title>` for shared Bot Audios.
+6. Open **Audio Library**, select an item, and the bot will send it to your DM. Reply to that DM audio with `.tag myaudio`. In the target group VC, use `.play myaudio <chat_id>`; for example, `.play myaudio -1001234567890`. For new library items, reply to an audio/video message with `.saveaudio <title>`; the owner can use `/addaudio <title>` for shared Bot Audios.
 7. Use `.myboost 20000` for the logged-in account's live participant volume. The bot attempts to re-apply this value when the account joins or reconnects.
 
 ## Command reference
@@ -88,9 +88,9 @@ sudo apt install -y ffmpeg
 | Category | Commands |
 |---|---|
 | Account | `/start`, `/login`, `/addstring`, `/logout`, `/mystatus`, `/settings`, `/help` |
-| Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.end`, `.leave`, `.queue`, `.vcinfo` |
+| Playback | `.play <source> [chat_id]`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.end`, `.leave`, `.queue`, `.vcinfo` |
 | Tags | `.tag <name>`, `.untag <name>`, `.tags` |
-| Audio | `/volume <0-1000>` (0 = -12 dB, 1000 = +24 dB), `/gain <0-150>` (0 = -6 dB, 150 = +18 dB), `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
+| Audio | `/volume <0-1000>` (0 = -30 dB, 1000 = +18 dB), `/gain <0-150>` (0 = 0 dB, 150 = +12 dB), `/bass <0-100>`, `/treble <0-100>`, `/voice`, `/relaystatus` |
 | Effects | `.vol`, `.boost`, `.echo`, `.echolvl`, `.max`, `.reset` |
 | Live voice | `.myboost`, `/livegain`, `.livevolume` |
 | Automation | `.auto`, `.auto off`, `.ultra` |
@@ -101,7 +101,7 @@ Both `.` and `/` prefixes are supported where applicable.
 
 ## Audio notes
 
-Telegram audio/video files are processed server-side by FFmpeg. The clarity-first default keeps echo disabled, removes rumble, lifts quiet speech, adds controlled presence, and normalizes the final loudness before limiting peaks. The `.echo on` option remains available, but echo can make speech less intelligible in a busy VC.
+Telegram audio/video files are processed server-side by FFmpeg. The clarity-first default keeps echo disabled, removes rumble, lifts quiet speech, adds controlled presence, applies an extra loudness push, and normalizes the final loudness before limiting peaks. The `.echo on` option remains available, but echo can make speech less intelligible in a busy VC.
 
 Telegram limits participant volume server-side. Therefore, the logged-in account’s live microphone can be set up to `20000` / `200%`, but other participants are not modified and server-side bass, echo, or compressor effects cannot be applied to a phone microphone. Those DSP effects are available for bot playback audio. The bot does not automatically detect or undo an external mute.
 

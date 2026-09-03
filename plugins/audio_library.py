@@ -187,7 +187,8 @@ async def cb_audio_library(bot, cq):
                     f"🎵 <b>{title}</b>\n\n"
                     "Is message ko reply karke bhejein:\n"
                     "<code>.tag myaudio</code>\n\n"
-                    "Phir group mein likhein: <code>.play myaudio</code>"
+                    "Phir group ke VC mein likhein: <code>.play myaudio &lt;chat_id&gt;</code>\n"
+                    "Example: <code>.play myaudio -1001234567890</code>"
                 ),
             )
             await cq.answer("✅ Audio aapke DM mein bhej diya")
