@@ -20,6 +20,13 @@ class StyledBotClient(Client):
             await apply_native_styles(message, markup)
         return message
 
+    async def send_animation(self, *args, **kwargs):
+        markup = kwargs.get("reply_markup")
+        message = await super().send_animation(*args, **kwargs)
+        if markup:
+            await apply_native_styles(message, markup)
+        return message
+
     async def edit_message_text(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")
         message = await super().edit_message_text(*args, **kwargs)
