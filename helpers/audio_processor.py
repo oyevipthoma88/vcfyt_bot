@@ -74,9 +74,9 @@ def build_ffmpeg_filter(
     filters = [
         "highpass=f=60",
         "aresample=48000",
-        # Adaptive normaliser: short 150 ms frames, 15-frame window, up to 50x
-        # gain -> quiet sources are lifted to full scale almost immediately.
-        "dynaudnorm=f=150:g=15:p=0.95:m=50:r=0.9:s=0",
+        # Natural loudness control: raises quiet sources without the pumping and
+        # metallic voice artifacts caused by extreme frame-by-frame gain.
+        "dynaudnorm=f=300:g=15:p=0.98:m=20:r=0.85:s=0",
     ]
 
     if bass_value:
@@ -85,11 +85,11 @@ def build_ffmpeg_filter(
     filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(-6.0 + treble_value * 0.12)}")
     filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(-4.0 + treble_value * 0.08)}")
 
-    # Boost 0..10 -> compression ratio 2..12 and makeup 0..+10 dB. Higher boost
-    # means denser, louder audio.
-    ratio = 2.0 + boost_value
-    threshold = max(0.05, 0.30 - boost_value * 0.025)
-    makeup = boost_value * 1.0
+    # Boost 0..10 -> controlled compression. Keep the ratio and makeup
+    # moderate so loudness rises while the speaker's natural timbre remains.
+    ratio = 2.0 + boost_value * 0.75
+    threshold = max(0.10, 0.30 - boost_value * 0.02)
+    makeup = boost_value * 1.2
     filters.append(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
         f"attack=3:release=120:makeup={makeup:.1f}:knee=4"
