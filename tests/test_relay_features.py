@@ -56,7 +56,7 @@ class RelayFeatureTests(unittest.TestCase):
 
     def test_live_mic_filter_is_aggressive_and_ffmpeg_valid(self):
         af = build_live_mic_filter()
-        self.assertIn("volume=18dB", af)
+        self.assertIn("volume=30dB", af)
         self.assertIn("ratio=20", af)
         self.assertIn("alimiter=limit=0.995", af)
         with tempfile.TemporaryDirectory() as d:

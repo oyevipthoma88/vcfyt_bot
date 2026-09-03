@@ -150,11 +150,11 @@ def build_live_mic_filter() -> str:
         "equalizer=f=90:t=q:w=1:g=12,"
         "equalizer=f=3000:t=q:w=1.2:g=6,"
         "equalizer=f=8000:t=q:w=1.2:g=4,"
-        "volume=18dB,"
-        "acompressor=threshold=0.04:ratio=20:attack=0.1:release=45:makeup=18:knee=8,"
-        "acompressor=threshold=0.02:ratio=20:attack=0.1:release=35:makeup=18:knee=8,"
+        "volume=30dB,"
+        "acompressor=threshold=0.04:ratio=20:attack=0.1:release=45:makeup=24:knee=8,"
+        "acompressor=threshold=0.02:ratio=20:attack=0.1:release=35:makeup=24:knee=8,"
         "loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false,"
-        "volume=20dB,alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1"
+        "volume=24dB,alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1"
     )
 
 
