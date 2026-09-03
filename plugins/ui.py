@@ -3,7 +3,7 @@ Shared UI — every screen, keyboard and text lives here so the bot has one
 consistent, professional look. Everything is button-driven.
 """
 
-from pyrogram.types import InlineKeyboardButton as B
+from pyrogram.types import InlineKeyboardButton as _InlineKeyboardButton
 from pyrogram.types import InlineKeyboardMarkup as K
 
 from config import Config
@@ -12,6 +12,38 @@ GEN = Config.SESSION_BOT_LINK
 GEN_NAME = f"@{Config.SESSION_BOT_USERNAME}"
 
 LINE = "━━━━━━━━━━━━━━━━━━━━"
+
+
+_STYLE_WORDS = {
+    "danger": ("logout", "cancel", "stop", "reset", "delete", "untag", "ban", "restart"),
+    "success": ("login", "addstring", "apply", "resume", "save", "send", "start", "on"),
+}
+
+
+def _button_style(text: str, callback_data: str = None) -> str:
+    """Choose a Telegram Bot API button style from its action semantics."""
+    haystack = f"{callback_data or ''} {text}".lower()
+    for style, words in _STYLE_WORDS.items():
+        if any(word in haystack for word in words):
+            return style
+    return "primary"
+
+
+def B(text: str, callback_data: str = None, style: str = None, **kwargs):
+    """Build a semantic button, with fallback for older Pyrogram builds.
+
+    Telegram supports primary/success/danger styles in newer Bot API clients.
+    Older clients reject the style field, so they retain the same working
+    keyboard with emoji/text semantics instead of crashing the bot.
+    """
+    params = dict(kwargs)
+    if callback_data is not None:
+        params["callback_data"] = callback_data
+    selected = style or _button_style(text, callback_data)
+    try:
+        return _InlineKeyboardButton(text, style=selected, **params)
+    except TypeError:
+        return _InlineKeyboardButton(text, **params)
 
 
 # ── Home ─────────────────────────────────────────────────────────────────────

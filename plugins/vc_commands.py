@@ -8,7 +8,7 @@ Prefix: . or /
 import os
 
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton as B
+from plugins.ui import B
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
