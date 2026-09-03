@@ -22,6 +22,7 @@ from helpers.logger_channel import (
     log_error, log_shutdown, log_startup, set_bot, verify_log_channel,
 )
 from helpers.vc_manager import session_manager
+from helpers.styled_client import StyledBotClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,7 +84,7 @@ async def main():
     validate_config()
     await db.connect()
 
-    bot = Client(
+    bot = StyledBotClient(
         "vcbot",
         api_id=Config.API_ID,
         api_hash=Config.API_HASH,

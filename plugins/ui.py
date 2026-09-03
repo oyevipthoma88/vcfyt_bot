@@ -97,7 +97,11 @@ def B(text: str, callback_data: str = None, style: str = None,
             # Preserve the semantic meaning visibly instead of silently
             # returning an indistinguishable normal button.
             text = f"{_STYLE_FALLBACK_LABEL[style]} {text}"
-    return _InlineKeyboardButton(text, **params)
+    button = _InlineKeyboardButton(text, **params)
+    if style:
+        # Kept as a private tag for the optional Bot API markup bridge.
+        button._bot_api_style = style
+    return button
 
 
 # ── Home ─────────────────────────────────────────────────────────────────────

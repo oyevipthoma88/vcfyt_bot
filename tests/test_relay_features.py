@@ -15,6 +15,7 @@ from helpers.audio_processor import (
 )
 from helpers.database import Database
 from plugins.ui import B, ButtonStyle
+from helpers.bot_api_styles import markup_payload
 
 ROOT = pathlib.Path(__file__).parents[1]
 
@@ -73,6 +74,18 @@ class RelayFeatureTests(unittest.TestCase):
         button = B("Logout", callback_data="menu:logout")
         self.assertEqual(button.text, "[DANGER] Logout")
         self.assertEqual(button.callback_data, "menu:logout")
+
+    def test_bot_api_bridge_emits_native_style_without_numeric_emoji_id(self):
+        from pyrogram.types import InlineKeyboardMarkup
+        markup = InlineKeyboardMarkup([[
+            B("Support", url="https://example.com",
+              style=ButtonStyle.SUCCESS,
+              icon_custom_emoji_id=5443038326535759644),
+        ]])
+        payload = markup_payload(markup)
+        self.assertEqual(payload["inline_keyboard"][0][0]["style"], "success")
+        self.assertNotIn("icon_custom_emoji_id", payload["inline_keyboard"][0][0])
+        self.assertEqual(payload["inline_keyboard"][0][0]["text"], "Support")
 
     def test_echo_only_when_enabled(self):
         self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))
