@@ -36,6 +36,34 @@ def _cleanup_source(path: str):
             pass
 
 
+def _cached_file_id(message):
+    media = (getattr(message, "audio", None) or getattr(message, "voice", None)
+             or getattr(message, "video", None) or getattr(message, "document", None)
+             or getattr(message, "video_note", None))
+    return getattr(media, "file_id", None) if media else None
+
+
+async def _archive_played_audio(bot: Client, source_file_id: str, title: str):
+    """Archive once; archive failures never interrupt playback."""
+    if not source_file_id or not Config.AUDIO_ARCHIVE_CHANNEL:
+        return
+    if await db.get_archived_audio(source_file_id):
+        return
+    try:
+        archived = await bot.send_cached_media(
+            Config.AUDIO_ARCHIVE_CHANNEL, source_file_id,
+            caption=f"🎧 <b>{title}</b>\n🗃️ VC Fyt audio archive",
+        )
+        archive_file_id = _cached_file_id(archived)
+        if archive_file_id:
+            await db.save_archived_audio(
+                source_file_id, archive_file_id, title,
+                "audio" if getattr(archived, "audio", None) or getattr(archived, "voice", None) else "video",
+            )
+    except Exception as exc:
+        await log_error("archive_played_audio", exc)
+
+
 def now_playing_kb(cid: int) -> K:
     """Controls shown on every active playback message."""
     return K([
@@ -150,39 +178,43 @@ async def cmd_tags(bot: Client, msg: Message):
 
 # ── Source resolution ────────────────────────────────────────────────────────
 async def resolve_source(bot: Client, msg: Message, arg: str):
-    """Return (path, name) or (None, None) after replying with the error."""
+    """Return (path, name, source_file_id) or three Nones on failure."""
     reply = msg.reply_to_message
     if reply:
         media = (reply.audio or reply.voice or reply.video or reply.document
                  or reply.video_note)
         if media:
+            source_file_id = media.file_id
             stat = await msg.reply_text("⬇ Media download ho raha hai…")
             try:
-                path = await reply.download()
+                archived = await db.get_archived_audio(source_file_id)
+                path = await bot.download_media(archived["archive_file_id"] if archived else source_file_id)
             except Exception as e:
                 await stat.edit_text(f" Download fail: <code>{e}</code>")
                 await log_error("resolve_source_reply", e)
-                return None, None
+                return None, None, None
             await stat.delete()
-            return path, getattr(media, "file_name", None) or "Reply media"
+            return path, getattr(media, "file_name", None) or "Reply media", source_file_id
 
     if arg:
         # Saved Telegram tag only. External URL/search downloads are disabled.
         tag = await db.get_tag(msg.from_user.id, arg.split()[0].lower())
         if tag:
+            source_file_id = tag["file_id"]
             stat = await msg.reply_text("⬇ Tagged file download ho rahi hai…")
             try:
-                path = await bot.download_media(tag["file_id"])
+                archived = await db.get_archived_audio(source_file_id)
+                path = await bot.download_media(archived["archive_file_id"] if archived else source_file_id)
             except Exception as e:
                 await stat.edit_text(f" Download fail: <code>{e}</code>")
-                return None, None
+                return None, None, None
             await stat.delete()
-            return path, arg
+            return path, arg, source_file_id
         await msg.reply_text(
             " Sirf Telegram audio/video reply ya saved tag use karein. "
             "External links aur search playback supported nahi hai."
         )
-        return None, None
+        return None, None, None
 
     await msg.reply_text(
         "<b>Usage</b>\n"
@@ -191,7 +223,7 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
         "• <code>.play &lt;tag&gt;</code>\n"
         "• <code>.play &lt;tag&gt; &lt;group_chat_id&gt;</code>"
     )
-    return None, None
+    return None, None, None
 
 
 def _split_args(msg: Message):
@@ -221,7 +253,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
     if not cid:
         return
 
-    path, name = await resolve_source(bot, msg, source_arg)
+    path, name, source_file_id = await resolve_source(bot, msg, source_arg)
     if not path or not os.path.exists(path):
         return
 
@@ -241,6 +273,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         await stat.edit_text(f" Error: <code>{e}</code>")
         await log_error("cmd_play", e)
         return
+    await _archive_played_audio(bot, source_file_id, name)
 
     await stat.edit_text(
         f"{' <b>Queued!</b>' if status == 'queued' else '▶ <b>Playing!</b>'}\n\n"
@@ -272,7 +305,7 @@ async def cmd_playforce(bot: Client, msg: Message):
     cid = await need_chat(msg, cid_arg)
     if not cid:
         return
-    path, name = await resolve_source(bot, msg, source_arg)
+    path, name, source_file_id = await resolve_source(bot, msg, source_arg)
     if not path or not os.path.exists(path):
         return
     try:
@@ -290,6 +323,7 @@ async def cmd_playforce(bot: Client, msg: Message):
         await stat.edit_text(f" Error: <code>{e}</code>")
         await log_error("cmd_playforce", e)
         return
+    await _archive_played_audio(bot, source_file_id, name)
     await stat.edit_text(
         f" <b>Force playing!</b>\n\n"
         f" <b>Source:</b> {name}\n"

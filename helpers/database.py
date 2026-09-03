@@ -78,6 +78,15 @@ class Database:
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS audio_archive (
+                source_file_id TEXT PRIMARY KEY,
+                archive_file_id TEXT NOT NULL,
+                title TEXT DEFAULT '',
+                file_type TEXT DEFAULT 'audio',
+                created_at TEXT NOT NULL
+            )
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 user_id    INTEGER PRIMARY KEY,
                 volume     INTEGER,
@@ -202,6 +211,30 @@ class Database:
             return [int(row["chat_id"]) for row in rows if row.get("chat_id") is not None]
         rows = self._sql("SELECT chat_id FROM broadcast_chats", fetch=True)
         return [int(row["chat_id"]) for row in rows] if rows else []
+
+    async def get_archived_audio(self, source_file_id: str) -> Optional[dict]:
+        if not source_file_id:
+            return None
+        if self._use_mongo:
+            return await self._mongo.audio_archive.find_one(
+                {"source_file_id": source_file_id}
+            )
+        rows = self._sql("SELECT * FROM audio_archive WHERE source_file_id=?",
+                         (source_file_id,), fetch=True)
+        return dict(rows[0]) if rows else None
+
+    async def save_archived_audio(self, source_file_id: str, archive_file_id: str,
+                                  title: str = "", file_type: str = "audio"):
+        ts = datetime.now(timezone.utc).isoformat()
+        if self._use_mongo:
+            await self._mongo.audio_archive.update_one(
+                {"source_file_id": source_file_id},
+                {"$set": {"archive_file_id": archive_file_id, "title": title,
+                          "file_type": file_type, "created_at": ts}}, upsert=True,
+            )
+            return
+        self._sql("INSERT OR REPLACE INTO audio_archive VALUES (?,?,?,?,?)",
+                  (source_file_id, archive_file_id, title, file_type, ts))
 
     # ── TAGGED FILES ─────────────────────────────────────────────────────────
     async def tag_file(self, user_id: int, tag_name: str, file_id: str,

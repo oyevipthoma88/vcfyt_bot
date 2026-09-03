@@ -51,6 +51,7 @@ class Config:
     # Pre-configured log channel. Can still be overridden with the LOG_CHANNEL
     # env var, but it is NOT required any more — logging works out of the box.
     LOG_CHANNEL: int = _int("LOG_CHANNEL", -1004303404961)
+    AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", -1004486549326)
 
     # ── Optional default userbot session (owner) ─────────────────────────────
     STRING_SESSION: str = os.environ.get("STRING_SESSION", "")
