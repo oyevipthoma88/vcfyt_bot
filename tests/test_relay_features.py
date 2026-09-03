@@ -11,7 +11,8 @@ os.environ["OWNER_IDS"] = "202,303"
 
 from config import Config
 from helpers.audio_processor import (
-    _sanitize_ffmpeg_filter, build_ffmpeg_filter, process_audio_to_file, volume_to_db,
+    _sanitize_ffmpeg_filter, build_ffmpeg_filter, build_live_mic_filter,
+    process_audio_to_file, volume_to_db,
 )
 from helpers.database import Database
 from plugins.ui import B, ButtonStyle
@@ -52,6 +53,20 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("volume=30.00dB", af)      # +18 volume + 12 gain
         self.assertNotIn("aecho=", af)
         self.assertIn("loudnorm=I=-5", af)
+
+    def test_live_mic_filter_is_aggressive_and_ffmpeg_valid(self):
+        af = build_live_mic_filter()
+        self.assertIn("volume=18dB", af)
+        self.assertIn("ratio=20", af)
+        self.assertIn("alimiter=limit=0.995", af)
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "mic.wav")
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5",
+                 "-af", af, "-ar", "48000", "-ac", "2", out], check=True,
+            )
+            self.assertTrue(os.path.exists(out))
 
     def test_filter_uses_ffmpeg_compatible_compressor_and_limiter_ranges(self):
         af = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)

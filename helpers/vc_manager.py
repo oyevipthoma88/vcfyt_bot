@@ -34,7 +34,7 @@ from pytgcalls.types.raw import AudioParameters, AudioStream, Stream
 
 from config import Config
 from helpers.audio_processor import (
-    build_ffmpeg_filter, process_audio_to_file, shell_quote,
+    build_ffmpeg_filter, build_live_mic_filter, process_audio_to_file, shell_quote,
 )
 from helpers.logger_channel import (
     log_auto_mode, log_error, log_live_boost, log_vc_join, log_vc_leave,
@@ -423,11 +423,7 @@ class UserVC:
             devices[0],
         )
         st = self.state(chat_id)
-        mic_filter = build_ffmpeg_filter(
-            volume=st.volume, bass=st.bass, echo=False, echo_level=0,
-            boost=st.boost, relay_volume=st.relay_volume, gain=st.gain,
-            treble=st.treble,
-        ) if Config.MIC_DSP else "anull"
+        mic_filter = build_live_mic_filter() if Config.MIC_DSP else "anull"
         command = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-f", Config.MIC_INPUT_FORMAT, "-i", device.metadata,

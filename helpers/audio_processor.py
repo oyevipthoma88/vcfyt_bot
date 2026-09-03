@@ -138,6 +138,26 @@ def build_ffmpeg_filter(
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 
+def build_live_mic_filter() -> str:
+    """Build the maximum safe DSP chain for a server-connected live mic.
+
+    This is intentionally independent of playback settings: the live input is
+    driven hard, compressed densely, and limited at the output ceiling.
+    """
+    return _sanitize_ffmpeg_filter(
+        "highpass=f=70,aresample=48000,"
+        "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0,"
+        "equalizer=f=90:t=q:w=1:g=12,"
+        "equalizer=f=3000:t=q:w=1.2:g=6,"
+        "equalizer=f=8000:t=q:w=1.2:g=4,"
+        "volume=18dB,"
+        "acompressor=threshold=0.04:ratio=20:attack=0.1:release=45:makeup=18:knee=8,"
+        "acompressor=threshold=0.02:ratio=20:attack=0.1:release=35:makeup=18:knee=8,"
+        "loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false,"
+        "volume=20dB,alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1"
+    )
+
+
 def get_ffmpeg_piped_input(source: str, **kwargs) -> list:
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
