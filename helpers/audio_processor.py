@@ -85,7 +85,7 @@ def build_ffmpeg_filter(
         # Aggressive loudness normalisation: lifts quiet sources hard towards
         # full scale so a whisper-quiet recording comes out as loud as a mastered
         # track. Max gain for maximum clean loudness.
-        "dynaudnorm=f=150:g=31:p=0.999:m=60:r=0.92:s=0",
+        "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0",
         # Pre-amplify after normalisation so quiet sources hit the compressors
         # hotter without changing the documented filter-chain order.
         "volume=6dB",
@@ -109,8 +109,8 @@ def build_ffmpeg_filter(
     # Second compressor: aggressive mastering-style density for maximum
     # perceived loudness, while the final limiter prevents digital clipping.
     filters.append(
-        f"acompressor=threshold=0.04:ratio=20.0:"
-        f"attack=1:release=50:makeup=16.0:knee=8"
+        f"acompressor=threshold=0.02:ratio=20.0:"
+        f"attack=1:release=50:makeup=20.0:knee=8"
     )
 
     if use_echo and echo_value:
