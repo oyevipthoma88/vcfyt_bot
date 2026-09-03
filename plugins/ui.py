@@ -26,6 +26,16 @@ async def edit_screen(message, text: str, reply_markup=None, **kwargs):
         return await message.edit_caption(text, reply_markup=reply_markup)
 
 
+async def safe_answer(cq, text: str = "", **kwargs):
+    """Answer a callback without crashing when Telegram already expired it."""
+    try:
+        return await cq.answer(text, **kwargs)
+    except RPCError as exc:
+        if type(exc).__name__ != "QueryIdInvalid":
+            raise
+        return None
+
+
 # Bot API style is not available in every Pyrogram/Pyrofork build. Keep the
 # semantic style at this single boundary and fall back to a plain button so
 # unsupported versions never break keyboard construction or callback routing.

@@ -4,7 +4,7 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup as K, Message
 
 from config import Config
-from plugins.ui import B, edit_screen
+from plugins.ui import B, edit_screen, safe_answer
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error
 
@@ -133,10 +133,10 @@ async def cb_audio_library(bot, cq):
             "<code>.play myaudio &lt;chat_id&gt;</code> chalayein.",
             reply_markup=library_kb(),
         )
-        await cq.answer()
+        await safe_answer(cq)
         return
     if action == "help":
-        await cq.answer("Reply to audio/video, then .saveaudio <title> bhejein", show_alert=True)
+        await safe_answer(cq, "Reply to audio/video, then .saveaudio <title> bhejein", show_alert=True)
         return
     if action == "my":
         owner = Config.primary_owner()
@@ -144,35 +144,35 @@ async def cb_audio_library(bot, cq):
             cq, await db.list_available_audio(uid, owner),
             " <b>My Audio + Bot Audios</b>", uid,
         )
-        await cq.answer()
+        await safe_answer(cq)
         return
     if action == "bot":
         owner = Config.primary_owner()
         await _show_items(
             cq, await db.list_bot_audio(owner), " <b>Bot Audios</b>", uid
         )
-        await cq.answer()
+        await safe_answer(cq)
         return
     if len(parts) < 3:
-        await cq.answer("Invalid audio action", show_alert=True)
+        await safe_answer(cq, "Invalid audio action", show_alert=True)
         return
     if action == "play":
         action = "send"
     audio_id = parts[2]
     item = await db.get_audio(audio_id)
     if not item:
-        await cq.answer("Audio nahi mila", show_alert=True)
+        await safe_answer(cq, "Audio nahi mila", show_alert=True)
         return
     owner_id = int(item.get("owner_id", 0))
     if owner_id not in {uid, Config.primary_owner()}:
-        await cq.answer("Is audio ka access aapke account ke liye nahi hai", show_alert=True)
+        await safe_answer(cq, "Is audio ka access aapke account ke liye nahi hai", show_alert=True)
         return
     if action == "del":
         if owner_id != uid:
-            await cq.answer("Sirf apna audio delete kar sakte hain", show_alert=True)
+            await safe_answer(cq, "Sirf apna audio delete kar sakte hain", show_alert=True)
             return
         deleted = await db.delete_audio(uid, audio_id)
-        await cq.answer("Deleted" if deleted else "Audio nahi mila", show_alert=True)
+        await safe_answer(cq, "Deleted" if deleted else "Audio nahi mila", show_alert=True)
         try:
             await edit_screen(cq.message, " Audio delete ho gaya.", reply_markup=library_kb())
         except Exception:
@@ -194,10 +194,10 @@ async def cb_audio_library(bot, cq):
                     "Example: <code>.play myaudio -1001234567890</code>"
                 ),
             )
-            await cq.answer(" Audio isi chat mein bhej diya")
+            await safe_answer(cq, " Audio isi chat mein bhej diya")
         except Exception as exc:
             await log_error("send_library_audio", exc)
-            await cq.answer(
+            await safe_answer(cq,
                 "Audio bhejna fail hua. Bot ko pehle /start karein.",
                 show_alert=True,
             )

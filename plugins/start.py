@@ -13,7 +13,7 @@ from helpers.database import db
 from helpers.logger_channel import log_command, log_error, log_new_user
 from helpers.vc_manager import AUTO_PRESET, session_manager
 from plugins.ui import (
-    home_kb, home_text, settings_kb, settings_text, status_text, edit_screen,
+    home_kb, home_text, settings_kb, settings_text, status_text, edit_screen, safe_answer,
 )
 from plugins.tutorial import TUTORIAL_MENU_TEXT, tutorial_kb
 
@@ -62,13 +62,13 @@ async def cb_home(bot, cq):
         reply_markup=home_kb(Config.is_owner(user.id), logged, active_chat_id),
         disable_web_page_preview=True,
     )
-    await cq.answer()
+    await safe_answer(cq)
 
 
 @Client.on_callback_query(filters.regex(r"^menu:tutorial$"))
 async def cb_tutorial_menu(bot, cq):
     await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
-    await cq.answer()
+    await safe_answer(cq)
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ async def cb_status(bot, cq):
     from plugins.ui import back_kb
     await edit_screen(cq.message, status_text(uid, data, uvc, s),
                                reply_markup=back_kb("menu:home"))
-    await cq.answer()
+    await safe_answer(cq)
 
 
 # ── Audio settings panel ─────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ async def cmd_settings(bot: Client, msg: Message):
 async def cb_settings(bot, cq):
     s = await db.get_settings(cq.from_user.id)
     await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
-    await cq.answer()
+    await safe_answer(cq)
 
 
 DEFAULT_SETTINGS = {
@@ -143,12 +143,14 @@ async def apply_settings_live(user_id: int) -> int:
 
 @Client.on_callback_query(filters.regex(r"^set:"))
 async def cb_settings_change(bot, cq):
+    # Telegram callback queries expire quickly. A settings write/reapply can
+    # take longer than that, so acknowledge before touching the database/VC.
+    await safe_answer(cq)
     uid = cq.from_user.id
     _, action, *rest = cq.data.split(":")
     s = await db.get_settings(uid)
 
     if action == "noop":
-        await cq.answer()
         return
 
     if action in ("vol", "relay"):
@@ -179,8 +181,6 @@ async def cb_settings_change(bot, cq):
         s.update(AUTO_PRESET, auto=1)
     elif action == "apply":
         n = await apply_settings_live(uid)
-        await cq.answer(f" {n} VC par apply ho gaya" if n
-                        else "Koi active VC nahi", show_alert=not n)
         return
 
     await db.save_settings(uid, **s)
@@ -189,4 +189,3 @@ async def cb_settings_change(bot, cq):
         await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
     except Exception:
         pass
-    await cq.answer("Saved ")

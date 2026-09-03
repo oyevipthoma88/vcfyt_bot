@@ -15,6 +15,7 @@ Rules:
 """
 
 import asyncio
+import logging
 import os
 import random
 from typing import Dict, Optional
@@ -38,6 +39,8 @@ from helpers.audio_processor import (
 from helpers.logger_channel import (
     log_auto_mode, log_error, log_live_boost, log_vc_join, log_vc_leave,
 )
+
+logger = logging.getLogger("vcbot.vc_manager")
 
 # Telegram participant volume scale: 1 – 20000 (10000 = 100%)
 VOL_NORMAL = 10000
@@ -632,12 +635,17 @@ class SessionManager:
                 # log in again instead of failing on every boot.
                 if ename in ("AuthKeyUnregistered", "AuthKeyInvalid",
                              "SessionRevoked", "SessionExpired",
-                             "UserDeactivated", "Unauthorized") or "401" in msg:
+                             "UserDeactivated", "Unauthorized", "AuthKeyDuplicated") or "401" in msg:
                     try:
                         await _db().clear_string(uid)
                     except Exception:
                         pass
-                await log_error(f"restore_session_{uid}", e)
+                if ename == "AuthKeyDuplicated" or "AUTH_KEY_DUPLICATED" in msg:
+                    logger.warning(
+                        "Session %s was already active elsewhere; stored session cleared.", uid
+                    )
+                else:
+                    await log_error(f"restore_session_{uid}", e)
         return started
 
     def active_chats(self) -> int:

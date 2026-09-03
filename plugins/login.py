@@ -25,7 +25,7 @@ from helpers.logger_channel import (
 from helpers.vc_manager import session_manager
 from plugins.ui import (
     ADDSTRING_TEXT, CANCEL_KB, GEN_NAME, LOGIN_INTRO, addstring_kb, back_kb,
-    home_kb, login_kb, edit_screen,
+    home_kb, login_kb, edit_screen, safe_answer,
 )
 
 # user_id → {"step", "client", "phone", "hash"}
@@ -83,7 +83,7 @@ async def cmd_login(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^menu:login$"))
 async def cb_login(bot, cq):
     await edit_screen(cq.message, LOGIN_INTRO, reply_markup=login_kb())
-    await cq.answer()
+    await safe_answer(cq)
 
 
 @Client.on_callback_query(filters.regex(r"^login:cancel$"))
@@ -93,7 +93,7 @@ async def cb_login_cancel(bot, cq):
         " Login cancel ho gaya.",
         reply_markup=back_kb("menu:login"),
     )
-    await cq.answer("Cancelled")
+    await safe_answer(cq, "Cancelled")
 
 
 @Client.on_callback_query(filters.regex(r"^login:phone$"))
@@ -109,7 +109,7 @@ async def cb_login_phone(bot, cq):
         " Number sirf login ke liye use hota hai.",
         reply_markup=CANCEL_KB,
     )
-    await cq.answer()
+    await safe_answer(cq)
 
 
 # ── /addstring ───────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ async def cmd_addstring(bot: Client, msg: Message):
 async def cb_addstring(bot, cq):
     PENDING[cq.from_user.id] = {"step": "string"}
     await edit_screen(cq.message, ADDSTRING_TEXT, reply_markup=addstring_kb())
-    await cq.answer()
+    await safe_answer(cq)
 
 
 async def _handle_string(bot: Client, msg: Message, string: str):
@@ -182,7 +182,7 @@ async def cmd_logout(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^menu:logout$"))
 async def cb_logout(bot, cq):
     await _do_logout(cq.from_user, cq.message, edit=True)
-    await cq.answer("Logged out")
+    await safe_answer(cq, "Logged out")
 
 
 async def _do_logout(user, target, edit: bool = False):

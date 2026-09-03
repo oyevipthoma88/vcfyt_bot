@@ -9,7 +9,7 @@ from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
 from helpers.logger_channel import log_command
-from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen
+from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen, safe_answer
 
 TUTORIAL_MENU_TEXT = (
     " <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
@@ -227,11 +227,11 @@ async def cb_tutorial(bot, cq):
     key = cq.data.split(":", 1)[1]
     if key == "menu":
         await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
-        await cq.answer()
+        await safe_answer(cq)
         return
     text = SECTIONS.get(key)
     if not text:
-        await cq.answer("Not found")
+        await safe_answer(cq, "Not found")
         return
     await edit_screen(cq.message, text, reply_markup=back_kb("tut:menu"))
-    await cq.answer()
+    await safe_answer(cq)

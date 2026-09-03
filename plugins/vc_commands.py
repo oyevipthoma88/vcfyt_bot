@@ -8,7 +8,7 @@ Prefix: . or /
 import os
 
 from pyrogram import Client, filters
-from plugins.ui import B, edit_screen
+from plugins.ui import B, edit_screen, safe_answer
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
@@ -584,12 +584,12 @@ async def cb_vc(bot, cq):
     cid = int(cid)
     uvc = session_manager.users.get(cq.from_user.id)
     if not uvc:
-        await cq.answer("Pehle login karein.", show_alert=True)
+        await safe_answer(cq, "Pehle login karein.", show_alert=True)
         return
     if action == "now":
         st = uvc.chats.get(cid)
         if not st or not st.is_playing:
-            await cq.answer("Kuch play nahi ho raha", show_alert=True)
+            await safe_answer(cq, "Kuch play nahi ho raha", show_alert=True)
             return
         await edit_screen(cq.message,
             f" <b>NOW PLAYING</b>\n\n"
@@ -601,14 +601,14 @@ async def cb_vc(bot, cq):
             f" <b>Auto:</b> {'ON' if st.auto else 'OFF'}",
             reply_markup=now_playing_kb(cid),
         )
-        await cq.answer("Now Playing updated")
+        await safe_answer(cq, "Now Playing updated")
     elif action == "reset":
-        await cq.answer(" Reset apply ho raha hai…")
+        await safe_answer(cq, " Reset apply ho raha hai…")
         from plugins.start import DEFAULT_SETTINGS, apply_settings_live
         await db.save_settings(cq.from_user.id, **DEFAULT_SETTINGS)
         await apply_settings_live(cq.from_user.id)
     elif action == "auto":
-        await cq.answer(" Auto apply ho raha hai…")
+        await safe_answer(cq, " Auto apply ho raha hai…")
         from plugins.start import apply_settings_live
         s = await db.get_settings(cq.from_user.id)
         on = not bool(s.get("auto"))
@@ -616,23 +616,23 @@ async def cb_vc(bot, cq):
                                **(AUTO_PRESET if on else {}))
         await apply_settings_live(cq.from_user.id)
     elif action == "pause":
-        await cq.answer("⏸ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
+        await safe_answer(cq, "⏸ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
     elif action == "resume":
-        await cq.answer("▶ Resumed" if await uvc.resume(cid) else "Paused nahi tha")
+        await safe_answer(cq, "▶ Resumed" if await uvc.resume(cid) else "Paused nahi tha")
     elif action == "skip":
         await uvc.skip(cid)
-        await cq.answer("⏭ Skipped")
+        await safe_answer(cq, "⏭ Skipped")
     elif action == "stop":
         await uvc.leave(cid, reason="Stopped from button")
-        await cq.answer("⏹ Stopped")
+        await safe_answer(cq, "⏹ Stopped")
     elif action == "loop":
         st = uvc.chats.get(cid)
         if not st:
-            await cq.answer("Kuch chal nahi raha", show_alert=True)
+            await safe_answer(cq, "Kuch chal nahi raha", show_alert=True)
         else:
             st.loop = not st.loop
             st.loop_left = -1
-            await cq.answer(" Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
+            await safe_answer(cq, " Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
 
 
 # ── AUTO MODE ────────────────────────────────────────────────────────────────

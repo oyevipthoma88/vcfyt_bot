@@ -7,7 +7,7 @@ import os
 import sys
 
 from pyrogram import Client, filters
-from plugins.ui import B, edit_screen
+from plugins.ui import B, edit_screen, safe_answer
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
@@ -63,7 +63,7 @@ async def cmd_owner_panel(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^adm_"))
 async def cb_admin(bot, cq):
     if not Config.is_owner(cq.from_user.id):
-        await cq.answer(" Sirf owner!", show_alert=True)
+        await safe_answer(cq, " Sirf owner!", show_alert=True)
         return
 
     action = cq.data.split("_", 1)[1]
@@ -120,7 +120,7 @@ async def cb_admin(bot, cq):
     elif action == "back":
         await edit_screen(cq.message, await _panel_text(), reply_markup=panel_kb())
 
-    await cq.answer()
+    await safe_answer(cq)
 
 
 @Client.on_message(filters.command("broadcast") & filters.private)
