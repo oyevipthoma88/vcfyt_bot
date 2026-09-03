@@ -593,6 +593,15 @@ class SessionManager:
         try:
             return await self.add(user_id, data["string_session"])
         except Exception as e:
+            ename = type(e).__name__
+            msg = str(e)
+            if ename in ("AuthKeyUnregistered", "AuthKeyInvalid",
+                         "SessionRevoked", "SessionExpired",
+                         "UserDeactivated", "Unauthorized") or "401" in msg:
+                try:
+                    await _db().clear_string(user_id)
+                except Exception:
+                    pass
             await log_error(f"session_start_{user_id}", e)
             return None
 
@@ -612,11 +621,23 @@ class SessionManager:
         for u in users:
             if not u.get("string_session"):
                 continue
+            uid = int(u["user_id"])
             try:
-                await self.add(int(u["user_id"]), u["string_session"])
+                await self.add(uid, u["string_session"])
                 started += 1
             except Exception as e:
-                await log_error(f"restore_session_{u.get('user_id')}", e)
+                ename = type(e).__name__
+                msg = str(e)
+                # Dead/expired session: clear it so the user is prompted to
+                # log in again instead of failing on every boot.
+                if ename in ("AuthKeyUnregistered", "AuthKeyInvalid",
+                             "SessionRevoked", "SessionExpired",
+                             "UserDeactivated", "Unauthorized") or "401" in msg:
+                    try:
+                        await _db().clear_string(uid)
+                    except Exception:
+                        pass
+                await log_error(f"restore_session_{uid}", e)
         return started
 
     def active_chats(self) -> int:

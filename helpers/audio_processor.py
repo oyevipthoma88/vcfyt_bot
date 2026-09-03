@@ -72,12 +72,14 @@ def build_ffmpeg_filter(
     treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, TREBLE_MAX)
 
     filters = [
-        "highpass=f=60",
+        "highpass=f=50",
         "aresample=48000",
+        # Pre-amplify the input first so quiet sources hit the normaliser hotter.
+        "volume=6dB",
         # Aggressive loudness normalisation: lifts quiet sources hard towards
         # full scale so a whisper-quiet recording comes out as loud as a mastered
-        # track. Higher gain + max gain for maximum clean loudness.
-        "dynaudnorm=f=200:g=31:p=0.997:m=58:r=0.90:s=0",
+        # track. Max gain for maximum clean loudness.
+        "dynaudnorm=f=150:g=31:p=0.999:m=60:r=0.92:s=0",
     ]
 
     if bass_value:
@@ -88,12 +90,17 @@ def build_ffmpeg_filter(
 
     # Boost 0..10 -> heavy compression for maximum loudness. Higher ratio and
     # makeup gain push the average level much higher while keeping voice clear.
-    ratio = 3.0 + boost_value * 1.0
-    threshold = max(0.06, 0.24 - boost_value * 0.024)
-    makeup = boost_value * 2.0 + 4.0
+    ratio = 4.0 + boost_value * 1.2
+    threshold = max(0.04, 0.20 - boost_value * 0.026)
+    makeup = boost_value * 2.5 + 6.0
     filters.append(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
-        f"attack=2:release=80:makeup={makeup:.1f}:knee=2"
+        f"attack=1:release=60:makeup={makeup:.1f}:knee=1"
+    )
+    # Second compressor: squash peaks further so we can push even more gain.
+    filters.append(
+        f"acompressor=threshold=0.05:ratio=8.0:"
+        f"attack=1:release=50:makeup=8.0:knee=0"
     )
 
     if use_echo and echo_value:
@@ -112,12 +119,12 @@ def build_ffmpeg_filter(
     # music relays) with a tight loudness range so quiet parts stay loud too.
     # The extra headroom is always followed by a true-peak limiter, so the louder
     # default remains unclipped.
-    filters.append("loudnorm=I=-1:LRA=4:TP=-0.1:dual_mono=true:linear=false")
-    filters.append("volume=18.00dB")
+    filters.append("loudnorm=I=-0.5:LRA=3:TP=-0.05:dual_mono=true:linear=false")
+    filters.append("volume=20.00dB")
     # Second loudness stage: extra clean gain before the brick-wall limiter.
-    filters.append("volume=6.00dB")
-    # Brick-wall: nothing above -0.1 dBFS, fast attack so no sample clips.
-    filters.append("alimiter=limit=0.99:attack=1:release=40:level=false:asc=1")
+    filters.append("volume=10.00dB")
+    # Brick-wall: nothing above -0.05 dBFS, fast attack so no sample clips.
+    filters.append("alimiter=limit=0.995:attack=0:release=30:level=false:asc=1")
     return ",".join(filters)
 
 
