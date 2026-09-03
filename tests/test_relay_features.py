@@ -14,6 +14,7 @@ from helpers.audio_processor import (
     _sanitize_ffmpeg_filter, build_ffmpeg_filter, process_audio_to_file, volume_to_db,
 )
 from helpers.database import Database
+from plugins.ui import B, ButtonStyle
 
 ROOT = pathlib.Path(__file__).parents[1]
 
@@ -60,6 +61,13 @@ class RelayFeatureTests(unittest.TestCase):
     def test_legacy_invalid_filter_options_are_sanitized(self):
         af = _sanitize_ffmpeg_filter("acompressor=knee=0,alimiter=attack=0")
         self.assertEqual(af, "acompressor=knee=1,alimiter=attack=0.1")
+
+    def test_button_style_enum_and_custom_emoji_id_are_compatible(self):
+        button = B("Support", url="https://example.com",
+                   style=ButtonStyle.SUCCESS,
+                   icon_custom_emoji_id=5443038326535759644)
+        self.assertEqual(button.text, "Support")
+        self.assertEqual(button.url, "https://example.com")
 
     def test_echo_only_when_enabled(self):
         self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))

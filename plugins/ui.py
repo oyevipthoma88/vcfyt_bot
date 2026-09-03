@@ -3,6 +3,8 @@ Shared UI — every screen, keyboard and text lives here so the bot has one
 consistent, professional look. Everything is button-driven.
 """
 
+from enum import Enum
+
 from pyrogram.types import InlineKeyboardButton as _InlineKeyboardButton
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.errors import RPCError
@@ -13,6 +15,14 @@ GEN = Config.SESSION_BOT_LINK
 GEN_NAME = f"@{Config.SESSION_BOT_USERNAME}"
 
 LINE = "━━━━━━━━━━━━━━━━━━━━"
+
+
+class ButtonStyle(str, Enum):
+    """Bot API semantic styles; Pyrofork falls back when MTProto lacks them."""
+
+    PRIMARY = "primary"
+    SUCCESS = "success"
+    DANGER = "danger"
 
 
 async def edit_screen(message, text: str, reply_markup=None, **kwargs):
@@ -53,7 +63,8 @@ def _is_success(text: str, callback_data: str = None) -> bool:
     return any(w in haystack for w in _SUCCESS_WORDS)
 
 
-def B(text: str, callback_data: str = None, style: str = None, **kwargs):
+def B(text: str, callback_data: str = None, style: str = None,
+      icon_custom_emoji_id=None, **kwargs):
     """Build a semantic button, compatible with old and new client builds."""
     params = dict(kwargs)
     if callback_data is not None:
@@ -65,6 +76,12 @@ def B(text: str, callback_data: str = None, style: str = None, **kwargs):
         elif _is_success(text, callback_data):
             style = "success"
 
+    # Custom button emoji IDs belong to the Bot API representation and are not
+    # supported by Pyrofork's MTProto keyboard type. Deliberately discard the
+    # numeric ID instead of leaking it into the constructor and crashing.
+    del icon_custom_emoji_id
+    if isinstance(style, ButtonStyle):
+        style = style.value
     if style:
         try:
             return _InlineKeyboardButton(text, style=style, **params)
