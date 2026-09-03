@@ -108,7 +108,9 @@ async def cb_admin(bot, cq):
         await cq.message.edit_text(
             "📢 <b>Broadcast</b>\n\n"
             "<code>/broadcast &lt;message&gt;</code> ya kisi message ko reply "
-            "karke <code>/broadcast</code>.", reply_markup=back)
+            "karke <code>/broadcast</code>.\n"
+            "Message database mein registered <b>sabhi users</b> ko jayega.",
+            reply_markup=back)
 
     elif action == "restart":
         await cq.message.edit_text("♻️ Restarting…")
@@ -132,30 +134,33 @@ async def cmd_broadcast(bot: Client, msg: Message):
                              "ya kisi message ko reply karein.")
         return
 
-    active_chats = sorted({
-        chat_id
-        for uvc in session_manager.users.values()
-        for chat_id in uvc.chats
+    users = await db.all_users()
+    recipients = sorted({
+        int(user["user_id"])
+        for user in users
+        if user.get("user_id") is not None
     })
     status = await msg.reply_text(
-        f"📢 Sending to {len(active_chats)} active VC chat(s)…"
+        f"📢 Sending broadcast to {len(recipients)} registered user(s)…"
     )
     success = 0
-    for chat_id in active_chats:
+    for user_id in recipients:
         try:
             if reply_src:
-                await reply_src.forward(chat_id)
+                await reply_src.forward(user_id)
             else:
-                await bot.send_message(chat_id, text_to_send)
+                await bot.send_message(user_id, text_to_send)
             success += 1
         except Exception:
+            # A blocked bot, deleted account, or invalid chat must not stop
+            # delivery to the remaining registered users.
             pass
         await asyncio.sleep(0.05)
 
     await status.edit_text(
-        f"✅ <b>VC Broadcast done</b>\n├ Sent: {success}/{len(active_chats)}\n"
-        f"└ Failed: {len(active_chats) - success}")
-    await log_broadcast(msg.from_user.id, len(active_chats), success)
+        f"✅ <b>Broadcast done</b>\n├ Sent: {success}/{len(recipients)}\n"
+        f"└ Failed: {len(recipients) - success}")
+    await log_broadcast(msg.from_user.id, len(recipients), success)
 
 
 @Client.on_message(filters.command("users") & filters.private)
