@@ -67,12 +67,12 @@ class RelayFeatureTests(unittest.TestCase):
         button = B("Support", url="https://example.com",
                    style=ButtonStyle.SUCCESS,
                    icon_custom_emoji_id=5443038326535759644)
-        self.assertEqual(button.text, "[SUCCESS] Support")
+        self.assertEqual(button.text, "✅ Support")
         self.assertEqual(button.url, "https://example.com")
 
     def test_auto_button_semantics_are_visible_without_emoji(self):
         button = B("Logout", callback_data="menu:logout")
-        self.assertEqual(button.text, "[DANGER] Logout")
+        self.assertEqual(button.text, "❌ Logout")
         self.assertEqual(button.callback_data, "menu:logout")
 
     def test_bot_api_bridge_emits_native_style_without_numeric_emoji_id(self):

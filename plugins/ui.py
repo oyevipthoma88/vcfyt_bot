@@ -25,10 +25,10 @@ class ButtonStyle(str, Enum):
     DANGER = "danger"
 
 
-_STYLE_FALLBACK_LABEL = {
-    "primary": "[PRIMARY]",
-    "success": "[SUCCESS]",
-    "danger": "[DANGER]",
+_STYLE_EMOJI = {
+    "primary": "🔹",
+    "success": "✅",
+    "danger": "❌",
 }
 
 
@@ -82,6 +82,10 @@ def B(text: str, callback_data: str = None, style: str = None,
             style = "danger"
         elif _is_success(text, callback_data):
             style = "success"
+        else:
+            # Telegram leaves unstyled buttons app-specific/transparent.
+            # Explicitly style every button instead of relying on that default.
+            style = "primary"
 
     # Custom button emoji IDs belong to the Bot API representation and are not
     # supported by Pyrofork's MTProto keyboard type. Deliberately discard the
@@ -93,10 +97,12 @@ def B(text: str, callback_data: str = None, style: str = None,
         try:
             return _InlineKeyboardButton(text, style=style, **params)
         except (TypeError, ValueError):
-            # Older Pyrogram/Pyrofork does not expose Bot API button styles.
-            # Preserve the semantic meaning visibly instead of silently
-            # returning an indistinguishable normal button.
-            text = f"{_STYLE_FALLBACK_LABEL[style]} {text}"
+            # Pyrofork cannot serialize style over MTProto; the StyledBotClient
+            # patches this markup through Bot API after sending.
+            pass
+    emoji = _STYLE_EMOJI.get(style, "")
+    if emoji and not text.startswith(tuple(_STYLE_EMOJI.values())):
+        text = f"{emoji} {text}"
     button = _InlineKeyboardButton(text, **params)
     if style:
         # Kept as a private tag for the optional Bot API markup bridge.

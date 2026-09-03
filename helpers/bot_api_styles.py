@@ -16,7 +16,7 @@ logger = logging.getLogger("vcbot.bot_api_styles")
 
 def _button_payload(button: Any) -> dict:
     text = button.text
-    for prefix in ("[PRIMARY] ", "[SUCCESS] ", "[DANGER] "):
+    for prefix in ("[PRIMARY] ", "[SUCCESS] ", "[DANGER] ", "🔹 ", "✅ ", "❌ "):
         if text.startswith(prefix):
             text = text[len(prefix):]
             break
