@@ -14,36 +14,53 @@ GEN_NAME = f"@{Config.SESSION_BOT_USERNAME}"
 LINE = "━━━━━━━━━━━━━━━━━━━━"
 
 
-_STYLE_WORDS = {
-    "danger": ("logout", "cancel", "stop", "reset", "delete", "untag", "ban", "restart"),
-    "success": ("login", "addstring", "apply", "resume", "save", "send", "start", "on"),
-}
+# pyrofork (MTProto) does not support Bot API button styles (primary/success/
+# danger). Use emoji markers so destructive / positive actions are still
+# visually distinct in every Telegram client.
+_DANGER_WORDS = ("logout", "cancel", "stop", "reset", "delete", "untag", "ban", "restart", "off")
+_SUCCESS_WORDS = ("login", "addstring", "apply", "resume", "save", "send", "start", "on", "max")
+
+_DANGER_MARK = "🔴"
+_SUCCESS_MARK = "🟢"
 
 
-def _button_style(text: str, callback_data: str = None) -> str:
-    """Choose a Telegram Bot API button style from its action semantics."""
+def _is_danger(text: str, callback_data: str = None) -> bool:
     haystack = f"{callback_data or ''} {text}".lower()
-    for style, words in _STYLE_WORDS.items():
-        if any(word in haystack for word in words):
-            return style
-    return "primary"
+    return any(w in haystack for w in _DANGER_WORDS)
+
+
+def _is_success(text: str, callback_data: str = None) -> bool:
+    haystack = f"{callback_data or ''} {text}".lower()
+    return any(w in haystack for w in _SUCCESS_WORDS)
 
 
 def B(text: str, callback_data: str = None, style: str = None, **kwargs):
-    """Build a semantic button, with fallback for older Pyrogram builds.
+    """Build a button with emoji-based visual styling.
 
-    Telegram supports primary/success/danger styles in newer Bot API clients.
-    Older clients reject the style field, so they retain the same working
-    keyboard with emoji/text semantics instead of crashing the bot.
+    Since pyrofork/MTProto cannot set Bot API button colors, we prefix
+    danger buttons with a red dot and success buttons with a green dot
+    so users can distinguish action types at a glance.
     """
     params = dict(kwargs)
     if callback_data is not None:
         params["callback_data"] = callback_data
-    selected = style or _button_style(text, callback_data)
-    try:
-        return _InlineKeyboardButton(text, style=selected, **params)
-    except TypeError:
-        return _InlineKeyboardButton(text, **params)
+
+    if style is None:
+        if _is_danger(text, callback_data):
+            style = "danger"
+        elif _is_success(text, callback_data):
+            style = "success"
+
+    # Only add emoji marker if the text doesn't already start with one
+    # and doesn't already contain a colored dot.
+    has_dot = text.startswith((_DANGER_MARK, _SUCCESS_MARK))
+    if not has_dot:
+        if style == "danger":
+            text = f"{_DANGER_MARK} {text}"
+        elif style == "success":
+            text = f"{_SUCCESS_MARK} {text}"
+
+    return _InlineKeyboardButton(text, **params)
 
 
 # ── Home ─────────────────────────────────────────────────────────────────────
