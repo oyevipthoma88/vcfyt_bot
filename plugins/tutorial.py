@@ -130,8 +130,9 @@ SECTIONS = {
         "Owner audio ko reply karke <code>/addaudio Welcome</code> bhejega.\n"
         "Sab users <code>.audio</code> ➜ <b>Bot Audios</b> mein use dekh sakte hain.\n\n"
         "<b>Play</b>\n"
-        "Pehle apna logged-in account VC mein join karein, phir audio ke saamne "
-        "<b>Play in active VC</b> dabayein.\n"
+        "Audio ke saamne <b>Send Audio to DM</b> dabayein. Bot DM mein audio "
+        "bhejega. Us audio ko reply karke <code>.tag myaudio</code> likhein, "
+        "phir group mein <code>.play myaudio</code> chalayein.\n"
         "My Audio sirf aap delete kar sakte hain; Bot Audios owner manage karta hai."
     ),
     "boost": (

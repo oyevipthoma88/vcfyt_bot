@@ -307,6 +307,10 @@ class Database:
             for k in defaults:
                 if doc.get(k) is not None:
                     defaults[k] = doc[k]
+            # Upgrade only the old untouched defaults; preserve user-tuned values.
+            if defaults.get("boost") == 9 and defaults.get("treble") == 62:
+                defaults["boost"] = Config.DEFAULT_BOOST
+                defaults["treble"] = Config.RELAY_DEFAULT_TREBLE
         return defaults
 
     async def save_settings(self, user_id: int, **kwargs):

@@ -7,7 +7,6 @@ from config import Config
 from pyrogram.types import InlineKeyboardButton as B
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error
-from helpers.vc_manager import session_manager
 
 
 def library_kb() -> K:
@@ -26,23 +25,9 @@ def _media(reply):
             or reply.video_note)
 
 
-def _active_chat(uvc, message=None):
-    if not uvc:
-        return None
-    # A library opened inside a group already identifies the intended target.
-    # The session may not have a state entry yet when the user's account joined
-    # the VC manually, so do not require a previous bot playback in that chat.
-    if message and message.chat and message.chat.id < 0:
-        return message.chat.id
-    return next(
-        (cid for cid, state in uvc.chats.items() if state.is_playing),
-        next(iter(uvc.chats), None),
-    )
-
-
 def _item_kb(item: dict, can_delete: bool = False) -> K:
     audio_id = str(item["audio_id"])
-    rows = [[B("▶️ Play in active VC", callback_data=f"aud:play:{audio_id}")]]
+    rows = [[B("📩 Send Audio to DM", callback_data=f"aud:send:{audio_id}")]]
     if can_delete:
         rows.append([B("🗑️ Delete", callback_data=f"aud:del:{audio_id}")])
     return K(rows)
@@ -143,7 +128,8 @@ async def cb_audio_library(bot, cq):
     if action == "menu":
         await cq.message.edit_text(
             "🎧 <b>Audio Library</b>\n\n"
-            "Available Audio mein apne saved tracks aur owner ke shared tracks milenge.",
+            "Audio select karte hi bot aapko DM mein bhejega. "
+            "DM wale audio ko tag karke group mein .play se chalayein.",
             reply_markup=library_kb(),
         )
         await cq.answer()
@@ -185,24 +171,23 @@ async def cb_audio_library(bot, cq):
         except Exception:
             pass
         return
-    if action == "play":
-        uvc = await session_manager.get(uid)
-        cid = _active_chat(uvc, cq.message)
-        if not uvc or cid is None:
+    if action == "send":
+        try:
+            title = item.get("title", "Saved audio")
+            await bot.send_cached_media(
+                uid,
+                item["file_id"],
+                caption=(
+                    f"🎵 <b>{title}</b>\n\n"
+                    "Is message ko reply karke bhejein:\n"
+                    "<code>.tag myaudio</code>\n\n"
+                    "Phir group mein likhein: <code>.play myaudio</code>"
+                ),
+            )
+            await cq.answer("✅ Audio aapke DM mein bhej diya")
+        except Exception as exc:
+            await log_error("send_library_audio", exc)
             await cq.answer(
-                "Library ko group ke andar kholkar Play dabayein, "
-                "ya pehle .play se is group ko select karein.",
+                "DM mein audio bhejna fail hua. Bot ko pehle /start karein.",
                 show_alert=True,
             )
-            return
-        try:
-            path = await bot.download_media(item["file_id"])
-            if not path:
-                raise RuntimeError("Telegram media download empty path returned")
-            from plugins.vc_commands import load_state_settings
-            await load_state_settings(uid, uvc, cid)
-            await uvc.play(cid, path, item.get("title", "Saved audio"), enqueue=False)
-            await cq.answer("▶️ Active VC mein play ho raha hai")
-        except Exception as exc:
-            await log_error("play_saved_audio", exc)
-            await cq.answer("Play fail hua—VC aur login check karein", show_alert=True)
