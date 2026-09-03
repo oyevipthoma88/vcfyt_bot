@@ -144,6 +144,7 @@ async def cmd_setsource(bot: Client, msg: Message):
     except ValueError as exc:
         await msg.reply_text(f"❌ Invalid URL: <code>{exc}</code>")
         return
+    await db.set_app_value("source_code_url", shared_ui.SOURCE_CODE_URL)
     await msg.reply_text("✅ Source Code button updated. /start dobara bhejein.")
 
 
@@ -151,6 +152,7 @@ async def cmd_setsource(bot: Client, msg: Message):
 @owner_only
 async def cmd_clearsource(bot: Client, msg: Message):
     set_source_code_url("")
+    await db.set_app_value("source_code_url", "")
     await msg.reply_text("✅ Source Code button removed. /start dobara bhejein.")
 
 

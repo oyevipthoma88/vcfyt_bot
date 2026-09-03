@@ -23,6 +23,7 @@ from helpers.logger_channel import (
 )
 from helpers.vc_manager import session_manager
 from helpers.styled_client import StyledBotClient
+from plugins.ui import set_source_code_url
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,6 +86,9 @@ BOT_COMMANDS = [
 async def main():
     validate_config()
     await db.connect()
+    stored_source = await db.get_app_value("source_code_url")
+    if stored_source is not None:
+        set_source_code_url(stored_source)
 
     bot = StyledBotClient(
         "vcbot",

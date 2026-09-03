@@ -87,6 +87,12 @@ class Database:
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS app_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 user_id    INTEGER PRIMARY KEY,
                 volume     INTEGER,
@@ -127,6 +133,22 @@ class Database:
         conn.commit()
         conn.close()
         return result
+
+    async def get_app_value(self, key: str) -> Optional[str]:
+        if self._use_mongo:
+            row = await self._mongo.app_meta.find_one({"key": key})
+            return row.get("value") if row else None
+        rows = self._sql("SELECT value FROM app_meta WHERE key=?", (key,), fetch=True)
+        return str(rows[0]["value"]) if rows else None
+
+    async def set_app_value(self, key: str, value: str):
+        if self._use_mongo:
+            await self._mongo.app_meta.update_one(
+                {"key": key}, {"$set": {"value": value}}, upsert=True,
+            )
+            return
+        self._sql("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)",
+                  (key, value))
 
     # ── USERS ────────────────────────────────────────────────────────────────
     async def add_user(self, user_id: int, username: str, first_name: str,
