@@ -48,7 +48,7 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("acompressor", stages)
         self.assertIn("volume=30.00dB", af)      # +18 volume + 12 gain
         self.assertNotIn("aecho=", af)
-        self.assertNotIn("loudnorm", af)
+        self.assertIn("loudnorm=I=-5.5", af)
 
     def test_echo_only_when_enabled(self):
         self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))

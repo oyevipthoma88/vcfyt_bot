@@ -3,7 +3,7 @@
 Design goal: maximum clean loudness. Every stage is a standard FFmpeg filter
 that exists in every FFmpeg >= 4.x build (including the Heroku buildpack):
 
-  highpass -> aresample -> dynaudnorm -> EQ -> acompressor -> volume -> alimiter
+  highpass -> aresample -> dynaudnorm -> EQ -> compressor -> volume -> loudness target -> limiter
 
 * ``dynaudnorm`` lifts quiet input towards full scale block-by-block (up to
   50x), so a whisper-quiet recording comes out as loud as a mastered track.
@@ -107,6 +107,10 @@ def build_ffmpeg_filter(
 
     if extra_filters:
         filters.append(extra_filters)
+    # Perceived loudness target: make the average level comparable to loud
+    # music relays instead of only raising occasional peaks. This changes
+    # amplitude, not pitch or timbre, and is followed by a true peak limiter.
+    filters.append("loudnorm=I=-5.5:LRA=7:TP=-1.0:dual_mono=true:linear=false")
     # Brick-wall: nothing above -0.2 dBFS, fast attack so no sample clips.
     filters.append("alimiter=limit=0.977:attack=2:release=50:level=false:asc=1")
     return ",".join(filters)
