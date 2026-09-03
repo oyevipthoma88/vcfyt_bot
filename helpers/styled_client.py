@@ -1,12 +1,14 @@
 from pyrogram import Client
-from pyrogram.types import InlineKeyboardMarkup
 
 from helpers.bot_api_styles import apply_native_styles, has_native_styles
 
 
 def _transport_markup(markup):
     """Hide styled markup during MTProto send to avoid a normal-button flash."""
-    return InlineKeyboardMarkup([]) if has_native_styles(markup) else markup
+    # An empty InlineKeyboardMarkup is rejected by Telegram in some private
+    # chats, which can make /start appear to fail. None omits the field cleanly;
+    # the native Bot API patch adds the real keyboard immediately afterwards.
+    return None if has_native_styles(markup) else markup
 
 
 class StyledBotClient(Client):

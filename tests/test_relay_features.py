@@ -16,6 +16,7 @@ from helpers.audio_processor import (
 from helpers.database import Database
 from plugins.ui import B, ButtonStyle
 from helpers.bot_api_styles import markup_payload
+from helpers.styled_client import _transport_markup
 
 ROOT = pathlib.Path(__file__).parents[1]
 
@@ -86,6 +87,10 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertEqual(payload["inline_keyboard"][0][0]["style"], "success")
         self.assertNotIn("icon_custom_emoji_id", payload["inline_keyboard"][0][0])
         self.assertEqual(payload["inline_keyboard"][0][0]["text"], "Support")
+
+    def test_styled_dm_transport_omits_initial_markup(self):
+        from plugins.ui import home_kb
+        self.assertIsNone(_transport_markup(home_kb()))
 
     def test_echo_only_when_enabled(self):
         self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))
