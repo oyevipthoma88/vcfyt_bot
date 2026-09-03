@@ -46,36 +46,36 @@ def validate_config():
 
 
 BOT_COMMANDS = [
-    BotCommand("start", "🏠 Home menu"),
-    BotCommand("login", "🔐 Apna account login karein"),
-    BotCommand("addstring", "🔑 String session add karein"),
-    BotCommand("logout", "🚪 Session hataayein"),
-    BotCommand("settings", "🎚️ Audio settings panel"),
-    BotCommand("volume", "🎚️ Playback volume 0-1000"),
-    BotCommand("gain", "📈 Relay gain 0-150"),
-    BotCommand("bass", "🎸 Bass 0-100"),
-    BotCommand("treble", "✨ Treble 0-100"),
-    BotCommand("voice", "🎤 Voice profile"),
-    BotCommand("relaystatus", "📊 Relay audio status"),
-    BotCommand("myboost", "🎙️ Live mic gain"),
-    BotCommand("livegain", "🎙️ Live mic gain alias"),
-    BotCommand("mic", "🎙️ Server/virtual microphone"),
-    BotCommand("auto", "🤖 Real maximum playback preset"),
-    BotCommand("ultra", "🔥 Maximum clear playback preset"),
-    BotCommand("mystatus", "👤 Aapki info"),
-    BotCommand("help", "📖 Tutorial & commands"),
-    BotCommand("audio", "🎧 Audio Library — send items to DM"),
-    BotCommand("saveaudio", "💾 Save replied audio"),
-    BotCommand("owner", "👑 Owner panel"),
-    BotCommand("addaudio", "🎧 Add shared Bot Audio (owner)"),
-    BotCommand("users", "👥 All users (owner)"),
-    BotCommand("broadcast", "📢 Broadcast (owner)"),
-    BotCommand("stats", "📊 Stats (owner)"),
-    BotCommand("restart", "♻️ Restart (owner)"),
-    BotCommand("logtest", "🧪 Log channel test (owner)"),
-    BotCommand("stop", "⏹️ Stop and leave VC"),
-    BotCommand("end", "⏹️ End playback session"),
-    BotCommand("setlog", "🪵 Log channel set (owner)"),
+    BotCommand("start", " Home menu"),
+    BotCommand("login", " Apna account login karein"),
+    BotCommand("addstring", " String session add karein"),
+    BotCommand("logout", " Session hataayein"),
+    BotCommand("settings", " Audio settings panel"),
+    BotCommand("volume", " Playback volume 0-1000"),
+    BotCommand("gain", " Relay gain 0-150"),
+    BotCommand("bass", " Bass 0-100"),
+    BotCommand("treble", " Treble 0-100"),
+    BotCommand("voice", " Voice profile"),
+    BotCommand("relaystatus", " Relay audio status"),
+    BotCommand("myboost", " Live mic gain"),
+    BotCommand("livegain", " Live mic gain alias"),
+    BotCommand("mic", " Server/virtual microphone"),
+    BotCommand("auto", " Real maximum playback preset"),
+    BotCommand("ultra", " Maximum clear playback preset"),
+    BotCommand("mystatus", " Aapki info"),
+    BotCommand("help", " Tutorial & commands"),
+    BotCommand("audio", " Audio Library — send items to DM"),
+    BotCommand("saveaudio", " Save replied audio"),
+    BotCommand("owner", " Owner panel"),
+    BotCommand("addaudio", " Add shared Bot Audio (owner)"),
+    BotCommand("users", " All users (owner)"),
+    BotCommand("broadcast", " Broadcast (owner)"),
+    BotCommand("stats", " Stats (owner)"),
+    BotCommand("restart", " Restart (owner)"),
+    BotCommand("logtest", " Log channel test (owner)"),
+    BotCommand("stop", "⏹ Stop and leave VC"),
+    BotCommand("end", "⏹ End playback session"),
+    BotCommand("setlog", " Log channel set (owner)"),
 ]
 
 
@@ -134,18 +134,18 @@ async def main():
     try:
         await bot.send_message(
             primary_owner,
-            f"✅ <b>Bot Online</b>\n"
+            f" <b>Bot Online</b>\n"
             f"├ Bot: @{me.username}\n"
             f"├ Users: {total_users}\n"
             f"└ Sessions restored: {restored}\n\n"
-            + ("🟢 <b>Log channel:</b> working ✅"
+            + (" <b>Log channel:</b> working "
                if not log_problem else
-               f"❌ <b>Log channel problem</b>\n{log_problem}"),
+               f" <b>Log channel problem</b>\n{log_problem}"),
         )
     except Exception:
         pass
 
-    logger.info("✅ Running. Ctrl+C to stop.")
+    logger.info(" Running. Ctrl+C to stop.")
     await idle()
 
     logger.info("Shutting down…")

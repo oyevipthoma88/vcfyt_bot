@@ -13,7 +13,7 @@ from helpers.database import db
 from helpers.logger_channel import log_command, log_error, log_new_user
 from helpers.vc_manager import AUTO_PRESET, session_manager
 from plugins.ui import (
-    home_kb, home_text, settings_kb, settings_text, status_text,
+    home_kb, home_text, settings_kb, settings_text, status_text, edit_screen,
 )
 from plugins.tutorial import TUTORIAL_MENU_TEXT, tutorial_kb
 
@@ -57,7 +57,7 @@ async def cb_home(bot, cq):
     logged = await _is_logged_in(user.id)
     uvc = session_manager.users.get(user.id)
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
-    await cq.message.edit_text(
+    await edit_screen(cq.message,
         home_text(user.first_name or "friend", logged),
         reply_markup=home_kb(Config.is_owner(user.id), logged, active_chat_id),
         disable_web_page_preview=True,
@@ -67,7 +67,7 @@ async def cb_home(bot, cq):
 
 @Client.on_callback_query(filters.regex(r"^menu:tutorial$"))
 async def cb_tutorial_menu(bot, cq):
-    await cq.message.edit_text(TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
+    await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
     await cq.answer()
 
 
@@ -93,7 +93,7 @@ async def cb_status(bot, cq):
     s = await db.get_settings(uid)
     uvc = session_manager.users.get(uid)
     from plugins.ui import back_kb
-    await cq.message.edit_text(status_text(uid, data, uvc, s),
+    await edit_screen(cq.message, status_text(uid, data, uvc, s),
                                reply_markup=back_kb("menu:home"))
     await cq.answer()
 
@@ -108,7 +108,7 @@ async def cmd_settings(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^menu:settings$"))
 async def cb_settings(bot, cq):
     s = await db.get_settings(cq.from_user.id)
-    await cq.message.edit_text(settings_text(s), reply_markup=settings_kb())
+    await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
     await cq.answer()
 
 
@@ -179,14 +179,14 @@ async def cb_settings_change(bot, cq):
         s.update(AUTO_PRESET, auto=1)
     elif action == "apply":
         n = await apply_settings_live(uid)
-        await cq.answer(f"⚡ {n} VC par apply ho gaya" if n
+        await cq.answer(f" {n} VC par apply ho gaya" if n
                         else "Koi active VC nahi", show_alert=not n)
         return
 
     await db.save_settings(uid, **s)
     await apply_settings_live(uid)
     try:
-        await cq.message.edit_text(settings_text(s), reply_markup=settings_kb())
+        await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
     except Exception:
         pass
-    await cq.answer("Saved ✅")
+    await cq.answer("Saved ")

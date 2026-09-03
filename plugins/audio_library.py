@@ -4,17 +4,17 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup as K, Message
 
 from config import Config
-from plugins.ui import B
+from plugins.ui import B, edit_screen
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error
 
 
 def library_kb() -> K:
     return K([
-        [B("🎵 Available Audio", callback_data="aud:my"),
-         B("👑 Bot Audios", callback_data="aud:bot")],
-        [B("➕ Save My Audio", callback_data="aud:help")],
-        [B("🏠 Home", callback_data="menu:home")],
+        [B(" Available Audio", callback_data="aud:my"),
+         B(" Bot Audios", callback_data="aud:bot")],
+        [B(" Save My Audio", callback_data="aud:help")],
+        [B(" Home", callback_data="menu:home")],
     ])
 
 
@@ -27,20 +27,20 @@ def _media(reply):
 
 def _item_kb(item: dict, can_delete: bool = False) -> K:
     audio_id = str(item["audio_id"])
-    rows = [[B("📩 Send Audio Here", callback_data=f"aud:send:{audio_id}")]]
+    rows = [[B(" Send Audio Here", callback_data=f"aud:send:{audio_id}")]]
     if can_delete:
-        rows.append([B("🗑️ Delete", callback_data=f"aud:del:{audio_id}")])
+        rows.append([B(" Delete", callback_data=f"aud:del:{audio_id}")])
     return K(rows)
 
 
 async def _show_items(cq, items: list, heading: str, user_id: int):
     if not items:
-        await cq.message.edit_text(
-            f"{heading}\n\n📭 Abhi koi audio saved nahi hai.",
+        await edit_screen(cq.message,
+            f"{heading}\n\n Abhi koi audio saved nahi hai.",
             reply_markup=library_kb(),
         )
         return
-    await cq.message.edit_text(
+    await edit_screen(cq.message,
         f"{heading}\n\n{len(items)} audio saved hai. Neeche har item ka alag control hai.",
         reply_markup=library_kb(),
     )
@@ -48,7 +48,7 @@ async def _show_items(cq, items: list, heading: str, user_id: int):
         title = item.get("title") or "Untitled audio"
         kind = item.get("file_type", "audio")
         await cq.message.reply_text(
-            f"🎵 <b>{title}</b>\n"
+            f" <b>{title}</b>\n"
             f"├ Type: <code>{kind}</code>\n"
             f"└ ID: <code>{str(item['audio_id'])[:8]}</code>",
             reply_markup=_item_kb(
@@ -64,7 +64,7 @@ async def cmd_audio_library(bot: Client, msg: Message):
     parts = msg.text.strip().split(maxsplit=1)
     if len(parts) == 1:
         await msg.reply_text(
-            "🎧 <b>Audio Library</b>\n\n"
+            " <b>Audio Library</b>\n\n"
             "Apne saved audio aur owner ke shared Bot Audios browse karein.",
             reply_markup=library_kb(),
         )
@@ -84,7 +84,7 @@ async def cmd_save_audio(bot: Client, msg: Message):
 @Client.on_message(filters.regex(r"^[./]addaudio\b") & filters.private)
 async def cmd_add_owner_audio(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
-        await msg.reply_text("⛔ Ye command sirf owner ke liye hai.")
+        await msg.reply_text(" Ye command sirf owner ke liye hai.")
         return
     parts = msg.text.strip().split(maxsplit=1)
     title = parts[1].strip() if len(parts) > 1 else ""
@@ -97,7 +97,7 @@ async def _save_reply_audio(msg: Message, owner_id: int, title: str, mode: str):
     if not media:
         usage = ".addaudio <title>" if mode == "owner" else ".saveaudio <title>"
         await msg.reply_text(
-            f"⚠️ Audio/video message ko reply karke <code>{usage}</code> bhejein."
+            f" Audio/video message ko reply karke <code>{usage}</code> bhejein."
         )
         return
     title = (title or getattr(media, "file_name", None) or
@@ -109,12 +109,12 @@ async def _save_reply_audio(msg: Message, owner_id: int, title: str, mode: str):
         )
     except Exception as exc:
         await log_error("save_audio", exc)
-        await msg.reply_text(f"❌ Audio save nahi hua: <code>{exc}</code>")
+        await msg.reply_text(f" Audio save nahi hua: <code>{exc}</code>")
         return
     scope = "Bot Audios mein public" if mode == "owner" else "My Audio mein private"
     await msg.reply_text(
-        f"✅ <b>{title}</b> save ho gaya.\n"
-        f"📚 {scope}\n"
+        f" <b>{title}</b> save ho gaya.\n"
+        f" {scope}\n"
         f"🆔 <code>{audio_id}</code>",
         reply_markup=library_kb(),
     )
@@ -126,8 +126,8 @@ async def cb_audio_library(bot, cq):
     action = parts[1]
     uid = cq.from_user.id
     if action == "menu":
-        await cq.message.edit_text(
-            "🎧 <b>Audio Library</b>\n\n"
+        await edit_screen(cq.message,
+            " <b>Audio Library</b>\n\n"
             "Audio select karte hi bot isi chat mein bhejega. Audio ko reply karke "
             "<code>.tag myaudio</code> karein; phir kisi bhi target group VC ke liye "
             "<code>.play myaudio &lt;chat_id&gt;</code> chalayein.",
@@ -142,14 +142,14 @@ async def cb_audio_library(bot, cq):
         owner = Config.primary_owner()
         await _show_items(
             cq, await db.list_available_audio(uid, owner),
-            "🎵 <b>My Audio + Bot Audios</b>", uid,
+            " <b>My Audio + Bot Audios</b>", uid,
         )
         await cq.answer()
         return
     if action == "bot":
         owner = Config.primary_owner()
         await _show_items(
-            cq, await db.list_bot_audio(owner), "👑 <b>Bot Audios</b>", uid
+            cq, await db.list_bot_audio(owner), " <b>Bot Audios</b>", uid
         )
         await cq.answer()
         return
@@ -174,7 +174,7 @@ async def cb_audio_library(bot, cq):
         deleted = await db.delete_audio(uid, audio_id)
         await cq.answer("Deleted" if deleted else "Audio nahi mila", show_alert=True)
         try:
-            await cq.message.edit_text("🗑️ Audio delete ho gaya.", reply_markup=library_kb())
+            await edit_screen(cq.message, " Audio delete ho gaya.", reply_markup=library_kb())
         except Exception:
             pass
         return
@@ -186,7 +186,7 @@ async def cb_audio_library(bot, cq):
                 target_chat_id,
                 item["file_id"],
                 caption=(
-                    f"🎵 <b>{title}</b>\n\n"
+                    f" <b>{title}</b>\n\n"
                     "Is audio message ko reply karke bhejein:\n"
                     "<code>.tag myaudio</code>\n\n"
                     "Kisi bhi target group VC ke liye likhein: "
@@ -194,7 +194,7 @@ async def cb_audio_library(bot, cq):
                     "Example: <code>.play myaudio -1001234567890</code>"
                 ),
             )
-            await cq.answer("✅ Audio isi chat mein bhej diya")
+            await cq.answer(" Audio isi chat mein bhej diya")
         except Exception as exc:
             await log_error("send_library_audio", exc)
             await cq.answer(

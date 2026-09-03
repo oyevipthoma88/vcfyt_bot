@@ -443,7 +443,7 @@ class UserVC:
         st.mic_device = device.metadata
         st.is_playing = True
         st.is_paused = False
-        st.source_name = f"🎙️ {device.title}"
+        st.source_name = f" {device.title}"
         await self.set_participant_volume(
             chat_id, self.account_id, st.live_volume, quiet=True
         )

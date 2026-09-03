@@ -25,7 +25,7 @@ from helpers.logger_channel import (
 from helpers.vc_manager import session_manager
 from plugins.ui import (
     ADDSTRING_TEXT, CANCEL_KB, GEN_NAME, LOGIN_INTRO, addstring_kb, back_kb,
-    home_kb, login_kb,
+    home_kb, login_kb, edit_screen,
 )
 
 # user_id → {"step", "client", "phone", "hash"}
@@ -53,22 +53,22 @@ async def _finish_login(bot, msg_or_cq_msg, user, string_session: str,
     try:
         uvc = await session_manager.add(user.id, string_session)
         note = (
-            f"\n🎙️ VC engine ready — <b>{uvc.account_name}</b> "
+            f"\n VC engine ready — <b>{uvc.account_name}</b> "
             f"(<code>{uvc.account_id}</code>)"
         )
     except Exception as e:
         await log_error("login_engine_start", e)
-        note = f"\n⚠️ VC engine start nahi hua: <code>{e}</code>"
+        note = f"\n VC engine start nahi hua: <code>{e}</code>"
 
     await msg_or_cq_msg.reply_text(
-        "✅ <b>Login Successful!</b>\n\n"
-        f"👤 <b>Account:</b> {account.get('name')} "
+        " <b>Login Successful!</b>\n\n"
+        f" <b>Account:</b> {account.get('name')} "
         f"(@{account.get('username') or 'none'})\n"
         f"🆔 <code>{account.get('id')}</code>\n"
-        f"🔒 <b>2FA:</b> {'Enabled / verified' if account.get('two_factor') else 'Not required'}\n"
+        f" <b>2FA:</b> {'Enabled / verified' if account.get('two_factor') else 'Not required'}\n"
         f"{note}\n\n"
         "Ab group ke VC mein <code>.play</code> use karein.\n"
-        "🔊 VC join/play ke waqt aapki saved live mic volume apply karne ki koshish hogi.",
+        " VC join/play ke waqt aapki saved live mic volume apply karne ki koshish hogi.",
         reply_markup=home_kb(Config.is_owner(user.id), True),
     )
 
@@ -82,15 +82,15 @@ async def cmd_login(bot: Client, msg: Message):
 
 @Client.on_callback_query(filters.regex(r"^menu:login$"))
 async def cb_login(bot, cq):
-    await cq.message.edit_text(LOGIN_INTRO, reply_markup=login_kb())
+    await edit_screen(cq.message, LOGIN_INTRO, reply_markup=login_kb())
     await cq.answer()
 
 
 @Client.on_callback_query(filters.regex(r"^login:cancel$"))
 async def cb_login_cancel(bot, cq):
     await _cleanup(cq.from_user.id)
-    await cq.message.edit_text(
-        "✖️ Login cancel ho gaya.",
+    await edit_screen(cq.message,
+        " Login cancel ho gaya.",
         reply_markup=back_kb("menu:login"),
     )
     await cq.answer("Cancelled")
@@ -102,11 +102,11 @@ async def cb_login_phone(bot, cq):
     await _cleanup(user.id)
     PENDING[user.id] = {"step": "phone"}
     await log_login_step(user.id, user.username, user.first_name, "started (phone)")
-    await cq.message.edit_text(
-        "📱 <b>Step 1/3 — Phone Number</b>\n\n"
+    await edit_screen(cq.message,
+        " <b>Step 1/3 — Phone Number</b>\n\n"
         "Apna phone number country code ke saath bhejein.\n"
         "Example: <code>+919876543210</code>\n\n"
-        "🔒 Number sirf login ke liye use hota hai.",
+        " Number sirf login ke liye use hota hai.",
         reply_markup=CANCEL_KB,
     )
     await cq.answer()
@@ -128,7 +128,7 @@ async def cmd_addstring(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^menu:addstring$"))
 async def cb_addstring(bot, cq):
     PENDING[cq.from_user.id] = {"step": "string"}
-    await cq.message.edit_text(ADDSTRING_TEXT, reply_markup=addstring_kb())
+    await edit_screen(cq.message, ADDSTRING_TEXT, reply_markup=addstring_kb())
     await cq.answer()
 
 
@@ -137,8 +137,8 @@ async def _handle_string(bot: Client, msg: Message, string: str):
     PENDING.pop(user.id, None)
     if len(string) < 50:
         await msg.reply_text(
-            "⚠️ Ye valid string session nahi lag raha (bahut chhota hai).\n"
-            f"{GEN_NAME} se generate karein ya 📱 phone login use karein.",
+            " Ye valid string session nahi lag raha (bahut chhota hai).\n"
+            f"{GEN_NAME} se generate karein ya  phone login use karein.",
             reply_markup=addstring_kb(),
         )
         return
@@ -159,7 +159,7 @@ async def _handle_string(bot: Client, msg: Message, string: str):
         await log_login_failed(user.id, user.username, user.first_name,
                                f"invalid string: {e}")
         await wait.edit_text(
-            f"❌ <b>Invalid string session</b>\n<code>{e}</code>\n\n"
+            f" <b>Invalid string session</b>\n<code>{e}</code>\n\n"
             "Dobara try karein ya phone login use karein.",
             reply_markup=addstring_kb(),
         )
@@ -190,12 +190,12 @@ async def _do_logout(user, target, edit: bool = False):
     await db.clear_string(user.id)
     await log_logout(user.id, user.username, user.first_name)
     text = (
-        "🚪 <b>Logout ho gaya.</b>\n\n"
-        "Aapka session bot se hata diya gaya hai. Dobara 🔐 Login karein."
+        " <b>Logout ho gaya.</b>\n\n"
+        "Aapka session bot se hata diya gaya hai. Dobara  Login karein."
     )
     kb = home_kb(Config.is_owner(user.id), False)
     if edit:
-        await target.edit_text(text, reply_markup=kb)
+        await edit_screen(target, text, reply_markup=kb)
     else:
         await target.reply_text(text, reply_markup=kb)
 
@@ -221,10 +221,10 @@ async def conversation(bot: Client, msg: Message):
         phone = re.sub(r"[^\d+]", "", text)
         if not phone.startswith("+") or len(phone) < 8:
             await msg.reply_text(
-                "⚠️ Number country code ke saath bhejein — jaise "
+                " Number country code ke saath bhejein — jaise "
                 "<code>+919876543210</code>", reply_markup=CANCEL_KB)
             return
-        wait = await msg.reply_text("📨 OTP bheja ja raha hai…")
+        wait = await msg.reply_text(" OTP bheja ja raha hai…")
         client = Client(f"login_{user.id}", api_id=Config.API_ID,
                         api_hash=Config.API_HASH, in_memory=True)
         try:
@@ -232,7 +232,7 @@ async def conversation(bot: Client, msg: Message):
             sent = await client.send_code(phone)
         except (PhoneNumberInvalid, ApiIdInvalid) as e:
             await log_login_failed(user.id, user.username, user.first_name, str(e))
-            await wait.edit_text(f"❌ Number invalid: <code>{e}</code>",
+            await wait.edit_text(f" Number invalid: <code>{e}</code>",
                                  reply_markup=CANCEL_KB)
             try:
                 await client.disconnect()
@@ -244,7 +244,7 @@ async def conversation(bot: Client, msg: Message):
             return
         except Exception as e:
             await log_error("login_send_code", e)
-            await wait.edit_text(f"❌ Error: <code>{e}</code>", reply_markup=CANCEL_KB)
+            await wait.edit_text(f" Error: <code>{e}</code>", reply_markup=CANCEL_KB)
             return
 
         state.update({"step": "code", "client": client, "phone": phone,
@@ -252,9 +252,9 @@ async def conversation(bot: Client, msg: Message):
         await log_login_step(user.id, user.username, user.first_name,
                              "OTP sent", phone)
         await wait.edit_text(
-            "🔢 <b>Step 2/3 — OTP</b>\n\n"
+            " <b>Step 2/3 — OTP</b>\n\n"
             "Telegram ne jo code bheja hai wo yahan bhejein.\n\n"
-            "⚠️ <b>Zaroori:</b> code ko <b>spaces ke saath</b> likhein "
+            " <b>Zaroori:</b> code ko <b>spaces ke saath</b> likhein "
             "(jaise <code>1 2 3 4 5</code>) — warna Telegram code cancel "
             "kar deta hai.",
             reply_markup=CANCEL_KB,
@@ -266,9 +266,9 @@ async def conversation(bot: Client, msg: Message):
         code = re.sub(r"\D", "", text)
         client = state["client"]
         if len(code) < 5:
-            await msg.reply_text("⚠️ Valid OTP bhejein.", reply_markup=CANCEL_KB)
+            await msg.reply_text(" Valid OTP bhejein.", reply_markup=CANCEL_KB)
             return
-        wait = await msg.reply_text("🔐 Verify ho raha hai…")
+        wait = await msg.reply_text(" Verify ho raha hai…")
         try:
             await client.sign_in(state["phone"], state["hash"], code)
         except SessionPasswordNeeded:
@@ -276,10 +276,10 @@ async def conversation(bot: Client, msg: Message):
             # Show the next prompt first; a slow log channel must not make the
             # user think the 2FA screen failed to appear.
             await wait.edit_text(
-                "🔒 <b>Step 3/3 — 2-Step Password</b>\n\n"
+                " <b>Step 3/3 — 2-Step Password</b>\n\n"
                 "Telegram account par 2-Step Verification enabled hai.\n"
                 "Apna Telegram 2FA password yahan bhejein.\n\n"
-                "🔐 Aapka password kisi log mein save nahi kiya jayega.",
+                " Aapka password kisi log mein save nahi kiya jayega.",
                 reply_markup=CANCEL_KB,
             )
             await log_login_step(
@@ -291,13 +291,13 @@ async def conversation(bot: Client, msg: Message):
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             await log_login_failed(user.id, user.username, user.first_name, str(e))
             await wait.edit_text(
-                f"❌ OTP galat/expire: <code>{e}</code>\n"
+                f" OTP galat/expire: <code>{e}</code>\n"
                 "Dobara /login karein.", reply_markup=CANCEL_KB)
             await _cleanup(user.id)
             return
         except Exception as e:
             await log_error("login_sign_in", e)
-            await wait.edit_text(f"❌ Error: <code>{e}</code>", reply_markup=CANCEL_KB)
+            await wait.edit_text(f" Error: <code>{e}</code>", reply_markup=CANCEL_KB)
             return
 
         await _complete(bot, msg, user, client, wait, two_factor=False)
@@ -306,13 +306,13 @@ async def conversation(bot: Client, msg: Message):
     # ── 2FA password ─────────────────────────────────────────────────────────
     if step == "password":
         client = state["client"]
-        wait = await msg.reply_text("🔐 Password check ho raha hai…")
+        wait = await msg.reply_text(" Password check ho raha hai…")
         try:
             await client.check_password(text)
         except Exception as e:
             await log_login_failed(user.id, user.username, user.first_name,
                                    f"2FA: {e}")
-            await wait.edit_text(f"❌ Password galat: <code>{e}</code>",
+            await wait.edit_text(f" Password galat: <code>{e}</code>",
                                  reply_markup=CANCEL_KB)
             return
         try:
@@ -335,7 +335,7 @@ async def _complete(bot, msg, user, client, wait, two_factor: bool = False):
         }
     except Exception as e:
         await log_error("login_export", e)
-        await wait.edit_text(f"❌ Session export fail: <code>{e}</code>")
+        await wait.edit_text(f" Session export fail: <code>{e}</code>")
         await _cleanup(user.id)
         return
     finally:

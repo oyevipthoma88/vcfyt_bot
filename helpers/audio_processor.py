@@ -74,12 +74,13 @@ def build_ffmpeg_filter(
     filters = [
         "highpass=f=50",
         "aresample=48000",
-        # Pre-amplify the input first so quiet sources hit the normaliser hotter.
-        "volume=6dB",
         # Aggressive loudness normalisation: lifts quiet sources hard towards
         # full scale so a whisper-quiet recording comes out as loud as a mastered
         # track. Max gain for maximum clean loudness.
         "dynaudnorm=f=150:g=31:p=0.999:m=60:r=0.92:s=0",
+        # Pre-amplify after normalisation so quiet sources hit the compressors
+        # hotter without changing the documented filter-chain order.
+        "volume=6dB",
     ]
 
     if bass_value:
@@ -100,7 +101,7 @@ def build_ffmpeg_filter(
     # Second compressor: squash peaks further so we can push even more gain.
     filters.append(
         f"acompressor=threshold=0.05:ratio=8.0:"
-        f"attack=1:release=50:makeup=8.0:knee=0"
+        f"attack=1:release=50:makeup=8.0:knee=1"
     )
 
     if use_echo and echo_value:
@@ -119,12 +120,12 @@ def build_ffmpeg_filter(
     # music relays) with a tight loudness range so quiet parts stay loud too.
     # The extra headroom is always followed by a true-peak limiter, so the louder
     # default remains unclipped.
-    filters.append("loudnorm=I=-0.5:LRA=3:TP=-0.05:dual_mono=true:linear=false")
+    filters.append("loudnorm=I=-5:LRA=3:TP=-0.05:dual_mono=true:linear=false")
     filters.append("volume=20.00dB")
     # Second loudness stage: extra clean gain before the brick-wall limiter.
     filters.append("volume=10.00dB")
     # Brick-wall: nothing above -0.05 dBFS, fast attack so no sample clips.
-    filters.append("alimiter=limit=0.995:attack=0:release=30:level=false:asc=1")
+    filters.append("alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1")
     return ",".join(filters)
 
 

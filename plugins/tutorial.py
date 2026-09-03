@@ -9,10 +9,10 @@ from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
 from helpers.logger_channel import log_command
-from plugins.ui import GEN_NAME, LINE, back_kb
+from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen
 
 TUTORIAL_MENU_TEXT = (
-    "📖 <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
+    " <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
     "Naye ho? Pehle <b>Quick Start</b> follow karein.\n"
     "Audio ko loud aur clear rakhne ke liye <b>Play & Queue</b> aur "
     "<b>Audio Settings</b> dekhein.\n\n"
@@ -22,55 +22,55 @@ TUTORIAL_MENU_TEXT = (
 
 def tutorial_kb() -> K:
     return K([
-        [B("⚡ Quick Start", callback_data="tut:quick"),
-         B("🚀 Setup / Login", callback_data="tut:setup")],
-        [B("🎵 Play & Queue", callback_data="tut:play"),
-         B("🎚️ Audio Settings", callback_data="tut:effects")],
-        [B("🎧 Audio Library", callback_data="tut:library")],
-        [B("🏷️ Tags", callback_data="tut:tags"),
-         B("🔊 Live Voice Boost", callback_data="tut:boost")],
-        [B("🎛️ VC Control", callback_data="tut:vc"),
-         B("👥 Multi-User", callback_data="tut:multi")],
-        [B("❓ FAQ / Fixes", callback_data="tut:faq"),
-         B("📋 All Commands", callback_data="tut:cmds")],
-        [B("🏠 Home", callback_data="menu:home")],
+        [B(" Quick Start", callback_data="tut:quick"),
+         B(" Setup / Login", callback_data="tut:setup")],
+        [B(" Play & Queue", callback_data="tut:play"),
+         B(" Audio Settings", callback_data="tut:effects")],
+        [B(" Audio Library", callback_data="tut:library")],
+        [B(" Tags", callback_data="tut:tags"),
+         B(" Live Voice Boost", callback_data="tut:boost")],
+        [B(" VC Control", callback_data="tut:vc"),
+         B(" Multi-User", callback_data="tut:multi")],
+        [B(" FAQ / Fixes", callback_data="tut:faq"),
+         B(" All Commands", callback_data="tut:cmds")],
+        [B(" Home", callback_data="menu:home")],
     ])
 
 
 SECTIONS = {
     "quick": (
-        "⚡ <b>Quick Start — 2 minute setup</b>\n\n"
+        " <b>Quick Start — 2 minute setup</b>\n\n"
         f"{LINE}\n"
-        "1️⃣ `/start` ➜ <b>Login</b> ➜ phone/OTP/2FA complete karein.\n"
-        "2️⃣ Logged-in account ko target group mein add karein.\n"
-        "3️⃣ Group mein Voice Chat start karein.\n"
-        "4️⃣ Kisi bhi group/private chat mein audio/video ko reply karke <code>.play</code> bhejein; doosre group ke liye chat ID dein.\n"
-        "5️⃣ Loudness ke liye <code>.max</code>; normal control ke liye "
+        "1 `/start`  <b>Login</b>  phone/OTP/2FA complete karein.\n"
+        "2 Logged-in account ko target group mein add karein.\n"
+        "3 Group mein Voice Chat start karein.\n"
+        "4 Kisi bhi group/private chat mein audio/video ko reply karke <code>.play</code> bhejein; doosre group ke liye chat ID dein.\n"
+        "5 Loudness ke liye <code>.max</code>; normal control ke liye "
         "<code>/volume 320</code> aur <code>/gain 60</code>.\n"
-        "6️⃣ Live mic ke liye <code>.myboost 20000</code>.\n"
+        "6 Live mic ke liye <code>.myboost 20000</code>.\n"
         f"{LINE}\n\n"
-        "✅ Playback loud + clear default chain se process hota hai.\n"
-        "💡 Speech clarity ke liye echo off rakhein; music ke liye hi echo on karein."
+        " Playback loud + clear default chain se process hota hai.\n"
+        " Speech clarity ke liye echo off rakhein; music ke liye hi echo on karein."
     ),
     "setup": (
-        "🚀 <b>Setup — 4 steps</b>\n\n"
+        " <b>Setup — 4 steps</b>\n\n"
         f"{LINE}\n"
-        "1️⃣ <b>Login</b> — Home ➜ 🔐 Login ➜ 📱 Phone se Login\n"
+        "1 <b>Login</b> — Home   Login   Phone se Login\n"
         "   (ya string session paste karein — generator: "
         f"{GEN_NAME})\n"
-        "2️⃣ Jis group mein VC chalana hai, wahan <b>aapka logged-in "
+        "2 Jis group mein VC chalana hai, wahan <b>aapka logged-in "
         "account</b> member hona chahiye.\n"
-        "3️⃣ Group mein <b>Voice Chat start</b> karein.\n"
-        "4️⃣ Group mein <code>.play</code> (audio reply karke) — bas!\n"
+        "3 Group mein <b>Voice Chat start</b> karein.\n"
+        "4 Group mein <code>.play</code> (audio reply karke) — bas!\n"
         f"{LINE}\n\n"
-        "💡 Bot ko group mein admin banane se logged-in account ka "
+        " Bot ko group mein admin banane se logged-in account ka "
         "participant-volume control zyada reliably kaam karta hai.\n"
         "External admin mute ko bot automatically undo nahi karta.\n\n"
-        "🔐 <b>Security:</b> OTP, 2FA password aur String Session kisi "
+        " <b>Security:</b> OTP, 2FA password aur String Session kisi "
         "ke saath share na karein."
     ),
     "play": (
-        "🎵 <b>Play & Queue</b>\n\n"
+        " <b>Play & Queue</b>\n\n"
         f"{LINE}\n"
         "<code>.play</code> — isi group/chat ke VC mein reply audio chalayein\n"
         "<code>.play &lt;chat_id&gt;</code> — reply audio ko target group VC mein chalayein\n"
@@ -90,20 +90,20 @@ SECTIONS = {
         "<code>.queue</code> — queue dekhein\n"
         "<code>.vcinfo</code> — live status\n"
         f"{LINE}\n\n"
-        "▶️ Slash bhi chalta hai: <code>/play</code>"
+        "▶ Slash bhi chalta hai: <code>/play</code>"
     ),
     "tags": (
-        "🏷️ <b>Tags — apni favourite audio save karein</b>\n\n"
+        " <b>Tags — apni favourite audio save karein</b>\n\n"
         f"{LINE}\n"
         "<code>.tag &lt;name&gt;</code> — audio/video ko reply karke save\n"
         "<code>.tags</code> — apni saari tags\n"
         "<code>.untag &lt;name&gt;</code> — delete\n"
         f"{LINE}\n\n"
         "Example:\n"
-        "<code>.tag intro</code> ➜ baad mein <code>.play intro</code>"
+        "<code>.tag intro</code>  baad mein <code>.play intro</code>"
     ),
     "effects": (
-        "🎚️ <b>Audio Effects — high bhi, low bhi</b>\n\n"
+        " <b>Audio Effects — high bhi, low bhi</b>\n\n"
         f"{LINE}\n"
         "<code>/volume &lt;0-1000&gt;</code> — playback volume (default 1000)\n"
         "<code>/gain &lt;0-150&gt;</code> — loudness gain (default 150)\n"
@@ -115,24 +115,24 @@ SECTIONS = {
         "<code>.boost &lt;0-10&gt;</code> — loudness stage (default 10)\n"
         "<code>.echo on|off</code> — echo toggle\n"
         "<code>.echolvl &lt;0-10&gt;</code> — echo kitna heavy\n"
-        "<code>.max</code> — sab kuch maximum 🔥\n"
+        "<code>.max</code> — sab kuch maximum \n"
         "<code>.reset</code> — default settings\n"
         f"{LINE}\n\n"
-        "🎛️ Ya Home ➜ <b>Audio Settings</b> se buttons se badhaayein/ghataayein.\n"
+        " Ya Home  <b>Audio Settings</b> se buttons se badhaayein/ghataayein.\n"
         "Change turant chal rahe track par apply hota hai.\n\n"
-        "🎙️ Voice ke liye: bass moderate, treble 55–75, gain 100–150.\n"
-        "🎵 Music ke liye: bass 15–30 try karein; distortion aaye to gain kam karein."
+        " Voice ke liye: bass moderate, treble 55–75, gain 100–150.\n"
+        " Music ke liye: bass 15–30 try karein; distortion aaye to gain kam karein."
     ),
     "library": (
-        "🎧 <b>Audio Library — examples</b>\n\n"
+        " <b>Audio Library — examples</b>\n\n"
         f"{LINE}\n"
         "<b>Apna audio save karein</b>\n"
-        "1️⃣ Audio/video message ko reply karein.\n"
-        "2️⃣ <code>.saveaudio My Intro</code> bhejein.\n"
-        "3️⃣ <code>.audio</code> ➜ <b>My Audio</b> se list dekhein.\n\n"
+        "1 Audio/video message ko reply karein.\n"
+        "2 <code>.saveaudio My Intro</code> bhejein.\n"
+        "3 <code>.audio</code>  <b>My Audio</b> se list dekhein.\n\n"
         "<b>Owner ke shared audios</b>\n"
         "Owner audio ko reply karke <code>/addaudio Welcome</code> bhejega.\n"
-        "Sab users <code>.audio</code> ➜ <b>Bot Audios</b> mein use dekh sakte hain.\n\n"
+        "Sab users <code>.audio</code>  <b>Bot Audios</b> mein use dekh sakte hain.\n\n"
         "<b>Play</b>\n"
         "Audio ke saamne <b>Send Audio</b> dabayein. Audio ko kisi bhi chat mein reply karke "
         "<code>.tag myaudio</code> likhein.\n"
@@ -142,21 +142,21 @@ SECTIONS = {
         "My Audio sirf aap delete kar sakte hain; Bot Audios owner manage karta hai."
     ),
     "boost": (
-        "🔊 <b>Live Voice Boost</b>\n\n"
+        " <b>Live Voice Boost</b>\n\n"
         f"{LINE}\n"
         "<code>.myboost [1-20000]</code> — apne active logged-in account ki live mic gain\n"
         "<code>/livegain [1-20000]</code> — same live mic control\n"
         "VC join/reconnect par saved value automatically re-apply hoti hai.\n"
         f"{LINE}\n\n"
-        "✅ Login karte hi aapka account <b>automatically</b> max live "
+        " Login karte hi aapka account <b>automatically</b> max live "
         "volume par set ho jata hai — VC mein bolte hi aavaj tez.\n\n"
-        "⚠️ <b>Sach ye hai:</b> Telegram live mic par sirf <b>gain</b> "
+        " <b>Sach ye hai:</b> Telegram live mic par sirf <b>gain</b> "
         "(200% max) allow karta hai. Echo/bass jaise effects live mic par "
         "server-side possible nahi — wo playback audio par lagte hain. "
         "Isliye live ke liye max gain + auto re-apply use hota hai."
     ),
     "vc": (
-        "🎛️ <b>VC Control</b>\n\n"
+        " <b>VC Control</b>\n\n"
         f"{LINE}\n"
         "• Bot other participants ki volume ya mute state ko touch nahi karta.\n"
         "• Live participant-volume control sirf logged-in account par apply hota hai.\n"
@@ -168,7 +168,7 @@ SECTIONS = {
         "<code>.myboost</code> — apni live mic ko boost karein"
     ),
     "multi": (
-        "👥 <b>Multi-User</b>\n\n"
+        " <b>Multi-User</b>\n\n"
         f"{LINE}\n"
         "• Har user apne <b>apne account</b> se login karta hai.\n"
         "• Sabke alag VC session — ek saath alag groups mein chalega.\n"
@@ -176,25 +176,25 @@ SECTIONS = {
         "• Bot restart hone par sabhi logins <b>auto restore</b> ho jate "
         "hain.\n"
         f"{LINE}\n\n"
-        "🔐 <code>/logout</code> se apna session hata sakte hain."
+        " <code>/logout</code> se apna session hata sakte hain."
     ),
     "faq": (
-        "❓ <b>FAQ</b>\n\n"
+        " <b>FAQ</b>\n\n"
         f"{LINE}\n"
         "<b>Q. String session kahan se laun?</b>\n"
-        f"A. {GEN_NAME} — ya bot mein hi 📱 Phone Login karein.\n\n"
+        f"A. {GEN_NAME} — ya bot mein hi  Phone Login karein.\n\n"
         "<b>Q. .play kaam nahi kar raha?</b>\n"
         "A. Group mein VC on hai? Aapka logged-in account us group ka "
         "member hai? chat ID negative hai?\n\n"
         "<b>Q. Aavaj kam lagti hai?</b>\n"
-        "A. <code>.max</code> ya Audio Settings ➜ 🔥 MAX chalayein. Default playback loudness "
+        "A. <code>.max</code> ya Audio Settings   MAX chalayein. Default playback loudness "
         "extra boosted hai; echo off rakhein. Zarurat par `/gain 150` + `/treble 75` try karein.\n\n"
         "<b>Q. Kisi ki aavaj mute kaise karun?</b>\n"
         "A. Bot ab kisi ki aavaj kam/mute nahi karta — by design.\n"
         f"{LINE}"
     ),
     "cmds": (
-        "📋 <b>All Commands</b>\n\n"
+        " <b>All Commands</b>\n\n"
         f"{LINE}\n<b>Account</b>\n{LINE}\n"
         "/start /login /addstring /logout /mystatus /settings /help\n\n"
         f"{LINE}\n<b>Playback</b>\n{LINE}\n"
@@ -226,12 +226,12 @@ async def cmd_help(bot: Client, msg: Message):
 async def cb_tutorial(bot, cq):
     key = cq.data.split(":", 1)[1]
     if key == "menu":
-        await cq.message.edit_text(TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
+        await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
         await cq.answer()
         return
     text = SECTIONS.get(key)
     if not text:
         await cq.answer("Not found")
         return
-    await cq.message.edit_text(text, reply_markup=back_kb("tut:menu"))
+    await edit_screen(cq.message, text, reply_markup=back_kb("tut:menu"))
     await cq.answer()
