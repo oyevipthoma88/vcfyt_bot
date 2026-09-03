@@ -14,6 +14,7 @@ that exists in every FFmpeg >= 4.x build (including the Heroku buildpack):
 
 import asyncio
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -34,6 +35,13 @@ def clamp(value: int, low: int, high: int) -> int:
 
 def _db(value: float) -> str:
     return f"{value:.2f}"
+
+
+def _sanitize_ffmpeg_filter(value: str) -> str:
+    """Normalize options rejected by common FFmpeg builds before execution."""
+    value = re.sub(r"(?i)(knee=)0(?:\.0+)?(?![\d.])", r"\g<1>1", value)
+    value = re.sub(r"(?i)(attack=)0(?:\.0+)?(?![\d.])", r"\g<1>0.1", value)
+    return value
 
 
 def volume_to_db(vol: int) -> float:
@@ -126,7 +134,7 @@ def build_ffmpeg_filter(
     filters.append("volume=10.00dB")
     # Brick-wall: nothing above -0.05 dBFS, fast attack so no sample clips.
     filters.append("alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1")
-    return ",".join(filters)
+    return _sanitize_ffmpeg_filter(",".join(filters))
 
 
 def get_ffmpeg_piped_input(source: str, **kwargs) -> list:
@@ -158,11 +166,11 @@ async def process_audio_to_file(
     if output_path is None:
         fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="vc_processed_")
         os.close(fd)
-    af = build_ffmpeg_filter(
+    af = _sanitize_ffmpeg_filter(build_ffmpeg_filter(
         volume=volume, bass=bass, echo=echo, echo_level=echo_level,
         boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
         extra_filters=extra_filters,
-    )
+    ))
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
         "-i", input_path, "-vn", "-af", af,

@@ -11,7 +11,7 @@ os.environ["OWNER_IDS"] = "202,303"
 
 from config import Config
 from helpers.audio_processor import (
-    build_ffmpeg_filter, process_audio_to_file, volume_to_db,
+    _sanitize_ffmpeg_filter, build_ffmpeg_filter, process_audio_to_file, volume_to_db,
 )
 from helpers.database import Database
 
@@ -56,6 +56,10 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("knee=1", af)
         self.assertNotIn("attack=0:", af)
         self.assertIn("attack=0.1", af)
+
+    def test_legacy_invalid_filter_options_are_sanitized(self):
+        af = _sanitize_ffmpeg_filter("acompressor=knee=0,alimiter=attack=0")
+        self.assertEqual(af, "acompressor=knee=1,alimiter=attack=0.1")
 
     def test_echo_only_when_enabled(self):
         self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))
