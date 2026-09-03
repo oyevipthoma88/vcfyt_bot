@@ -44,8 +44,8 @@ VOL_NORMAL = 10000
 VOL_MAX = 20000
 
 AUTO_PRESET = {
-    "volume": 1000, "relay_volume": 1000, "bass": 20, "gain": 150,
-    "treble": 75, "boost": 10, "echo": 0, "echo_level": 0,
+    "volume": 1000, "relay_volume": 1000, "bass": 30, "gain": 150,
+    "treble": 80, "boost": 10, "echo": 0, "echo_level": 0,
 }
 
 

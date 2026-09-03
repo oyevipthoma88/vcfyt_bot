@@ -62,15 +62,15 @@ class Config:
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
     # ── Audio defaults (per-user overridable at runtime) ─────────────────────
-    DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1000)  # practical loudness scale (0-1000)
+    DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1000)  # max loudness scale (0-1000)
     DEFAULT_BASS: int = _int("DEFAULT_BASS", 8)           # controlled low-end lift (0-100)
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)  # clarity-first; enable only when wanted
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)   # 0-10
-    DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)            # 0-10 loudness stage
+    DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)            # 0-10 loudness stage (max)
 
     # Relay controls (user-facing compact controls).
-    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 1000)  # 0-400
-    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 150)       # 0-150
+    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 1000)  # 0-1000 (max)
+    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 150)       # 0-150 (max)
     RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 8)        # 0-100
     RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 75)      # 0-100
 
