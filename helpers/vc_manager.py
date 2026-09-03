@@ -62,6 +62,12 @@ def _unlink(path: Optional[str]):
             pass
 
 
+def _participant_not_joined(error: Exception) -> bool:
+    """Telegram raises this when our account is not yet a VC participant."""
+    return (type(error).__name__ == "ParticipantJoinMissing" or
+            "PARTICIPANT_JOIN_MISSING" in str(error))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 class ChatState:
     """Per (user, chat) playback state."""
@@ -308,7 +314,9 @@ class UserVC:
             try:
                 await self.calls.change_volume_call(chat_id, max(1, volume // 100))
                 ok = True
-            except Exception:
+            except Exception as exc:
+                if _participant_not_joined(exc):
+                    return False
                 ok = False
         if not ok:
             try:
@@ -321,6 +329,8 @@ class UserVC:
                 ))
                 ok = True
             except Exception as e:
+                if _participant_not_joined(e):
+                    return False
                 if not quiet:
                     await log_error("set_participant_volume", e)
                 return False

@@ -65,6 +65,7 @@ async def _finish_login(bot, msg_or_cq_msg, user, string_session: str,
         f"👤 <b>Account:</b> {account.get('name')} "
         f"(@{account.get('username') or 'none'})\n"
         f"🆔 <code>{account.get('id')}</code>\n"
+        f"🔒 <b>2FA:</b> {'Enabled / verified' if account.get('two_factor') else 'Not required'}\n"
         f"{note}\n\n"
         "Ab group ke VC mein <code>.play</code> use karein.\n"
         "🔊 VC join/play ke waqt aapki saved live mic volume apply karne ki koshish hogi.",
@@ -299,7 +300,7 @@ async def conversation(bot: Client, msg: Message):
             await wait.edit_text(f"❌ Error: <code>{e}</code>", reply_markup=CANCEL_KB)
             return
 
-        await _complete(bot, msg, user, client, wait)
+        await _complete(bot, msg, user, client, wait, two_factor=False)
         return
 
     # ── 2FA password ─────────────────────────────────────────────────────────
@@ -318,10 +319,10 @@ async def conversation(bot: Client, msg: Message):
             await msg.delete()      # password message hata dein
         except Exception:
             pass
-        await _complete(bot, msg, user, client, wait)
+        await _complete(bot, msg, user, client, wait, two_factor=True)
 
 
-async def _complete(bot, msg, user, client, wait):
+async def _complete(bot, msg, user, client, wait, two_factor: bool = False):
     """Export the string session and hand over to the session manager."""
     try:
         string = await client.export_session_string()
@@ -330,6 +331,7 @@ async def _complete(bot, msg, user, client, wait):
             "id": me.id, "name": me.first_name, "username": me.username,
             "phone": me.phone_number, "dc": me.dc_id,
             "premium": getattr(me, "is_premium", False),
+            "two_factor": bool(two_factor),
         }
     except Exception as e:
         await log_error("login_export", e)

