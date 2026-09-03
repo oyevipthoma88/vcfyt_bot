@@ -14,7 +14,7 @@ Fixed (v2):
 import html
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pyrogram.enums import ParseMode
 
@@ -46,7 +46,7 @@ def last_error() -> str:
 
 
 def _ts() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def _e(value) -> str:

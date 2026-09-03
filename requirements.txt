@@ -10,10 +10,10 @@ TgCrypto>=1.2.5
 py-tgcalls==2.3.3
 
 # Database (MongoDB Atlas — persistent storage on Heroku)
-motor>=3.3.1
-pymongo>=4.6.0
+motor>=3.7.1
+pymongo>=4.18.0
 
 # Utilities
-aiofiles>=23.0.0
-aiohttp>=3.9.0
-python-dotenv>=1.0.0
+aiofiles>=25.1.0
+aiohttp>=3.12.0
+python-dotenv>=1.2.3
