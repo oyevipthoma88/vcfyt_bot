@@ -26,10 +26,18 @@ def _media(reply):
             or reply.video_note)
 
 
-def _active_chat(uvc):
+def _active_chat(uvc, message=None):
     if not uvc:
         return None
-    return next(iter(uvc.chats), None)
+    # A library opened inside a group already identifies the intended target.
+    # The session may not have a state entry yet when the user's account joined
+    # the VC manually, so do not require a previous bot playback in that chat.
+    if message and message.chat and message.chat.id < 0:
+        return message.chat.id
+    return next(
+        (cid for cid, state in uvc.chats.items() if state.is_playing),
+        next(iter(uvc.chats), None),
+    )
 
 
 def _item_kb(item: dict, can_delete: bool = False) -> K:
@@ -179,9 +187,13 @@ async def cb_audio_library(bot, cq):
         return
     if action == "play":
         uvc = await session_manager.get(uid)
-        cid = _active_chat(uvc)
+        cid = _active_chat(uvc, cq.message)
         if not uvc or cid is None:
-            await cq.answer("Pehle group VC join karein, phir audio play karein", show_alert=True)
+            await cq.answer(
+                "Library ko group ke andar kholkar Play dabayein, "
+                "ya pehle .play se is group ko select karein.",
+                show_alert=True,
+            )
             return
         try:
             path = await bot.download_media(item["file_id"])
