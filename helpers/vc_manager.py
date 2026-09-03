@@ -45,6 +45,8 @@ logger = logging.getLogger("vcbot.vc_manager")
 # Telegram participant volume scale: 1 – 20000 (10000 = 100%)
 VOL_NORMAL = 10000
 VOL_MAX = 20000
+# Telegram's hard maximum for the logged-in Fyt playback account only.
+FYT_PARTICIPANT_VOLUME = VOL_MAX
 
 AUTO_PRESET = {
     "volume": 1000, "relay_volume": 1000, "bass": 30, "gain": 150,
@@ -246,7 +248,7 @@ class UserVC:
                 if not st or not st.auto:
                     return
                 await self.set_participant_volume(
-                    chat_id, self.account_id, st.live_volume, quiet=True
+                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
                 )
             except asyncio.CancelledError:
                 raise
@@ -276,7 +278,7 @@ class UserVC:
             self._start_keeper(chat_id)
             if st.is_playing:
                 await self.set_participant_volume(
-                    chat_id, self.account_id, st.live_volume, quiet=True
+                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
                 )
         else:
             self._stop_keeper(chat_id)
@@ -391,7 +393,7 @@ class UserVC:
             # the first seconds sound normal and is often missed after a
             # reconnect. Apply the maximum configured participant gain first.
             await self.set_participant_volume(
-                chat_id, self.account_id, st.live_volume, quiet=True,
+                chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True,
             )
         if st.auto and chat_id not in self._keepers:
             self._start_keeper(chat_id)
@@ -451,7 +453,7 @@ class UserVC:
         st.is_paused = False
         st.source_name = f" {device.title}"
         await self.set_participant_volume(
-            chat_id, self.account_id, st.live_volume, quiet=True
+            chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
         )
         return device.title
 
