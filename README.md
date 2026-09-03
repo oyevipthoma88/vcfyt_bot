@@ -13,7 +13,7 @@ Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven co
 | Loud and clear playback | FFmpeg adaptive normalisation (`dynaudnorm`), presence EQ, compression, up to +30 dB of real gain and a brick-wall limiter are applied to every track before it hits the voice chat. Output is rendered as WAV so playback starts in seconds. |
 | Live participant volume | On playback and reconnect, the bot attempts to apply the logged-in account’s saved Telegram participant volume up to `20000` / `200%`. |
 | Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
-| Audio library | Users can save My Audio; owner-saved files appear for everyone under Bot Audios. |
+| Audio library | Users can save audio; available library items are sent to DM with tag-and-play instructions. |
 | Multi-user sessions | Each owner gets an isolated Pyrogram + PyTgCalls engine and separate settings. |
 | Participant volume | The logged-in voice-chat account can be set to Telegram’s supported participant-volume maximum; other participants are not modified. |
 | Logging | Login, VC activity, commands, boosts, errors, and broadcasts can be sent to the configured log channel. |
@@ -60,11 +60,11 @@ sudo apt install -y ffmpeg
 | `LOG_CHANNEL` | No | `-1004303404961` | Channel for operational logs. |
 | `STRING_SESSION` | No | — | Optional owner session; users can also use `/login`. |
 | `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
-| `DEFAULT_BOOST` | No | `9` | Loudness stage from `0` to `10`. |
+| `DEFAULT_BOOST` | No | `10` | Loudness stage from `0` to `10`. |
 | `RELAY_DEFAULT_VOLUME` | No | `1000` | Playback volume from `0` to `1000`; mapped to a real `-12 dB` to `+24 dB` FFmpeg range. |
 | `RELAY_DEFAULT_GAIN` | No | `150` | Playback gain from `0` to `150`; mapped to a real `-6 dB` to `+18 dB` FFmpeg range. |
 | `RELAY_DEFAULT_BASS` | No | `8` | Controlled low-end lift from `0` to `100`. |
-| `RELAY_DEFAULT_TREBLE` | No | `62` | Presence/clarity control from `0` to `100`. |
+| `RELAY_DEFAULT_TREBLE` | No | `75` | Presence/clarity control from `0` to `100`. |
 | `DEFAULT_ECHO` | No | `false` | Keep off for maximum speech clarity. |
 | `DEFAULT_ECHO_LEVEL` | No | `2` | Echo intensity from `0` to `10`. |
 | `LIVE_BOOST_DEFAULT` | No | `20000` | Logged-in account participant volume; Telegram maximum is `20000`. |
@@ -80,7 +80,7 @@ sudo apt install -y ffmpeg
 3. Add the logged-in account to the target group and start a Telegram Voice Chat.
 4. Reply to an audio/video message with `.play`, or play a saved tag.
 5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
-6. Reply to an audio/video message with `.saveaudio <title>` for My Audio. The owner can use `/addaudio <title>`; those files appear for every user under Bot Audios.
+6. Open **Audio Library**, select an item, and the bot will send it to your DM. Reply to that DM audio with `.tag myaudio`, then use `.play myaudio` in the group. For new library items, reply to an audio/video message with `.saveaudio <title>`; the owner can use `/addaudio <title>` for shared Bot Audios.
 7. Use `.myboost 20000` for the logged-in account's live participant volume. The bot attempts to re-apply this value when the account joins or reconnects.
 
 ## Command reference

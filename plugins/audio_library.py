@@ -155,13 +155,19 @@ async def cb_audio_library(bot, cq):
     if len(parts) < 3:
         await cq.answer("Invalid audio action", show_alert=True)
         return
+    if action == "play":
+        action = "send"
     audio_id = parts[2]
     item = await db.get_audio(audio_id)
     if not item:
         await cq.answer("Audio nahi mila", show_alert=True)
         return
+    owner_id = int(item.get("owner_id", 0))
+    if owner_id not in {uid, Config.primary_owner()}:
+        await cq.answer("Is audio ka access aapke account ke liye nahi hai", show_alert=True)
+        return
     if action == "del":
-        if int(item.get("owner_id", 0)) != uid:
+        if owner_id != uid:
             await cq.answer("Sirf apna audio delete kar sakte hain", show_alert=True)
             return
         deleted = await db.delete_audio(uid, audio_id)

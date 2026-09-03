@@ -169,7 +169,10 @@ class UserVC:
             self._stop_keeper(update.chat_id)
             st = self.chats.pop(update.chat_id, None)
             if st:
+                for queued_path, _ in st.queue:
+                    _unlink(queued_path)
                 _unlink(st.processed_file)
+                _unlink(st.current_file)
 
         await self.calls.start()
         return self
@@ -355,6 +358,7 @@ class UserVC:
             raise
 
         old = st.processed_file
+        old_source = st.current_file
         st.processed_file = processed
         st.current_file = path
         st.source_name = source_name
@@ -363,6 +367,8 @@ class UserVC:
         st.mic_enabled = False
         if old and old != processed:
             _unlink(old)
+        if old_source and old_source != path:
+            _unlink(old_source)
 
         if Config.AUTO_LIVE_BOOST or st.auto:
             asyncio.create_task(self.set_participant_volume(
@@ -410,7 +416,16 @@ class UserVC:
         stream = Stream(microphone=AudioStream(
             MediaSource.SHELL, shell_quote(command), AudioParameters(48000, 2),
         ))
-        await self.calls.play(chat_id, stream)
+        try:
+            await self.calls.play(chat_id, stream)
+        except NoActiveGroupCall:
+            if not await self.start_voice_chat(chat_id):
+                raise RuntimeError(
+                    "Is group mein koi voice chat chalu nahi hai aur bot use "
+                    "start nahi kar saka. VC start karein ya manage-video-chats "
+                    "admin right dein."
+                )
+            await self.calls.play(chat_id, stream)
         st.mic_enabled = True
         st.mic_device = device.metadata
         st.is_playing = True
@@ -508,8 +523,11 @@ class UserVC:
         self._stop_keeper(chat_id)
         st = self.chats.pop(chat_id, None)
         if st:
+            for queued_path, _ in st.queue:
+                _unlink(queued_path)
             st.queue.clear()
             _unlink(st.processed_file)
+            _unlink(st.current_file)
         try:
             await self.calls.leave_call(chat_id)
         except Exception:

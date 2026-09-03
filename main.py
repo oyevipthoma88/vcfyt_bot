@@ -64,7 +64,7 @@ BOT_COMMANDS = [
     BotCommand("ultra", "🔥 Maximum clear playback preset"),
     BotCommand("mystatus", "👤 Aapki info"),
     BotCommand("help", "📖 Tutorial & commands"),
-    BotCommand("audio", "🎧 My Audio and Bot Audios"),
+    BotCommand("audio", "🎧 Audio Library — send items to DM"),
     BotCommand("saveaudio", "💾 Save replied audio"),
     BotCommand("owner", "👑 Owner panel"),
     BotCommand("addaudio", "🎧 Add shared Bot Audio (owner)"),

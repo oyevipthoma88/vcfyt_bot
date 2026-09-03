@@ -28,6 +28,14 @@ LOGIN_KB = K([
 ])
 
 
+def _cleanup_source(path: str):
+    if path and os.path.exists(path):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def now_playing_kb(cid: int) -> K:
     """Controls shown on every active playback message."""
     return K([
@@ -225,6 +233,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
     try:
         status = await uvc.play(cid, path, name, title, enqueue=enqueue)
     except Exception as e:
+        _cleanup_source(path)
         await stat.edit_text(f"❌ Error: <code>{e}</code>")
         await log_error("cmd_play", e)
         return
@@ -273,6 +282,7 @@ async def cmd_playforce(bot: Client, msg: Message):
     try:
         await uvc.force_play(cid, path, name, title)
     except Exception as e:
+        _cleanup_source(path)
         await stat.edit_text(f"❌ Error: <code>{e}</code>")
         await log_error("cmd_playforce", e)
         return
