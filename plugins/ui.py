@@ -26,6 +26,11 @@ def set_source_code_url(url: str) -> str:
     SOURCE_CODE_URL = value
     return SOURCE_CODE_URL
 
+
+def source_button():
+    """Return the current source button, or no row when disabled."""
+    return [[B(" Source Code", url=SOURCE_CODE_URL)]] if SOURCE_CODE_URL else []
+
 LINE = "━━━━━━━━━━━━━━━━━━━━"
 
 
@@ -162,8 +167,7 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         ],
         [B(f" Session Generator — {GEN_NAME}", url=GEN)],
     ]
-    if SOURCE_CODE_URL:
-        rows.append([B(" Source Code", url=SOURCE_CODE_URL)])
+    rows.extend(source_button())
     if active_chat_id is not None:
         rows.insert(1, [B(" Now Playing", callback_data=f"vc:now:{active_chat_id}")])
     if logged_in:
@@ -197,12 +201,14 @@ LOGIN_INTRO = (
 
 
 def login_kb() -> K:
-    return K([
+    rows = [
         [B(" Phone se Login", callback_data="login:phone")],
         [B(" String Session daalein", callback_data="menu:addstring")],
         [B(f" Generator — {GEN_NAME}", url=GEN)],
         [B(" Home", callback_data="menu:home")],
-    ])
+    ]
+    rows.extend(source_button())
+    return K(rows)
 
 
 CANCEL_KB = K([[B(" Cancel", callback_data="login:cancel")]])
@@ -218,11 +224,13 @@ ADDSTRING_TEXT = (
 
 
 def addstring_kb() -> K:
-    return K([
+    rows = [
         [B(f" Generate — {GEN_NAME}", url=GEN)],
         [B(" Ya phone se login karein", callback_data="login:phone")],
         [B(" Home", callback_data="menu:home")],
-    ])
+    ]
+    rows.extend(source_button())
+    return K(rows)
 
 
 # ── Audio settings panel ─────────────────────────────────────────────────────

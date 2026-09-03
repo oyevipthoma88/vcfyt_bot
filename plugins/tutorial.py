@@ -9,7 +9,7 @@ from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
 from helpers.logger_channel import log_command
-from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen, safe_answer
+from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen, safe_answer, source_button
 
 TUTORIAL_MENU_TEXT = (
     "📘 <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
@@ -22,7 +22,7 @@ TUTORIAL_MENU_TEXT = (
 
 
 def tutorial_kb() -> K:
-    return K([
+    rows = [
         [B(" Quick Start", callback_data="tut:quick"),
          B(" Setup / Login", callback_data="tut:setup")],
         [B(" Play & Queue", callback_data="tut:play"),
@@ -35,7 +35,9 @@ def tutorial_kb() -> K:
         [B(" FAQ / Fixes", callback_data="tut:faq"),
          B(" All Commands", callback_data="tut:cmds")],
         [B(" Home", callback_data="menu:home")],
-    ])
+    ]
+    rows.extend(source_button())
+    return K(rows)
 
 
 SECTIONS = {
