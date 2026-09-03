@@ -100,6 +100,4 @@ class Config:
     HEROKU_APP_NAME: str = os.environ.get("HEROKU_APP_NAME", "")
     # Telegram file_id or publicly reachable image URL. Empty = text-only /start.
     START_PIC: str = os.environ.get("START_PIC", "").strip()
-    SOURCE_CODE_URL: str = os.environ.get(
-        "SOURCE_CODE_URL", "https://github.com/oyevipthoma88/vcfyt_bot"
-    ).strip()
+    SOURCE_CODE_URL: str = os.environ.get("SOURCE_CODE_URL", "").strip()

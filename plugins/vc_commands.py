@@ -620,6 +620,14 @@ async def cb_vc(bot, cq):
     if not uvc:
         await safe_answer(cq, "Pehle login karein.", show_alert=True)
         return
+    if action == "list":
+        active = next((chat_id for chat_id, state in uvc.chats.items()
+                       if state.is_playing), None)
+        if active is None:
+            await safe_answer(cq, "Kuch play nahi ho raha", show_alert=True)
+            return
+        cid = active
+        action = "now"
     if action == "now":
         st = uvc.chats.get(cid)
         if not st or not st.is_playing:

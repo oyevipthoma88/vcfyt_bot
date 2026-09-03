@@ -1,5 +1,5 @@
 """
-Main entry point — VC Audio Studio Bot.
+Main entry point — Apex vc fyt bot.
 
   1. Connect DB
   2. Start the bot client (HTML parse mode everywhere)

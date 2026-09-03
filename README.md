@@ -1,4 +1,4 @@
-# VC Fyt Bot
+# Apex vc fyt bot
 
 Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven controls, loud and clear playback, live voice boost, queue, tags, and logging. The bot is built with **Pyrofork, PyTgCalls, and FFmpeg**.
 

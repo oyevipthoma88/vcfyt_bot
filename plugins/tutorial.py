@@ -12,7 +12,7 @@ from helpers.logger_channel import log_command
 from plugins.ui import GEN_NAME, LINE, back_kb, edit_screen, safe_answer, source_button
 
 TUTORIAL_MENU_TEXT = (
-    "📘 <b>VC Fyt Bot — Complete Tutorial</b>\n\n"
+    "📘 <b>Apex vc fyt bot — Complete Tutorial</b>\n\n"
     "<blockquote>✨ Naye ho? Pehle <b>Quick Start</b> follow karein.\n"
     "🎧 Play & Queue se audio control karein.\n"
     "🎚️ Audio Settings se live controls badlein.\n"

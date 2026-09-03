@@ -132,7 +132,7 @@ def home_text(name: str, logged_in: bool) -> str:
     status = "✅ Logged in" if logged_in else "⚠️ Not logged in"
     return (
         f"👋 <b>Welcome, {name}!</b>\n\n"
-        f"<blockquote>🎧 <b>VC Audio Studio Bot</b>\n"
+        f"<blockquote>🎧 <b>Apex vc fyt bot</b>\n"
         f"🔊 High-power voice-chat audio • live mic boost\n"
         f"🎚️ Bass • echo • boost • queue controls</blockquote>\n"
         f"{LINE}\n"
@@ -157,6 +157,7 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
             B(" Tutorial", callback_data="menu:tutorial"),
             B(" Audio Settings", callback_data="menu:settings"),
         ],
+        [B(" Now Playing", callback_data="vc:list:0")],
         [
             B(" VC Commands", callback_data="tut:play"),
             B(" Audio Library", callback_data="aud:menu"),
@@ -169,7 +170,7 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     ]
     rows.extend(source_button())
     if active_chat_id is not None:
-        rows.insert(1, [B(" Now Playing", callback_data=f"vc:now:{active_chat_id}")])
+        rows[2] = [B(" Now Playing", callback_data=f"vc:now:{active_chat_id}")]
     if logged_in:
         rows.insert(1 if active_chat_id is None else 2,
                     [B(" Logout", callback_data="menu:logout")])
