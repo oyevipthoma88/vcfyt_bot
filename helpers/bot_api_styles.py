@@ -14,6 +14,12 @@ from config import Config
 logger = logging.getLogger("vcbot.bot_api_styles")
 
 
+def has_native_styles(markup: Any) -> bool:
+    rows = getattr(markup, "inline_keyboard", None) or []
+    return any(getattr(button, "_bot_api_style", None)
+               for row in rows for button in row)
+
+
 def _button_payload(button: Any) -> dict:
     text = button.text
     for prefix in ("[PRIMARY] ", "[SUCCESS] ", "[DANGER] ", "🔹 ", "✅ ", "❌ "):

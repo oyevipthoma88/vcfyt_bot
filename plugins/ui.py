@@ -112,19 +112,19 @@ def B(text: str, callback_data: str = None, style: str = None,
 
 # ── Home ─────────────────────────────────────────────────────────────────────
 def home_text(name: str, logged_in: bool) -> str:
-    status = " Logged in" if logged_in else " Not logged in"
+    status = "✅ Logged in" if logged_in else "⚠️ Not logged in"
     return (
-        f" <b>Welcome, {name}!</b>\n\n"
-        f" <b>VC Audio Studio Bot</b> — voice chat mein high-power audio,\n"
-        f"live mic boost, bass, echo aur queue. Sab kuch buttons se.\n\n"
+        f"👋 <b>Welcome, {name}!</b>\n\n"
+        f"🎧 <b>VC Audio Studio Bot</b> — voice chat mein high-power audio,\n"
+        f"🔊 live mic boost, bass, echo aur queue. Sab kuch buttons se.\n\n"
         f"{LINE}\n"
         f"<b>Status:</b> {status}\n"
         f"{LINE}\n\n"
-        f" <b>Login</b> — apna account bot se connect karein (phone + OTP)\n"
-        f" <b>Add String</b> — already string session hai? Yahan paste karein\n"
-        f" <b>Tutorial</b> — har feature ka step-by-step guide\n"
-        f" <b>Audio Settings</b> — volume / bass / echo / boost live control\n\n"
-        f" Multi-user: har user apne account se, ek saath use kar sakta hai."
+        f"🔐 <b>Login</b> — apna account bot se connect karein (phone + OTP)\n"
+        f"🧾 <b>Add String</b> — already string session hai? Yahan paste karein\n"
+        f"📘 <b>Tutorial</b> — har feature ka step-by-step guide\n"
+        f"🎚️ <b>Audio Settings</b> — volume / bass / echo / boost live control\n\n"
+        f"👥 Multi-user: har user apne account se, ek saath use kar sakta hai."
     )
 
 
