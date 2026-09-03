@@ -25,6 +25,13 @@ class ButtonStyle(str, Enum):
     DANGER = "danger"
 
 
+_STYLE_FALLBACK_LABEL = {
+    "primary": "[PRIMARY]",
+    "success": "[SUCCESS]",
+    "danger": "[DANGER]",
+}
+
+
 async def edit_screen(message, text: str, reply_markup=None, **kwargs):
     """Edit a text screen, falling back to a caption for /start photos."""
     try:
@@ -87,8 +94,9 @@ def B(text: str, callback_data: str = None, style: str = None,
             return _InlineKeyboardButton(text, style=style, **params)
         except (TypeError, ValueError):
             # Older Pyrogram/Pyrofork does not expose Bot API button styles.
-            # Preserve the button and callback instead of failing import/runtime.
-            pass
+            # Preserve the semantic meaning visibly instead of silently
+            # returning an indistinguishable normal button.
+            text = f"{_STYLE_FALLBACK_LABEL[style]} {text}"
     return _InlineKeyboardButton(text, **params)
 
 
