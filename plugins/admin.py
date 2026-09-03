@@ -135,13 +135,23 @@ async def cmd_broadcast(bot: Client, msg: Message):
         return
 
     users = await db.all_users()
-    recipients = sorted({
+    recipients = {
         int(user["user_id"])
         for user in users
         if user.get("user_id") is not None
-    })
+    }
+    # Include every group currently tracked by a logged-in VC engine too.
+    # A single set prevents duplicate sends when an owner is also registered.
+    recipients.update(await db.all_broadcast_chats())
+    recipients.update(
+        int(chat_id)
+        for uvc in session_manager.users.values()
+        for chat_id in uvc.chats
+        if int(chat_id) < 0
+    )
+    recipients = sorted(recipients)
     status = await msg.reply_text(
-        f"📢 Sending broadcast to {len(recipients)} registered user(s)…"
+        f"📢 Sending broadcast to {len(recipients)} user/group chat(s)…"
     )
     success = 0
     for user_id in recipients:
@@ -159,7 +169,8 @@ async def cmd_broadcast(bot: Client, msg: Message):
 
     await status.edit_text(
         f"✅ <b>Broadcast done</b>\n├ Sent: {success}/{len(recipients)}\n"
-        f"└ Failed: {len(recipients) - success}")
+        f"└ Failed: {len(recipients) - success}\n"
+        "└ Target: all registered users + tracked VC groups")
     await log_broadcast(msg.from_user.id, len(recipients), success)
 
 

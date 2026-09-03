@@ -27,7 +27,7 @@ def _media(reply):
 
 def _item_kb(item: dict, can_delete: bool = False) -> K:
     audio_id = str(item["audio_id"])
-    rows = [[B("📩 Send Audio to DM", callback_data=f"aud:send:{audio_id}")]]
+    rows = [[B("📩 Send Audio Here", callback_data=f"aud:send:{audio_id}")]]
     if can_delete:
         rows.append([B("🗑️ Delete", callback_data=f"aud:del:{audio_id}")])
     return K(rows)
@@ -128,8 +128,9 @@ async def cb_audio_library(bot, cq):
     if action == "menu":
         await cq.message.edit_text(
             "🎧 <b>Audio Library</b>\n\n"
-            "Audio select karte hi bot aapko DM mein bhejega. "
-            "DM wale audio ko tag karke group mein .play se chalayein.",
+            "Audio select karte hi bot isi chat mein bhejega. Audio ko reply karke "
+            "<code>.tag myaudio</code> karein; phir kisi bhi target group VC ke liye "
+            "<code>.play myaudio &lt;chat_id&gt;</code> chalayein.",
             reply_markup=library_kb(),
         )
         await cq.answer()
@@ -180,21 +181,23 @@ async def cb_audio_library(bot, cq):
     if action == "send":
         try:
             title = item.get("title", "Saved audio")
+            target_chat_id = cq.message.chat.id
             await bot.send_cached_media(
-                uid,
+                target_chat_id,
                 item["file_id"],
                 caption=(
                     f"🎵 <b>{title}</b>\n\n"
-                    "Is message ko reply karke bhejein:\n"
+                    "Is audio message ko reply karke bhejein:\n"
                     "<code>.tag myaudio</code>\n\n"
-                    "Phir group ke VC mein likhein: <code>.play myaudio &lt;chat_id&gt;</code>\n"
+                    "Kisi bhi target group VC ke liye likhein: "
+                    "<code>.play myaudio &lt;chat_id&gt;</code>\n"
                     "Example: <code>.play myaudio -1001234567890</code>"
                 ),
             )
-            await cq.answer("✅ Audio aapke DM mein bhej diya")
+            await cq.answer("✅ Audio isi chat mein bhej diya")
         except Exception as exc:
             await log_error("send_library_audio", exc)
             await cq.answer(
-                "DM mein audio bhejna fail hua. Bot ko pehle /start karein.",
+                "Audio bhejna fail hua. Bot ko pehle /start karein.",
                 show_alert=True,
             )

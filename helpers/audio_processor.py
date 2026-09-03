@@ -76,7 +76,7 @@ def build_ffmpeg_filter(
         "aresample=48000",
         # Natural loudness control: raises quiet sources without the pumping and
         # metallic voice artifacts caused by extreme frame-by-frame gain.
-        "dynaudnorm=f=300:g=20:p=0.99:m=30:r=0.85:s=0",
+        "dynaudnorm=f=300:g=25:p=0.995:m=40:r=0.85:s=0",
     ]
 
     if bass_value:
@@ -111,7 +111,7 @@ def build_ffmpeg_filter(
     # relays without changing pitch. The extra headroom is always followed by
     # a true-peak limiter, so the louder default remains unclipped.
     filters.append("loudnorm=I=-5:LRA=7:TP=-0.5:dual_mono=true:linear=false")
-    filters.append("volume=8.00dB")
+    filters.append("volume=12.00dB")
     # Brick-wall: nothing above -0.2 dBFS, fast attack so no sample clips.
     filters.append("alimiter=limit=0.977:attack=2:release=50:level=false:asc=1")
     return ",".join(filters)

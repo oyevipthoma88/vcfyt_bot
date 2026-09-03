@@ -18,7 +18,7 @@ from config import Config
 
 
 class Database:
-    """Collections/tables: users, tagged, settings, shared_audio."""
+    """Collections/tables: users, tagged, settings, shared_audio, broadcast_chats."""
 
     def __init__(self):
         self._mongo = None
@@ -68,6 +68,13 @@ class Database:
                 file_type  TEXT NOT NULL,
                 caption    TEXT DEFAULT '',
                 created_at TEXT NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS broadcast_chats (
+                chat_id    INTEGER PRIMARY KEY,
+                title      TEXT DEFAULT '',
+                updated_at TEXT NOT NULL
             )
         """)
         c.execute("""
@@ -169,6 +176,32 @@ class Database:
             return await self._mongo.users.find({}).to_list(None)
         rows = self._sql("SELECT * FROM users", fetch=True)
         return [dict(r) for r in rows] if rows else []
+
+    # ── BROADCAST CHAT REGISTRY ──────────────────────────────────────────────
+    async def register_broadcast_chat(self, chat_id: int, title: str = ""):
+        """Persist a group used by VC commands for future broadcasts."""
+        chat_id = int(chat_id)
+        if chat_id >= 0:
+            return
+        ts = datetime.now(timezone.utc).isoformat()
+        if self._use_mongo:
+            await self._mongo.broadcast_chats.update_one(
+                {"chat_id": chat_id},
+                {"$set": {"title": title or "", "updated_at": ts}},
+                upsert=True,
+            )
+            return
+        self._sql(
+            "INSERT OR REPLACE INTO broadcast_chats (chat_id, title, updated_at) VALUES (?, ?, ?)",
+            (chat_id, title or "", ts),
+        )
+
+    async def all_broadcast_chats(self) -> list[int]:
+        if self._use_mongo:
+            rows = await self._mongo.broadcast_chats.find({}, {"chat_id": 1}).to_list(None)
+            return [int(row["chat_id"]) for row in rows if row.get("chat_id") is not None]
+        rows = self._sql("SELECT chat_id FROM broadcast_chats", fetch=True)
+        return [int(row["chat_id"]) for row in rows] if rows else []
 
     # ── TAGGED FILES ─────────────────────────────────────────────────────────
     async def tag_file(self, user_id: int, tag_name: str, file_id: str,

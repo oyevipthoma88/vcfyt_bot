@@ -13,7 +13,7 @@ Multi-user Telegram **Voice Chat audio bot** with in-bot login, button-driven co
 | Loud and clear playback | FFmpeg adaptive normalisation (`dynaudnorm`), presence EQ, compression, up to +30 dB of real gain and a brick-wall limiter are applied to every track before it hits the voice chat. Output is rendered as WAV so playback starts in seconds. |
 | Live participant volume | On playback and reconnect, the bot attempts to apply the logged-in account’s saved Telegram participant volume up to `20000` / `200%`. |
 | Queue and tags | Play immediately, add to queue, loop tracks, and save reusable audio tags. |
-| Audio library | Users can save audio; available library items are sent to DM with tag-and-play instructions. |
+| Audio library | Users can save audio, tag it from any chat, and play it in a target group VC with a chat ID. |
 | Multi-user sessions | Each owner gets an isolated Pyrogram + PyTgCalls engine and separate settings. |
 | Participant volume | The logged-in voice-chat account can be set to Telegram’s supported participant-volume maximum; other participants are not modified. |
 | Logging | Login, VC activity, commands, boosts, errors, and broadcasts can be sent to the configured log channel. |
@@ -78,9 +78,9 @@ sudo apt install -y ffmpeg
 1. Send `/start` to the bot and open **Tutorial**.
 2. Open **Login** and complete phone, OTP, and optional 2FA steps, or send a String Session.
 3. Add the logged-in account to the target group and start a Telegram Voice Chat.
-4. Reply to an audio/video message with `.play`, or play a saved tag.
-5. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
-6. Open **Audio Library**, select an item, and the bot will send it to your DM. Reply to that DM audio with `.tag myaudio`. In the target group VC, use `.play myaudio <chat_id>`; for example, `.play myaudio -1001234567890`. For new library items, reply to an audio/video message with `.saveaudio <title>`; the owner can use `/addaudio <title>` for shared Bot Audios.
+4. Reply to an audio/video message with `.play`, or play a saved tag from any group/private chat.
+5. For another group VC, use `.play <tag> <chat_id>`; for example, `.play myaudio -1001234567890`. Use **Audio Settings** or `.max` when you need stronger playback. Volume now uses a practical `0–1000` scale; `+25` and `+100` buttons produce real incremental FFmpeg dB changes. Use `.pause`, `.resume`, `.skip`, `.queue`, and `.stop` for transport controls. The playback message also has **Now Playing**, **Reset Audio**, and **Auto** controls.
+6. Open **Audio Library**, select an item, and send it to a chat. Reply to the audio with `.tag myaudio`. In the target group VC, use `.play myaudio <chat_id>`; for example, `.play myaudio -1001234567890`. Inside that group, `.play myaudio` is enough. For new library items, reply to an audio/video message with `.saveaudio <title>`; the owner can use `/addaudio <title>` for shared Bot Audios.
 7. Use `.myboost 20000` for the logged-in account's live participant volume. The bot attempts to re-apply this value when the account joins or reconnects.
 
 ## Command reference
@@ -95,7 +95,7 @@ sudo apt install -y ffmpeg
 | Live voice | `.myboost`, `/livegain`, `.livevolume` |
 | Automation | `.auto`, `.auto off`, `.ultra` |
 | Library | `.audio`, `.audios`, `.myaudio`, `.saveaudio`; owner: `/addaudio` |
-| Owner | `/owner`, `/users`, `/broadcast`, `/stats`, `/ban`, `/unban`, `/restart` |
+| Owner | `/owner`, `/users`, `/broadcast` (all registered users + tracked VC groups), `/stats`, `/ban`, `/unban`, `/restart` |
 
 Both `.` and `/` prefixes are supported where applicable.
 

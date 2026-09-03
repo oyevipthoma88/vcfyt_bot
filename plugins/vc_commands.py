@@ -88,6 +88,8 @@ async def need_chat(msg: Message, arg: str = None) -> int:
             "Group mein command chalayein, ya group ka chat ID dein:\n"
             "<code>.play &lt;source&gt; -1001234567890</code>"
         )
+        return cid
+    await db.register_broadcast_chat(cid)
     return cid
 
 
@@ -185,8 +187,9 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
     await msg.reply_text(
         "<b>Usage</b>\n"
         "• audio/video reply + <code>.play</code>\n"
+        "• audio/video reply + <code>.play &lt;chat_id&gt;</code>\n"
         "• <code>.play &lt;tag&gt;</code>\n"
-        "• <code>.play &lt;source&gt; &lt;group_chat_id&gt;</code>"
+        "• <code>.play &lt;tag&gt; &lt;group_chat_id&gt;</code>"
     )
     return None, None
 
@@ -228,6 +231,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
     except Exception:
         title = str(cid)
 
+    await db.register_broadcast_chat(cid, title)
     st = await load_state_settings(msg.from_user.id, uvc, cid)
     stat = await msg.reply_text("🎛️ Audio process ho raha hai…")
     try:
