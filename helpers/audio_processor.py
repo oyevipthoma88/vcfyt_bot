@@ -89,7 +89,7 @@ def build_ffmpeg_filter(
         # Aggressive loudness normalisation: lifts quiet sources hard towards
         # full scale so a whisper-quiet recording comes out as loud as a mastered
         # track. Max gain for maximum clean loudness.
-        "dynaudnorm=f=500:g=100:p=1.0:m=200:r=0.99:s=0",
+        "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0",
         # Extra pre-drive makes quiet Telegram files reach the density stages;
         # the final limiter keeps the PCM output inside the safe ceiling.
         "volume=18dB",
@@ -113,7 +113,7 @@ def build_ffmpeg_filter(
     # Second compressor: aggressive mastering-style density for maximum
     # perceived loudness, while the final limiter prevents digital clipping.
     filters.append(
-        f"acompressor=threshold=0.01:ratio=30.0:"
+        f"acompressor=threshold=0.01:ratio=20.0:"
         f"attack=0.1:release=45:makeup=28.0:knee=8"
     )
 
