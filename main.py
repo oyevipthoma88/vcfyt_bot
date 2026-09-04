@@ -15,6 +15,7 @@ import sys
 
 from pyrogram import Client, idle
 from pyrogram.enums import ParseMode
+from pyrogram.errors import FloodWait
 from pyrogram.types import BotCommand
 
 from config import Config
@@ -123,6 +124,50 @@ BOT_COMMANDS = [
 ]
 
 
+def _new_bot() -> StyledBotClient:
+    return StyledBotClient(
+        "vcbot",
+        api_id=Config.API_ID,
+        api_hash=Config.API_HASH,
+        bot_token=Config.BOT_TOKEN,
+        parse_mode=ParseMode.HTML,
+        plugins=dict(root="plugins"),
+    )
+
+
+async def _start_bot_resilient() -> StyledBotClient:
+    """Start the bot without exiting when Telegram imposes FloodWait.
+
+    Telegram may rate-limit bot authorization after repeated Heroku deploys or
+    restarts.  Retrying immediately makes the limit worse, so honor Telegram's
+    exact wait value and keep the already-bound health port alive meanwhile.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        bot = _new_bot()
+        try:
+            await bot.start()
+            return bot
+        except FloodWait as exc:
+            wait_seconds = max(1, int(getattr(exc, "value", 1))) + 5
+            logger.warning(
+                "Telegram FloodWait during bot authorization; retry %s in %s seconds",
+                attempt, wait_seconds,
+            )
+            try:
+                await bot.stop()
+            except Exception:
+                pass
+            await asyncio.sleep(wait_seconds)
+        except Exception:
+            try:
+                await bot.stop()
+            except Exception:
+                pass
+            raise
+
+
 async def main():
     validate_config()
     await db.connect()
@@ -143,15 +188,7 @@ async def main():
     if stored_source is not None:
         set_source_code_url(stored_source)
 
-    bot = StyledBotClient(
-        "vcbot",
-        api_id=Config.API_ID,
-        api_hash=Config.API_HASH,
-        bot_token=Config.BOT_TOKEN,
-        parse_mode=ParseMode.HTML,
-        plugins=dict(root="plugins"),
-    )
-    await bot.start()
+    bot = await _start_bot_resilient()
     me = await bot.get_me()
     logger.info(f"Bot started: @{me.username}")
 
