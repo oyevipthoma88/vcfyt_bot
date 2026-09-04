@@ -85,10 +85,10 @@ def build_ffmpeg_filter(
         # Aggressive loudness normalisation: lifts quiet sources hard towards
         # full scale so a whisper-quiet recording comes out as loud as a mastered
         # track. Max gain for maximum clean loudness.
-        "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0",
-        # Pre-amplify after normalisation so quiet sources hit the compressors
-        # hotter without changing the documented filter-chain order.
-        "volume=12dB",
+        "dynaudnorm=f=500:g=100:p=1.0:m=200:r=0.99:s=0",
+        # Extra pre-drive makes quiet Telegram files reach the density stages;
+        # the final limiter keeps the PCM output inside the safe ceiling.
+        "volume=18dB",
     ]
 
     if bass_value:
@@ -109,8 +109,8 @@ def build_ffmpeg_filter(
     # Second compressor: aggressive mastering-style density for maximum
     # perceived loudness, while the final limiter prevents digital clipping.
     filters.append(
-        f"acompressor=threshold=0.02:ratio=20.0:"
-        f"attack=1:release=50:makeup=20.0:knee=8"
+        f"acompressor=threshold=0.01:ratio=30.0:"
+        f"attack=0.1:release=45:makeup=28.0:knee=8"
     )
 
     if use_echo and echo_value:
@@ -132,9 +132,9 @@ def build_ffmpeg_filter(
     filters.append("loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false")
     # DJ preset: drive the limiter harder so quiet tags do not sound like a
     # normal-level stream. The limiter remains the final safety ceiling.
-    filters.append("volume=28.00dB")
+    filters.append("volume=32.00dB")
     # Second loudness stage: extra clean gain before the brick-wall limiter.
-    filters.append("volume=18.00dB")
+    filters.append("volume=24.00dB")
     # Brick-wall: nothing above -0.05 dBFS, fast attack so no sample clips.
     filters.append("alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
