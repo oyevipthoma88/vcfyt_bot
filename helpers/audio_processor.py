@@ -136,8 +136,8 @@ def build_ffmpeg_filter(
     filters.append("loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false")
     # Requested hard-drive mode: push the signal far beyond unity and use a
     # hard soft-clip stage for audible crunch/saturation on quiet sources.
-    filters.append("volume=48.00dB")
-    filters.append("asoftclip=type=hard:threshold=0.35:output=1.2:oversample=4")
+    filters.append("volume=60.00dB")
+    filters.append("asoftclip=type=hard:threshold=0.20:output=1.4:oversample=4")
     # Keep a final ceiling so the intentional distortion does not create
     # invalid PCM or break PyTgCalls playback.
     filters.append("alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1")
