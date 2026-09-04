@@ -73,6 +73,14 @@ def _participant_not_joined(error: Exception) -> bool:
             "PARTICIPANT_JOIN_MISSING" in str(error))
 
 
+def _connection_lost(error: Exception) -> bool:
+    """Return True for transient Pyrogram transport disconnects."""
+    text = str(error).lower()
+    return isinstance(error, (OSError, ConnectionError)) and any(
+        marker in text for marker in ("connection lost", "connection reset", "broken pipe", "eof")
+    )
+
+
 _INVALID_SESSION_NAMES = frozenset({
     "AuthKeyUnregistered", "AuthKeyInvalid", "SessionRevoked",
     "SessionExpired", "UserDeactivated", "Unauthorized",
@@ -174,6 +182,7 @@ class UserVC:
         # keeper tasks cannot immediately recreate the VC state.
         self._stopped_chats: set[int] = set()
         self._lock = asyncio.Lock()
+        self._reconnect_lock = asyncio.Lock()
         self.live_volume = Config.LIVE_BOOST_DEFAULT
 
     # ── lifecycle ────────────────────────────────────────────────────────────
@@ -512,6 +521,28 @@ class UserVC:
                 "Voice chat sirf group/supergroup mein hota hai — chat ID negative honi chahiye."
             )
 
+    async def _reconnect_client(self):
+        """Reset and reconnect the user client after a transient transport drop."""
+        async with self._reconnect_lock:
+            try:
+                await self.client.disconnect()
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+            await self.client.connect()
+            logger.info("Reconnected Telegram client for user %s", self.owner_id)
+
+    async def _stream_with_reconnect(self, chat_id: int, path: str,
+                                     source_name: str):
+        try:
+            await self._stream(chat_id, path, source_name)
+        except Exception as error:
+            if not _connection_lost(error):
+                raise
+            logger.warning("Telegram connection lost during playback; reconnecting once")
+            await self._reconnect_client()
+            await self._stream(chat_id, path, source_name)
+
     async def play(self, chat_id: int, path: str, source_name: str = "audio",
                    chat_title: str = "", enqueue: bool = False) -> str:
         self._check_group(chat_id)
@@ -523,7 +554,7 @@ class UserVC:
             if enqueue and st.is_playing:
                 st.queue.append((path, source_name))
                 return "queued"
-            await self._stream(chat_id, path, source_name)
+            await self._stream_with_reconnect(chat_id, path, source_name)
             return "playing"
 
     async def force_play(self, chat_id: int, path: str, source_name: str = "audio",
@@ -538,7 +569,7 @@ class UserVC:
             st.queue.clear()
             st.is_paused = False
             try:
-                await self._stream(chat_id, path, source_name)
+                await self._stream_with_reconnect(chat_id, path, source_name)
             except Exception:
                 # Leave and rejoin once (fixes a stuck call), then retry.
                 try:
@@ -546,7 +577,7 @@ class UserVC:
                 except Exception:
                     pass
                 await asyncio.sleep(1)
-                await self._stream(chat_id, path, source_name)
+                await self._stream_with_reconnect(chat_id, path, source_name)
             return "playing"
 
     async def pause(self, chat_id: int) -> bool:
