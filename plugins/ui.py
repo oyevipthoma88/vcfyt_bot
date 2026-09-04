@@ -251,6 +251,7 @@ def settings_text(s: dict) -> str:
         f"<code>{bars(int(s['echo_level']))} {s['echo_level']}/10</code>\n"
         f"{LINE}\n\n"
         "Buttons se ghata/badha sakte hain — audio par real FFmpeg controls apply hote hain. "
+        "<b>OVERDRIVE</b> maximum loud/distorted preset lagata hai; "
         "<b>Apply Live</b> se turant lag jayega."
     )
 
@@ -277,7 +278,7 @@ def settings_kb() -> K:
          B(" Echo On/Off", callback_data="set:echo:toggle"),
          B("Echo +1 ", callback_data="set:echolvl:1")],
         [B(" Apply Live", callback_data="set:apply"),
-         B(" MAX", callback_data="set:max")],
+         B(" OVERDRIVE", callback_data="set:max")],
         [B(" Home", callback_data="menu:home")],
     ])
 
