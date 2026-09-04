@@ -10,6 +10,7 @@ Main entry point — Apex vc fyt bot.
 
 import asyncio
 import logging
+import os
 import sys
 
 from pyrogram import Client, idle
@@ -32,6 +33,44 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("vcbot")
+
+
+async def _health_response(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    """Reply to Heroku health checks without adding a second bot process."""
+    try:
+        await reader.read(4096)
+        body = b"vcfyt bot is running\n"
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain; charset=utf-8\r\n"
+            b"Connection: close\r\n"
+            + f"Content-Length: {len(body)}\r\n\r\n".encode()
+            + body
+        )
+        await writer.drain()
+    except (ConnectionError, asyncio.IncompleteReadError):
+        pass
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _start_heroku_health_server():
+    """Bind Heroku's PORT when no relay server is already using it."""
+    raw_port = os.getenv("PORT")
+    if not raw_port:
+        return None
+    try:
+        port = int(raw_port)
+        server = await asyncio.start_server(_health_response, "0.0.0.0", port)
+        logger.info("Heroku health listener ready on port %s", port)
+        return server
+    except (OSError, ValueError) as exc:
+        logger.error("Could not bind Heroku PORT=%s: %s", raw_port, exc)
+        return None
 
 
 def validate_config():
@@ -88,12 +127,18 @@ async def main():
     validate_config()
     await db.connect()
     relay_runner = None
+    health_server = None
     if Config.MIC_RELAY_ENABLED:
         if not Config.MIC_RELAY_TOKEN:
             logger.warning("MIC_RELAY_ENABLED=true but MIC_RELAY_TOKEN is empty; relay disabled")
         else:
             relay_runner = await serve_mic_relay()
             logger.info("Live mic relay listening on %s:%s", Config.MIC_RELAY_BIND, Config.MIC_RELAY_PORT)
+    # A Heroku web dyno must bind PORT.  When the optional relay is disabled,
+    # keep one tiny health endpoint instead of letting Heroku kill the dyno
+    # after its 60-second startup window.
+    if relay_runner is None:
+        health_server = await _start_heroku_health_server()
     stored_source = await db.get_app_value("source_code_url")
     if stored_source is not None:
         set_source_code_url(stored_source)
@@ -166,6 +211,9 @@ async def main():
     logger.info("Shutting down…")
     if relay_runner:
         await relay_runner.cleanup()
+    if health_server:
+        health_server.close()
+        await health_server.wait_closed()
     await log_shutdown()
     for uid in list(session_manager.users):
         await session_manager.remove(uid)
