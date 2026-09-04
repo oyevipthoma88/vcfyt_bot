@@ -73,6 +73,36 @@ def _participant_not_joined(error: Exception) -> bool:
             "PARTICIPANT_JOIN_MISSING" in str(error))
 
 
+_INVALID_SESSION_NAMES = frozenset({
+    "AuthKeyUnregistered", "AuthKeyInvalid", "SessionRevoked",
+    "SessionExpired", "UserDeactivated", "Unauthorized",
+    "AuthKeyDuplicated",
+})
+
+
+def _is_invalid_session(error: Exception) -> bool:
+    """Return True for Telegram auth errors that require a fresh login.
+
+    These are expected user-session lifecycle events, not bot failures.  A
+    revoked string session cannot be repaired by retrying; it must be removed
+    from storage so the next user action can start a new login.
+    """
+    return (type(error).__name__ in _INVALID_SESSION_NAMES or
+            "401" in str(error) or "AUTH_KEY_DUPLICATED" in str(error))
+
+
+async def _invalidate_session(user_id: int, error: Exception, source: str):
+    """Remove a dead session and leave a concise operational breadcrumb."""
+    try:
+        await _db().clear_string(user_id)
+    except Exception as clear_error:
+        logger.warning("Could not clear invalid session %s: %s", user_id, clear_error)
+    logger.warning(
+        "Session %s needs a fresh login (%s: %s)",
+        user_id, type(error).__name__, source,
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 class ChatState:
     """Per (user, chat) playback state."""
@@ -607,16 +637,10 @@ class SessionManager:
         try:
             return await self.add(user_id, data["string_session"])
         except Exception as e:
-            ename = type(e).__name__
-            msg = str(e)
-            if ename in ("AuthKeyUnregistered", "AuthKeyInvalid",
-                         "SessionRevoked", "SessionExpired",
-                         "UserDeactivated", "Unauthorized") or "401" in msg:
-                try:
-                    await _db().clear_string(user_id)
-                except Exception:
-                    pass
-            await log_error(f"session_start_{user_id}", e)
+            if _is_invalid_session(e):
+                await _invalidate_session(user_id, e, "on-demand start")
+            else:
+                await log_error(f"session_start_{user_id}", e)
             return None
 
     async def remove(self, user_id: int):
@@ -640,21 +664,11 @@ class SessionManager:
                 await self.add(uid, u["string_session"])
                 started += 1
             except Exception as e:
-                ename = type(e).__name__
-                msg = str(e)
-                # Dead/expired session: clear it so the user is prompted to
-                # log in again instead of failing on every boot.
-                if ename in ("AuthKeyUnregistered", "AuthKeyInvalid",
-                             "SessionRevoked", "SessionExpired",
-                             "UserDeactivated", "Unauthorized", "AuthKeyDuplicated") or "401" in msg:
-                    try:
-                        await _db().clear_string(uid)
-                    except Exception:
-                        pass
-                if ename == "AuthKeyDuplicated" or "AUTH_KEY_DUPLICATED" in msg:
-                    logger.warning(
-                        "Session %s was already active elsewhere; stored session cleared.", uid
-                    )
+                # A revoked/expired string session is unrecoverable.  Clear it
+                # once and continue restoring the remaining users; do not send
+                # a scary traceback to the log channel for an expected event.
+                if _is_invalid_session(e):
+                    await _invalidate_session(uid, e, "startup restore")
                 else:
                     await log_error(f"restore_session_{uid}", e)
         return started
