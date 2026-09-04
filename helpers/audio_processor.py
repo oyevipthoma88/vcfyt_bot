@@ -45,11 +45,15 @@ def _sanitize_ffmpeg_filter(value: str) -> str:
 
 
 def volume_to_db(vol: int) -> float:
-    """0..1000 -> -30..+18 dB (500 = unity)."""
+    """0..1000 -> -30..+30 dB (500 = unity).
+
+    The high end is deliberately aggressive for quiet Telegram files. The
+    downstream compressor/loudnorm/limiter chain remains the safety boundary.
+    """
     vol = clamp(vol, VOLUME_MIN, VOLUME_MAX)
     if vol <= 500:
         return -30.0 + (30.0 * vol / 500.0)
-    return 18.0 * (vol - 500) / 500.0
+    return 30.0 * (vol - 500) / 500.0
 
 
 def gain_to_db(gain: int) -> float:
