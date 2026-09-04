@@ -251,8 +251,8 @@ def settings_text(s: dict) -> str:
         f"<code>{bars(int(s['echo_level']))} {s['echo_level']}/10</code>\n"
         f"{LINE}\n\n"
         "Buttons se ghata/badha sakte hain — audio par real FFmpeg controls apply hote hain. "
-        "<b>OVERDRIVE</b> maximum loud/distorted preset lagata hai; "
-        "<b>Apply Live</b> se turant lag jayega."
+        "<b>OVERDRIVE</b> maximum loud/distorted preset lagata hai. Volume aur Gain "
+        "buttons se level badhao/ghatao; <b>Apply Live</b> se turant lag jayega."
     )
 
 
@@ -268,6 +268,12 @@ def settings_kb() -> K:
         [B("−250", callback_data="set:relay:-250"),
          B(" MAX 1000", callback_data="set:relay:1000"),
          B("+250", callback_data="set:relay:250")],
+        [B(" Gain −25", callback_data="set:gain:-25"),
+         B("Gain", callback_data="set:noop"),
+         B("Gain +25 ", callback_data="set:gain:25")],
+        [B("Gain −75", callback_data="set:gain:-75"),
+         B(" MAX GAIN", callback_data="set:gain:150"),
+         B("Gain +75", callback_data="set:gain:75")],
         [B(" Bass −5", callback_data="set:bass:-5"),
          B(" Bass", callback_data="set:noop"),
          B("Bass +5 ", callback_data="set:bass:5")],

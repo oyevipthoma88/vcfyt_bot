@@ -161,6 +161,11 @@ async def cb_settings_change(bot, cq):
             VOLUME_MIN, VOLUME_MAX,
         )
         s["volume"] = s["relay_volume"]
+    elif action == "gain":
+        s["gain"] = clamp(
+            s.get("gain", Config.RELAY_DEFAULT_GAIN) + int(rest[0]),
+            0, GAIN_MAX,
+        )
     elif action == "bass":
         s["bass"] = clamp(s["bass"] + int(rest[0]), BASS_MIN, BASS_MAX)
     elif action == "boost":
