@@ -134,12 +134,12 @@ def build_ffmpeg_filter(
     # The extra headroom is always followed by a true-peak limiter, so the louder
     # default remains unclipped.
     filters.append("loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false")
-    # DJ preset: drive the limiter harder so quiet tags do not sound like a
-    # normal-level stream. The limiter remains the final safety ceiling.
-    filters.append("volume=32.00dB")
-    # Second loudness stage: extra clean gain before the brick-wall limiter.
-    filters.append("volume=24.00dB")
-    # Brick-wall: nothing above -0.05 dBFS, fast attack so no sample clips.
+    # Requested hard-drive mode: push the signal far beyond unity and use a
+    # hard soft-clip stage for audible crunch/saturation on quiet sources.
+    filters.append("volume=48.00dB")
+    filters.append("asoftclip=type=hard:threshold=0.35:output=1.2:oversample=4")
+    # Keep a final ceiling so the intentional distortion does not create
+    # invalid PCM or break PyTgCalls playback.
     filters.append("alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
