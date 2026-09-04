@@ -28,11 +28,27 @@ from helpers.styled_client import StyledBotClient
 from live_relay import serve as serve_mic_relay
 from plugins.ui import set_source_code_url
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+# 4st_userbot log format:  [YYYY-MM-DD HH:MM:SS] [TAG] -> text
+# Same shape for the stdlib logging tree (pyrogram/pytgcalls) so Heroku logs
+# read uniformly next to bot_logger() lines.
+class _FourStFormatter(logging.Formatter):
+    def format(self, record):
+        tag = record.name.split(".")[-1].upper()
+        if record.levelno >= logging.ERROR:
+            tag = f"{tag}_ERR"
+        elif record.levelno == logging.WARNING:
+            tag = f"{tag}_WARN"
+        text = record.getMessage()
+        if record.exc_info:
+            text += "\n" + self.formatException(record.exc_info)
+        return f"[{self.formatTime(record, '%Y-%m-%d %H:%M:%S')}] [{tag}] -> {text}"
+
+
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(_FourStFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
+logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logging.getLogger("pytgcalls").setLevel(logging.WARNING)
 logger = logging.getLogger("vcbot")
 
 
