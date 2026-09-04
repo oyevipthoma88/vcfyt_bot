@@ -275,7 +275,7 @@ class UserVC:
         while True:
             try:
                 st = self.chats.get(chat_id)
-                if not st or not st.auto:
+                if not st or (not st.auto and not Config.AUTO_LIVE_BOOST):
                     return
                 await self.set_participant_volume(
                     chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
@@ -419,14 +419,19 @@ class UserVC:
             _unlink(old_source)
 
         if Config.AUTO_LIVE_BOOST or st.auto:
-            # Do not race playback startup: a background volume update makes
-            # the first seconds sound normal and is often missed after a
-            # reconnect. Apply the maximum configured participant gain first.
-            await self.set_participant_volume(
-                chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True,
-            )
-        if st.auto and chat_id not in self._keepers:
-            self._start_keeper(chat_id)
+            # Telegram may not expose our participant immediately after the
+            # stream joins. Retry briefly, then keep re-pinning the 200% server
+            # volume so reconnects/admin changes cannot silently drop playback
+            # back to Telegram's normal level.
+            for delay in (0.0, 0.25, 0.75, 1.5):
+                if delay:
+                    await asyncio.sleep(delay)
+                if await self.set_participant_volume(
+                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True,
+                ):
+                    break
+            if chat_id not in self._keepers:
+                self._start_keeper(chat_id)
 
         asyncio.create_task(log_vc_join(
             self.owner_id, chat_id, st.chat_title or str(chat_id),
