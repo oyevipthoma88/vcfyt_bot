@@ -82,7 +82,9 @@ class Config:
     MIC_DEVICE: str = os.environ.get("MIC_DEVICE", "")
     MIC_INPUT_FORMAT: str = os.environ.get("MIC_INPUT_FORMAT", "pulse")
     MIC_DSP: bool = _bool("MIC_DSP", True)
-    MIC_RELAY_ENABLED: bool = _bool("MIC_RELAY_ENABLED", False)
+    # The relay becomes active automatically once MIC_RELAY_TOKEN is supplied.
+    # An empty token still prevents startup, so a fresh deploy is safe.
+    MIC_RELAY_ENABLED: bool = _bool("MIC_RELAY_ENABLED", True)
     MIC_RELAY_BIND: str = os.environ.get("MIC_RELAY_BIND", "0.0.0.0").strip()
     MIC_RELAY_PORT: int = _int("MIC_RELAY_PORT", _int("PORT", 8765))
     MIC_RELAY_FIFO: str = os.environ.get(

@@ -99,7 +99,7 @@
     "MIC_RELAY_ENABLED": {
       "description": "Enable Android Chrome live microphone relay",
       "required": false,
-      "value": "false"
+      "value": "true"
     },
     "MIC_RELAY_TOKEN": {
       "description": "Private random token for the live microphone page",
