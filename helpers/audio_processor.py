@@ -88,7 +88,7 @@ def build_ffmpeg_filter(
         "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0",
         # Pre-amplify after normalisation so quiet sources hit the compressors
         # hotter without changing the documented filter-chain order.
-        "volume=6dB",
+        "volume=12dB",
     ]
 
     if bass_value:
@@ -130,9 +130,11 @@ def build_ffmpeg_filter(
     # The extra headroom is always followed by a true-peak limiter, so the louder
     # default remains unclipped.
     filters.append("loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false")
-    filters.append("volume=20.00dB")
+    # DJ preset: drive the limiter harder so quiet tags do not sound like a
+    # normal-level stream. The limiter remains the final safety ceiling.
+    filters.append("volume=28.00dB")
     # Second loudness stage: extra clean gain before the brick-wall limiter.
-    filters.append("volume=10.00dB")
+    filters.append("volume=18.00dB")
     # Brick-wall: nothing above -0.05 dBFS, fast attack so no sample clips.
     filters.append("alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
