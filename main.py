@@ -1,9 +1,13 @@
+"""
+Main entry point — Apex vc fyt bot.
+"""
+
 import asyncio
 import logging
 import os
 import sys
 
-from pyrogram import idle
+from pyrogram import Client, idle
 from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait
 from pyrogram.types import BotCommand
@@ -15,7 +19,7 @@ from helpers.logger_channel import (
 )
 from helpers.vc_manager import session_manager
 from helpers.styled_client import StyledBotClient
-from helpers.archive import init_archive
+from helpers.vc_sync import init_vc_sync
 from live_relay import serve as serve_mic_relay
 from plugins.ui import set_source_code_url
 
@@ -161,7 +165,7 @@ async def main():
     await db.connect()
 
     try:
-        await init_archive()
+        await init_vc_sync()
     except Exception:
         pass
 
@@ -173,7 +177,6 @@ async def main():
         else:
             relay_runner = await serve_mic_relay()
             logger.info("Live mic relay listening on %s:%s", Config.MIC_RELAY_BIND, Config.MIC_RELAY_PORT)
-
     if relay_runner is None:
         health_server = await _start_heroku_health_server()
     stored_source = await db.get_app_value("source_code_url")
