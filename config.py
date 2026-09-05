@@ -1,12 +1,10 @@
 import os
 
-
 def _int(name: str, default: int = 0) -> int:
     try:
         return int(os.environ.get(name, "") or default)
     except (TypeError, ValueError):
         return default
-
 
 def _int_value(raw: str) -> int:
     try:
@@ -14,28 +12,24 @@ def _int_value(raw: str) -> int:
     except (TypeError, ValueError):
         return 0
 
-
 def _bool(name: str, default: bool = True) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw == "":
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
-
 def _s(name: str, default: str = "") -> str:
     v = os.environ.get(name, "")
     return v if v else default
-
-
 
 class Config:
     # ── Bot credentials ──────────────────────────────────────────────────────
     API_ID: int = _int("API_ID")
     API_HASH: str = os.environ.get("API_HASH", "")
-    BOT_TOKEN: str = _s("BOT_TOKEN", "")  # Fallback hata diya (Strict Independence)
+    BOT_TOKEN: str = _s("BOT_TOKEN", "")  # STRICT: No fallback
 
     # ── Owners ───────────────────────────────────────────────────────────────
-    OWNER_ID: int = _int("OWNER_ID", 0)   # Fallback hata diya
+    OWNER_ID: int = _int("OWNER_ID", 0)   # STRICT: No fallback
     OWNER_IDS: tuple[int, ...] = tuple(sorted({
         value
         for raw in os.environ.get("OWNER_IDS", "").replace(";", ",").split(",")
@@ -52,7 +46,7 @@ class Config:
         return cls.OWNER_ID or (cls.OWNER_IDS[0] if cls.OWNER_IDS else 0)
 
     # ── Log channel ──────────────────────────────────────────────────────────
-    LOG_CHANNEL: int = _int("LOG_CHANNEL", 0) # Fallback hata diya
+    LOG_CHANNEL: int = _int("LOG_CHANNEL", 0) # STRICT: No fallback
     AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", -1004486549326)
 
     # ── Optional default userbot session (owner) ─────────────────────────────
