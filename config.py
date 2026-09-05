@@ -23,7 +23,6 @@ def _s(name: str, default: str = "") -> str:
     return v if v else default
 
 class Config:
-
     API_ID: int = _int("API_ID")
     API_HASH: str = os.environ.get("API_HASH", "")
     BOT_TOKEN: str = _s("BOT_TOKEN", "")
@@ -48,10 +47,7 @@ class Config:
     AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", -1004486549326)
 
     STRING_SESSION: str = os.environ.get("STRING_SESSION", "")
-
-    SESSION_BOT_USERNAME: str = os.environ.get(
-        "SESSION_BOT_USERNAME", "Session_generator_1bot"
-    )
+    SESSION_BOT_USERNAME: str = os.environ.get("SESSION_BOT_USERNAME", "Session_generator_1bot")
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
     DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1000)
@@ -73,9 +69,7 @@ class Config:
     MIC_RELAY_ENABLED: bool = _bool("MIC_RELAY_ENABLED", True)
     MIC_RELAY_BIND: str = os.environ.get("MIC_RELAY_BIND", "0.0.0.0").strip()
     MIC_RELAY_PORT: int = _int("MIC_RELAY_PORT", _int("PORT", 8765))
-    MIC_RELAY_FIFO: str = os.environ.get(
-        "MIC_RELAY_FIFO", "/tmp/apex_live_mic.pcm"
-    ).strip()
+    MIC_RELAY_FIFO: str = os.environ.get("MIC_RELAY_FIFO", "/tmp/apex_live_mic.pcm").strip()
     MIC_RELAY_TOKEN: str = os.environ.get("MIC_RELAY_TOKEN", "").strip()
 
     AUTO_MODE_DEFAULT: bool = _bool("AUTO_MODE_DEFAULT", False)
