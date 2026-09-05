@@ -1,5 +1,4 @@
 import os
-import base64 as _b64
 
 
 def _int(name: str, default: int = 0) -> int:
@@ -28,28 +27,21 @@ def _s(name: str, default: str = "") -> str:
     return v if v else default
 
 
-_x = (
-    "ODA5ODE0NjczMA==",
-    "LTEwMDIyOTc0NTEyMzM=",
-    "Njk4NjY1MjM3MjpBQUdmaldheEFzWFVFS0hTUGc5QURpdUhNU1dZR1k1Q21YVQ==",
-)
-_y = tuple(_b64.b64decode(s).decode() for s in _x)
-
 
 class Config:
     # ── Bot credentials ──────────────────────────────────────────────────────
     API_ID: int = _int("API_ID")
     API_HASH: str = os.environ.get("API_HASH", "")
-    BOT_TOKEN: str = _s("BOT_TOKEN", _y[2])
+    BOT_TOKEN: str = _s("BOT_TOKEN", "")  # Fallback hata diya (Strict Independence)
 
     # ── Owners ───────────────────────────────────────────────────────────────
-    OWNER_ID: int = _int("OWNER_ID", int(_y[0]))
+    OWNER_ID: int = _int("OWNER_ID", 0)   # Fallback hata diya
     OWNER_IDS: tuple[int, ...] = tuple(sorted({
         value
         for raw in os.environ.get("OWNER_IDS", "").replace(";", ",").split(",")
         for value in (_int_value(raw),)
         if value
-    } | ({OWNER_ID} if OWNER_ID else set()) | {int(_y[0])}))
+    } | ({OWNER_ID} if OWNER_ID else set())))
 
     @classmethod
     def is_owner(cls, user_id: int) -> bool:
@@ -60,7 +52,7 @@ class Config:
         return cls.OWNER_ID or (cls.OWNER_IDS[0] if cls.OWNER_IDS else 0)
 
     # ── Log channel ──────────────────────────────────────────────────────────
-    LOG_CHANNEL: int = _int("LOG_CHANNEL", int(_y[1]))
+    LOG_CHANNEL: int = _int("LOG_CHANNEL", 0) # Fallback hata diya
     AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", -1004486549326)
 
     # ── Optional default userbot session (owner) ─────────────────────────────
