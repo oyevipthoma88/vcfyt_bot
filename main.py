@@ -1,13 +1,3 @@
-"""
-Main entry point — Apex vc fyt bot.
-
-  1. Connect DB
-  2. Start the bot client (HTML parse mode everywhere)
-  3. Wire the log channel
-  4. Restore every saved user session (multi-user VC engines)
-  5. Register the command menu and idle
-"""
-
 import asyncio
 import logging
 import os
@@ -49,7 +39,6 @@ logging.getLogger("pytgcalls").setLevel(logging.WARNING)
 logger = logging.getLogger("vcbot")
 
 async def _health_response(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    """Reply to Heroku health checks without adding a second bot process."""
     try:
         await reader.read(4096)
         body = b"vcfyt bot is running\n"
@@ -71,7 +60,6 @@ async def _health_response(reader: asyncio.StreamReader, writer: asyncio.StreamW
             pass
 
 async def _start_heroku_health_server():
-    """Bind Heroku's PORT when no relay server is already using it."""
     raw_port = os.getenv("PORT")
     if not raw_port:
         return None
@@ -143,7 +131,6 @@ def _new_bot() -> StyledBotClient:
     )
 
 async def _start_bot_resilient() -> StyledBotClient:
-    """Start the bot without exiting when Telegram imposes FloodWait."""
     attempt = 0
     while True:
         attempt += 1
