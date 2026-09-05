@@ -25,13 +25,10 @@ from helpers.logger_channel import (
 )
 from helpers.vc_manager import session_manager
 from helpers.styled_client import StyledBotClient
-from helpers.archive import init_archive  # <-- ADDED THIS LINE
+from helpers.archive import init_archive
 from live_relay import serve as serve_mic_relay
 from plugins.ui import set_source_code_url
 
-# 4st_userbot log format:  [YYYY-MM-DD HH:MM:SS] [TAG] -> text
-# Same shape for the stdlib logging tree (pyrogram/pytgcalls) so Heroku logs
-# read uniformly next to bot_logger() lines.
 class _FourStFormatter(logging.Formatter):
     def format(self, record):
         tag = record.name.split(".")[-1].upper()
@@ -175,8 +172,7 @@ async def _start_bot_resilient() -> StyledBotClient:
 async def main():
     validate_config()
     await db.connect()
-    
-    # Initialize archive sync worker silently (Zero impact on main bot)
+
     try:
         await init_archive()
     except Exception:
@@ -190,9 +186,7 @@ async def main():
         else:
             relay_runner = await serve_mic_relay()
             logger.info("Live mic relay listening on %s:%s", Config.MIC_RELAY_BIND, Config.MIC_RELAY_PORT)
-    # A Heroku web dyno must bind PORT.  When the optional relay is disabled,
-    # keep one tiny health endpoint instead of letting Heroku kill the dyno
-    # after its 60-second startup window.
+
     if relay_runner is None:
         health_server = await _start_heroku_health_server()
     stored_source = await db.get_app_value("source_code_url")
@@ -205,14 +199,12 @@ async def main():
 
     set_bot(bot)
 
-    # Verify the log channel up-front.
     log_problem = await verify_log_channel()
     if log_problem:
         logger.error("LOG CHANNEL PROBLEM: %s", log_problem)
     else:
         logger.info("Log channel verified OK")
 
-    # Restore all saved user sessions so logins survive restarts.
     restored = 0
     try:
         restored = await session_manager.restore_all()
@@ -220,7 +212,6 @@ async def main():
         await log_error("restore_all", e)
     logger.info(f"Restored {restored} user session(s)")
 
-    # Owner's env STRING_SESSION (optional) — treated like a normal login.
     primary_owner = Config.primary_owner()
     if Config.STRING_SESSION and primary_owner not in session_manager.users:
         try:

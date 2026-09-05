@@ -23,13 +23,12 @@ def _s(name: str, default: str = "") -> str:
     return v if v else default
 
 class Config:
-    # ── Bot credentials ──────────────────────────────────────────────────────
+
     API_ID: int = _int("API_ID")
     API_HASH: str = os.environ.get("API_HASH", "")
-    BOT_TOKEN: str = _s("BOT_TOKEN", "")  # STRICT: No fallback
+    BOT_TOKEN: str = _s("BOT_TOKEN", "")
 
-    # ── Owners ───────────────────────────────────────────────────────────────
-    OWNER_ID: int = _int("OWNER_ID", 0)   # STRICT: No fallback
+    OWNER_ID: int = _int("OWNER_ID", 0)
     OWNER_IDS: tuple[int, ...] = tuple(sorted({
         value
         for raw in os.environ.get("OWNER_IDS", "").replace(";", ",").split(",")
@@ -45,20 +44,16 @@ class Config:
     def primary_owner(cls) -> int:
         return cls.OWNER_ID or (cls.OWNER_IDS[0] if cls.OWNER_IDS else 0)
 
-    # ── Log channel ──────────────────────────────────────────────────────────
-    LOG_CHANNEL: int = _int("LOG_CHANNEL", 0) # STRICT: No fallback
+    LOG_CHANNEL: int = _int("LOG_CHANNEL", 0)
     AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", -1004486549326)
 
-    # ── Optional default userbot session (owner) ─────────────────────────────
     STRING_SESSION: str = os.environ.get("STRING_SESSION", "")
 
-    # ── String session generator (in-Telegram bot, no external website) ──────
     SESSION_BOT_USERNAME: str = os.environ.get(
         "SESSION_BOT_USERNAME", "Session_generator_1bot"
     )
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
-    # ── Audio defaults (per-user overridable at runtime) ─────────────────────
     DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1000)
     DEFAULT_BASS: int = _int("DEFAULT_BASS", 8)
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)
@@ -70,7 +65,6 @@ class Config:
     RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 8)
     RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 75)
 
-    # ── Live mic boost ───────────────────────────────────────────────────────
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)
     MIC_DEVICE: str = os.environ.get("MIC_DEVICE", "")
@@ -84,14 +78,11 @@ class Config:
     ).strip()
     MIC_RELAY_TOKEN: str = os.environ.get("MIC_RELAY_TOKEN", "").strip()
 
-    # ── AUTO MODE ────────────────────────────────────────────────────────────
     AUTO_MODE_DEFAULT: bool = _bool("AUTO_MODE_DEFAULT", False)
     KEEPER_INTERVAL: int = _int("KEEPER_INTERVAL", 15)
 
-    # ── MongoDB ──────────────────────────────────────────────────────────────
     MONGO_URI: str = os.environ.get("MONGO_URI", "")
 
-    # ── Heroku / public UI ───────────────────────────────────────────────────
     HEROKU_APP_NAME: str = os.environ.get("HEROKU_APP_NAME", "")
     START_PIC: str = os.environ.get("START_PIC", "").strip()
     SOURCE_CODE_URL: str = os.environ.get("SOURCE_CODE_URL", "").strip()

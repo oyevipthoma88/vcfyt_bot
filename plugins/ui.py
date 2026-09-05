@@ -16,7 +16,6 @@ GEN = Config.SESSION_BOT_LINK
 GEN_NAME = f"@{Config.SESSION_BOT_USERNAME}"
 SOURCE_CODE_URL = Config.SOURCE_CODE_URL
 
-
 def set_source_code_url(url: str) -> str:
     """Set or clear the owner-managed source URL."""
     global SOURCE_CODE_URL
@@ -26,13 +25,11 @@ def set_source_code_url(url: str) -> str:
     SOURCE_CODE_URL = value
     return SOURCE_CODE_URL
 
-
 def source_button():
     """Return the current source button, or no row when disabled."""
     return [[B(" Source Code", url=SOURCE_CODE_URL)]] if SOURCE_CODE_URL else []
 
 LINE = "━━━━━━━━━━━━━━━━━━━━"
-
 
 class ButtonStyle(str, Enum):
     """Bot API semantic styles; Pyrofork falls back when MTProto lacks them."""
@@ -41,13 +38,11 @@ class ButtonStyle(str, Enum):
     SUCCESS = "success"
     DANGER = "danger"
 
-
 _STYLE_EMOJI = {
     "primary": "🔹",
     "success": "✅",
     "danger": "❌",
 }
-
 
 async def edit_screen(message, text: str, reply_markup=None, **kwargs):
     """Edit a text screen, falling back to a caption for /start photos."""
@@ -59,7 +54,6 @@ async def edit_screen(message, text: str, reply_markup=None, **kwargs):
             raise
         return await message.edit_caption(text, reply_markup=reply_markup)
 
-
 async def safe_answer(cq, text: str = "", **kwargs):
     """Answer a callback without crashing when Telegram already expired it."""
     try:
@@ -69,23 +63,16 @@ async def safe_answer(cq, text: str = "", **kwargs):
             raise
         return None
 
-
-# Bot API style is not available in every Pyrogram/Pyrofork build. Keep the
-# semantic style at this single boundary and fall back to a plain button so
-# unsupported versions never break keyboard construction or callback routing.
 _DANGER_WORDS = ("logout", "cancel", "stop", "reset", "delete", "untag", "ban", "restart", "off")
 _SUCCESS_WORDS = ("login", "addstring", "apply", "resume", "save", "send", "start", "on", "max")
-
 
 def _is_danger(text: str, callback_data: str = None) -> bool:
     haystack = f"{callback_data or ''} {text}".lower()
     return any(w in haystack for w in _DANGER_WORDS)
 
-
 def _is_success(text: str, callback_data: str = None) -> bool:
     haystack = f"{callback_data or ''} {text}".lower()
     return any(w in haystack for w in _SUCCESS_WORDS)
-
 
 def B(text: str, callback_data: str = None, style: str = None,
       icon_custom_emoji_id=None, **kwargs):
@@ -100,13 +87,9 @@ def B(text: str, callback_data: str = None, style: str = None,
         elif _is_success(text, callback_data):
             style = "success"
         else:
-            # Telegram leaves unstyled buttons app-specific/transparent.
-            # Explicitly style every button instead of relying on that default.
+
             style = "primary"
 
-    # Custom button emoji IDs belong to the Bot API representation and are not
-    # supported by Pyrofork's MTProto keyboard type. Deliberately discard the
-    # numeric ID instead of leaking it into the constructor and crashing.
     del icon_custom_emoji_id
     if isinstance(style, ButtonStyle):
         style = style.value
@@ -114,20 +97,17 @@ def B(text: str, callback_data: str = None, style: str = None,
         try:
             return _InlineKeyboardButton(text, style=style, **params)
         except (TypeError, ValueError):
-            # Pyrofork cannot serialize style over MTProto; the StyledBotClient
-            # patches this markup through Bot API after sending.
+
             pass
     emoji = _STYLE_EMOJI.get(style, "")
     if emoji and not text.startswith(tuple(_STYLE_EMOJI.values())):
         text = f"{emoji} {text}"
     button = _InlineKeyboardButton(text, **params)
     if style:
-        # Kept as a private tag for the optional Bot API markup bridge.
+
         button._bot_api_style = style
     return button
 
-
-# ── Home ─────────────────────────────────────────────────────────────────────
 def home_text(name: str, logged_in: bool) -> str:
     status = "✅ Logged in" if logged_in else "⚠️ Not logged in"
     return (
@@ -144,7 +124,6 @@ def home_text(name: str, logged_in: bool) -> str:
         f"🎚️ <b>Audio Settings</b> — volume / bass / echo / boost live control\n\n"
         f"👥 <b>Multi-user:</b> har user apne account se, ek saath use kar sakta hai."
     )
-
 
 def home_kb(is_owner: bool = False, logged_in: bool = False,
             active_chat_id: int = None) -> K:
@@ -178,12 +157,9 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         rows.append([B(" Owner Panel", callback_data="adm_back")])
     return K(rows)
 
-
 def back_kb(target: str = "menu:home") -> K:
     return K([[B("⬅ Back", callback_data=target), B(" Home", callback_data="menu:home")]])
 
-
-# ── Login screens ────────────────────────────────────────────────────────────
 LOGIN_INTRO = (
     " <b>Login — apna account connect karein</b>\n\n"
     f"{LINE}\n"
@@ -200,7 +176,6 @@ LOGIN_INTRO = (
     " Session sirf aapke VC control ke liye use hota hai."
 )
 
-
 def login_kb() -> K:
     rows = [
         [B(" Phone se Login", callback_data="login:phone")],
@@ -211,9 +186,7 @@ def login_kb() -> K:
     rows.extend(source_button())
     return K(rows)
 
-
 CANCEL_KB = K([[B(" Cancel", callback_data="login:cancel")]])
-
 
 ADDSTRING_TEXT = (
     " <b>String Session Add</b>\n\n"
@@ -222,7 +195,6 @@ ADDSTRING_TEXT = (
     f"Session nahi hai? {GEN_NAME} se banayein \n\n"
     " Message bhejte hi bot use delete kar deta hai — safe hai."
 )
-
 
 def addstring_kb() -> K:
     rows = [
@@ -233,10 +205,8 @@ def addstring_kb() -> K:
     rows.extend(source_button())
     return K(rows)
 
-
-# ── Audio settings panel ─────────────────────────────────────────────────────
 def settings_text(s: dict) -> str:
-    bars = lambda n: "█" * n + "░" * (10 - n)          # noqa: E731
+    bars = lambda n: "█" * n + "░" * (10 - n)
     return (
         " <b>Audio Settings</b> (aapke account ke liye)\n\n"
         f"{LINE}\n"
@@ -254,7 +224,6 @@ def settings_text(s: dict) -> str:
         "<b>OVERDRIVE</b> maximum loud/distorted preset lagata hai. Volume aur Gain "
         "buttons se level badhao/ghatao; <b>Apply Live</b> se turant lag jayega."
     )
-
 
 def settings_kb() -> K:
     return K([
@@ -288,8 +257,6 @@ def settings_kb() -> K:
         [B(" Home", callback_data="menu:home")],
     ])
 
-
-# ── Status ───────────────────────────────────────────────────────────────────
 def status_text(user_id: int, data: dict, uvc, s: dict) -> str:
     logged = " Active" if uvc else (" Saved (idle)" if data and data.get("string_session") else " Not logged in")
     acc = (

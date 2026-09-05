@@ -20,7 +20,6 @@ TUTORIAL_MENU_TEXT = (
     "Har button mein commands, examples aur important tips diye gaye hain."
 )
 
-
 def tutorial_kb() -> K:
     rows = [
         [B(" Quick Start", callback_data="tut:quick"),
@@ -38,7 +37,6 @@ def tutorial_kb() -> K:
     ]
     rows.extend(source_button())
     return K(rows)
-
 
 SECTIONS = {
     "quick": (
@@ -219,14 +217,12 @@ SECTIONS = {
     ),
 }
 
-
 @Client.on_message(filters.command("help"))
 async def cmd_help(bot: Client, msg: Message):
     await log_command(msg.from_user.id if msg.from_user else 0,
                       msg.from_user.username if msg.from_user else "",
                       msg.chat.id, "/help")
     await msg.reply_text(TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
-
 
 @Client.on_callback_query(filters.regex(r"^tut:"))
 async def cb_tutorial(bot, cq):

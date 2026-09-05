@@ -17,15 +17,12 @@ from plugins.ui import (
 )
 from plugins.tutorial import TUTORIAL_MENU_TEXT, tutorial_kb
 
-
 async def _is_logged_in(user_id: int) -> bool:
     if user_id in session_manager.users:
         return True
     data = await db.get_user(user_id)
     return bool(data and data.get("string_session"))
 
-
-# ── /start ───────────────────────────────────────────────────────────────────
 @Client.on_message(filters.command("start") & filters.private)
 async def cmd_start(bot: Client, msg: Message):
     user = msg.from_user
@@ -46,10 +43,9 @@ async def cmd_start(bot: Client, msg: Message):
             await msg.reply_photo(Config.START_PIC, caption=text, reply_markup=markup)
             return
         except Exception:
-            # Invalid/expired Telegram file_id or inaccessible URL must not break /start.
+
             pass
     await msg.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
-
 
 @Client.on_callback_query(filters.regex(r"^menu:home$"))
 async def cb_home(bot, cq):
@@ -64,14 +60,11 @@ async def cb_home(bot, cq):
     )
     await safe_answer(cq)
 
-
 @Client.on_callback_query(filters.regex(r"^menu:tutorial$"))
 async def cb_tutorial_menu(bot, cq):
     await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
     await safe_answer(cq)
 
-
-# ── Status ───────────────────────────────────────────────────────────────────
 @Client.on_message(filters.command("mystatus") & filters.private)
 async def cmd_mystatus(bot: Client, msg: Message):
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id,
@@ -85,7 +78,6 @@ async def cmd_mystatus(bot: Client, msg: Message):
                              Config.is_owner(msg.from_user.id),
                              bool(data and data.get("string_session")), active_chat_id))
 
-
 @Client.on_callback_query(filters.regex(r"^menu:status$"))
 async def cb_status(bot, cq):
     uid = cq.from_user.id
@@ -97,20 +89,16 @@ async def cb_status(bot, cq):
                                reply_markup=back_kb("menu:home"))
     await safe_answer(cq)
 
-
-# ── Audio settings panel ─────────────────────────────────────────────────────
 @Client.on_message(filters.command("settings") & filters.private)
 async def cmd_settings(bot: Client, msg: Message):
     s = await db.get_settings(msg.from_user.id)
     await msg.reply_text(settings_text(s), reply_markup=settings_kb())
-
 
 @Client.on_callback_query(filters.regex(r"^menu:settings$"))
 async def cb_settings(bot, cq):
     s = await db.get_settings(cq.from_user.id)
     await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
     await safe_answer(cq)
-
 
 DEFAULT_SETTINGS = {
     "volume": Config.DEFAULT_VOLUME, "relay_volume": Config.RELAY_DEFAULT_VOLUME,
@@ -120,7 +108,6 @@ DEFAULT_SETTINGS = {
     "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
     "auto": 0,
 }
-
 
 async def apply_settings_live(user_id: int) -> int:
     """Push the user's saved settings onto every VC they are streaming in."""
@@ -140,11 +127,9 @@ async def apply_settings_live(user_id: int) -> int:
             await log_error("apply_settings_live", e)
     return applied
 
-
 @Client.on_callback_query(filters.regex(r"^set:"))
 async def cb_settings_change(bot, cq):
-    # Telegram callback queries expire quickly. A settings write/reapply can
-    # take longer than that, so acknowledge before touching the database/VC.
+
     await safe_answer(cq)
     uid = cq.from_user.id
     _, action, *rest = cq.data.split(":")
@@ -154,8 +139,7 @@ async def cb_settings_change(bot, cq):
         return
 
     if action in ("vol", "relay"):
-        # Practical playback control: 0–1000. Keep legacy volume synced so
-        # old settings and the new panel always point to the same real gain.
+
         s["relay_volume"] = clamp(
             s.get("relay_volume", Config.RELAY_DEFAULT_VOLUME) + int(rest[0]),
             VOLUME_MIN, VOLUME_MAX,
@@ -178,7 +162,7 @@ async def cb_settings_change(bot, cq):
     elif action == "auto":
         s["auto"] = 0 if s.get("auto") else 1
         if s["auto"]:
-            # AUTO = maximum real gain, but voice-safe EQ (not muddy bass).
+
             s.update(AUTO_PRESET)
     elif action == "reset":
         s.update(DEFAULT_SETTINGS)

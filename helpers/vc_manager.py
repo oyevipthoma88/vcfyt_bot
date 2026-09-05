@@ -42,10 +42,9 @@ from helpers.logger_channel import (
 
 logger = logging.getLogger("vcbot.vc_manager")
 
-# Telegram participant volume scale: 1 – 20000 (10000 = 100%)
 VOL_NORMAL = 10000
 VOL_MAX = 20000
-# Telegram's hard maximum for the logged-in Fyt playback account only.
+
 FYT_PARTICIPANT_VOLUME = VOL_MAX
 
 AUTO_PRESET = {
@@ -53,11 +52,9 @@ AUTO_PRESET = {
     "treble": 80, "boost": 10, "echo": 0, "echo_level": 0,
 }
 
-
 def _db():
     from helpers.database import db
     return db
-
 
 def _unlink(path: Optional[str]):
     if path and os.path.exists(path):
@@ -66,12 +63,10 @@ def _unlink(path: Optional[str]):
         except OSError:
             pass
 
-
 def _participant_not_joined(error: Exception) -> bool:
     """Telegram raises this when our account is not yet a VC participant."""
     return (type(error).__name__ == "ParticipantJoinMissing" or
             "PARTICIPANT_JOIN_MISSING" in str(error))
-
 
 def _connection_lost(error: Exception) -> bool:
     """Return True for transient Pyrogram transport disconnects."""
@@ -80,13 +75,11 @@ def _connection_lost(error: Exception) -> bool:
         marker in text for marker in ("connection lost", "connection reset", "broken pipe", "eof")
     )
 
-
 _INVALID_SESSION_NAMES = frozenset({
     "AuthKeyUnregistered", "AuthKeyInvalid", "SessionRevoked",
     "SessionExpired", "UserDeactivated", "Unauthorized",
     "AuthKeyDuplicated",
 })
-
 
 def _is_invalid_session(error: Exception) -> bool:
     """Return True for Telegram auth errors that require a fresh login.
@@ -97,7 +90,6 @@ def _is_invalid_session(error: Exception) -> bool:
     """
     return (type(error).__name__ in _INVALID_SESSION_NAMES or
             "401" in str(error) or "AUTH_KEY_DUPLICATED" in str(error))
-
 
 async def _invalidate_session(user_id: int, error: Exception, source: str):
     """Remove a dead session and leave a concise operational breadcrumb."""
@@ -110,8 +102,6 @@ async def _invalidate_session(user_id: int, error: Exception, source: str):
         user_id, type(error).__name__, source,
     )
 
-
-# ──────────────────────────────────────────────────────────────────────────────
 class ChatState:
     """Per (user, chat) playback state."""
 
@@ -136,8 +126,8 @@ class ChatState:
         self.mic_device = Config.MIC_DEVICE
         self.auto = Config.AUTO_MODE_DEFAULT
         self.loop = False
-        self.loop_left = -1                # -1 = infinite
-        self.queue: list = []              # [(path, source_name)]
+        self.loop_left = -1
+        self.queue: list = []
 
     def apply_settings(self, s: dict):
         """Copy a saved settings dict (from the DB) onto this state."""
@@ -163,8 +153,6 @@ class ChatState:
             "auto": self.auto, "loop": self.loop,
         }
 
-
-# ──────────────────────────────────────────────────────────────────────────────
 class UserVC:
     """One logged-in Telegram account: user client + pytgcalls + chat states."""
 
@@ -178,14 +166,12 @@ class UserVC:
         self.account_username: str = ""
         self.chats: Dict[int, ChatState] = {}
         self._keepers: Dict[int, asyncio.Task] = {}
-        # Explicit .stop creates a tombstone so late stream-end callbacks or
-        # keeper tasks cannot immediately recreate the VC state.
+
         self._stopped_chats: set[int] = set()
         self._lock = asyncio.Lock()
         self._reconnect_lock = asyncio.Lock()
         self.live_volume = Config.LIVE_BOOST_DEFAULT
 
-    # ── lifecycle ────────────────────────────────────────────────────────────
     async def start(self):
         self.client = Client(
             f"uvc_{self.owner_id}",
@@ -242,14 +228,12 @@ class UserVC:
         except Exception:
             pass
 
-    # ── state helper ─────────────────────────────────────────────────────────
     def state(self, chat_id: int) -> ChatState:
         if chat_id not in self.chats:
             self.chats[chat_id] = ChatState()
             self.chats[chat_id].live_volume = self.live_volume
         return self.chats[chat_id]
 
-    # ── events ───────────────────────────────────────────────────────────────
     async def _on_stream_end(self, chat_id: int):
         if chat_id in self._stopped_chats:
             return
@@ -272,7 +256,6 @@ class UserVC:
             await log_error("stream_end_next", e)
         await self.leave(chat_id, reason="Queue empty")
 
-    # ── AUTO MODE (volume keeper) ────────────────────────────────────────────
     async def _keeper_loop(self, chat_id: int):
         """Re-pin our participant volume every KEEPER_INTERVAL seconds.
 
@@ -324,7 +307,6 @@ class UserVC:
         asyncio.create_task(log_auto_mode(self.owner_id, chat_id, bool(on)))
         return True
 
-    # ── raw helpers ──────────────────────────────────────────────────────────
     async def _call_input(self, chat_id: int):
         peer = await self.client.resolve_peer(chat_id)
         if isinstance(peer, InputPeerChannel):
@@ -353,7 +335,7 @@ class UserVC:
         """Set a participant's LIVE volume (1–20000). Never used to silence."""
         volume = max(1, min(VOL_MAX, int(volume)))
         ok = False
-        # Our own participant: PyTgCalls has a first-class API for it.
+
         if user_id == self.account_id:
             try:
                 await self.calls.change_volume_call(chat_id, max(1, volume // 100))
@@ -382,7 +364,6 @@ class UserVC:
             asyncio.create_task(log_live_boost(self.owner_id, chat_id, user_id, volume))
         return ok
 
-    # ── playback ─────────────────────────────────────────────────────────────
     async def _stream(self, chat_id: int, path: str, source_name: str):
         if chat_id in self._stopped_chats:
             raise RuntimeError("Playback stopped manually; start .play again")
@@ -393,9 +374,7 @@ class UserVC:
             echo_level=st.echo_level, boost=st.boost,
             relay_volume=st.relay_volume, gain=st.gain, treble=st.treble,
         )
-        # process_audio_to_file renders 48 kHz stereo. HIGH is also 48 kHz;
-        # STUDIO expects 96 kHz and forces an extra conversion that can cause
-        # dropouts, choppy audio, and lower perceived loudness in the VC.
+
         stream = MediaStream(
             processed, AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE,
         )
@@ -428,10 +407,7 @@ class UserVC:
             _unlink(old_source)
 
         if Config.AUTO_LIVE_BOOST or st.auto:
-            # Telegram may not expose our participant immediately after the
-            # stream joins. Retry briefly, then keep re-pinning the 200% server
-            # volume so reconnects/admin changes cannot silently drop playback
-            # back to Telegram's normal level.
+
             for delay in (0.0, 0.25, 0.75, 1.5):
                 if delay:
                     await asyncio.sleep(delay)
@@ -571,7 +547,7 @@ class UserVC:
             try:
                 await self._stream_with_reconnect(chat_id, path, source_name)
             except Exception:
-                # Leave and rejoin once (fixes a stuck call), then retry.
+
                 try:
                     await self.calls.leave_call(chat_id)
                 except Exception:
@@ -631,8 +607,6 @@ class UserVC:
         st = self.chats.get(chat_id)
         return bool(st and st.is_playing)
 
-
-# ──────────────────────────────────────────────────────────────────────────────
 class SessionManager:
     """Registry of all logged-in users' VC engines."""
 
@@ -700,9 +674,7 @@ class SessionManager:
                 await self.add(uid, u["string_session"])
                 started += 1
             except Exception as e:
-                # A revoked/expired string session is unrecoverable.  Clear it
-                # once and continue restoring the remaining users; do not send
-                # a scary traceback to the log channel for an expected event.
+
                 if _is_invalid_session(e):
                     await _invalidate_session(uid, e, "startup restore")
                 else:
@@ -711,6 +683,5 @@ class SessionManager:
 
     def active_chats(self) -> int:
         return sum(len(u.chats) for u in self.users.values())
-
 
 session_manager = SessionManager()

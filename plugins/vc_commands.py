@@ -27,7 +27,6 @@ LOGIN_KB = K([
     [B(" Tutorial", callback_data="menu:tutorial")],
 ])
 
-
 def _cleanup_source(path: str):
     if path and os.path.exists(path):
         try:
@@ -35,13 +34,11 @@ def _cleanup_source(path: str):
         except OSError:
             pass
 
-
 def _cached_file_id(message):
     media = (getattr(message, "audio", None) or getattr(message, "voice", None)
              or getattr(message, "video", None) or getattr(message, "document", None)
              or getattr(message, "video_note", None))
     return getattr(media, "file_id", None) if media else None
-
 
 async def _archive_played_audio(bot: Client, source_file_id: str, title: str):
     """Archive once; archive failures never interrupt playback."""
@@ -63,7 +60,6 @@ async def _archive_played_audio(bot: Client, source_file_id: str, title: str):
     except Exception as exc:
         await log_error("archive_played_audio", exc)
 
-
 def now_playing_kb(cid: int) -> K:
     """Controls shown on every active playback message."""
     return K([
@@ -78,7 +74,6 @@ def now_playing_kb(cid: int) -> K:
          B(" Settings", callback_data="menu:settings")],
     ])
 
-
 async def get_engine(msg: Message):
     """Return the caller's VC engine, or None (with a helpful reply)."""
     uvc = await session_manager.get(msg.from_user.id)
@@ -90,7 +85,6 @@ async def get_engine(msg: Message):
             reply_markup=LOGIN_KB,
         )
     return uvc
-
 
 async def target_chat(msg: Message, arg: str = None) -> int:
     """Resolve which group's VC we are talking about."""
@@ -107,7 +101,6 @@ async def target_chat(msg: Message, arg: str = None) -> int:
         return msg.chat.id
     return 0
 
-
 async def need_chat(msg: Message, arg: str = None) -> int:
     cid = await target_chat(msg, arg)
     if not cid:
@@ -120,7 +113,6 @@ async def need_chat(msg: Message, arg: str = None) -> int:
     await db.register_broadcast_chat(cid)
     return cid
 
-
 async def load_state_settings(user_id: int, uvc, chat_id: int):
     """Make sure a chat state starts from the user's saved settings."""
     s = await db.get_settings(user_id)
@@ -130,8 +122,6 @@ async def load_state_settings(user_id: int, uvc, chat_id: int):
         await uvc.set_auto(chat_id, bool(s.get("auto")))
     return st
 
-
-# ── Tags ─────────────────────────────────────────────────────────────────────
 @Client.on_message(filters.regex(r"^[./]tag\b") & (filters.group | filters.private))
 async def cmd_tag(bot: Client, msg: Message):
     parts = msg.text.strip().split(maxsplit=1)
@@ -151,7 +141,6 @@ async def cmd_tag(bot: Client, msg: Message):
     await db.tag_file(msg.from_user.id, name, media.file_id, ftype, reply.caption or "")
     await msg.reply_text(f" Saved as <code>{name}</code> — ab <code>.play {name}</code>")
 
-
 @Client.on_message(filters.regex(r"^[./]untag\b") & (filters.group | filters.private))
 async def cmd_untag(bot: Client, msg: Message):
     parts = msg.text.strip().split(maxsplit=1)
@@ -165,7 +154,6 @@ async def cmd_untag(bot: Client, msg: Message):
     await db.delete_tag(msg.from_user.id, name)
     await msg.reply_text(f" <code>{name}</code> delete ho gaya.")
 
-
 @Client.on_message(filters.regex(r"^[./]tags\b") & (filters.group | filters.private))
 async def cmd_tags(bot: Client, msg: Message):
     tags = await db.list_tags(msg.from_user.id)
@@ -175,8 +163,6 @@ async def cmd_tags(bot: Client, msg: Message):
     lines = [f"• <code>{t['tag_name']}</code> — {t['file_type']}" for t in tags]
     await msg.reply_text(" <b>Your Tags</b>\n" + "\n".join(lines))
 
-
-# ── Source resolution ────────────────────────────────────────────────────────
 async def resolve_source(bot: Client, msg: Message, arg: str):
     """Return (path, name, source_file_id) or three Nones on failure."""
     reply = msg.reply_to_message
@@ -197,7 +183,7 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
             return path, getattr(media, "file_name", None) or "Reply media", source_file_id
 
     if arg:
-        # Saved Telegram tag only. External URL/search downloads are disabled.
+
         tag = await db.get_tag(msg.from_user.id, arg.split()[0].lower())
         if tag:
             source_file_id = tag["file_id"]
@@ -225,7 +211,6 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
     )
     return None, None, None
 
-
 def _split_args(msg: Message):
     """Return (source_arg, chat_id_arg). Source may be multi-word (search)."""
     parts = msg.text.strip().split()
@@ -240,8 +225,6 @@ def _split_args(msg: Message):
         words.append(p)
     return (" ".join(words) or None), cid
 
-
-# ── .play / .padd ────────────────────────────────────────────────────────────
 async def _play(bot: Client, msg: Message, enqueue: bool):
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id,
                       ".padd" if enqueue else ".play")
@@ -286,13 +269,10 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         reply_markup=now_playing_kb(cid),
     )
 
-
 @Client.on_message(filters.regex(r"^[./]play(?!force)\b") & (filters.group | filters.private))
 async def cmd_play(bot: Client, msg: Message):
     await _play(bot, msg, enqueue=False)
 
-
-# ── .playforce / .fplay ─────────────────────────────────────────────────────
 @Client.on_message(filters.regex(r"^[./](playforce|fplay)\b") & (filters.group | filters.private))
 async def cmd_playforce(bot: Client, msg: Message):
     """Queue clear + jo chal raha hai use hata kar turant yeh chalao."""
@@ -334,8 +314,6 @@ async def cmd_playforce(bot: Client, msg: Message):
         reply_markup=now_playing_kb(cid),
     )
 
-
-# ── .loop ───────────────────────────────────────────────────────────────────
 @Client.on_message(filters.regex(r"^[./]loop\b") & (filters.group | filters.private))
 async def cmd_loop(bot: Client, msg: Message):
     """.loop | .loop off | .loop 5  — current track repeat."""
@@ -369,13 +347,10 @@ async def cmd_loop(bot: Client, msg: Message):
                                   if count < 0 else f"{count} baar aur")
     )
 
-
 @Client.on_message(filters.regex(r"^[./]padd\b") & (filters.group | filters.private))
 async def cmd_padd(bot: Client, msg: Message):
     await _play(bot, msg, enqueue=True)
 
-
-# ── transport controls ───────────────────────────────────────────────────────
 async def _transport(msg: Message, action: str):
     """Run a transport action against the caller's selected VC."""
     uvc = await get_engine(msg)
@@ -406,26 +381,21 @@ async def _transport(msg: Message, action: str):
             return
         await msg.reply_text("⏹ <b>Stopped</b> — bot ne VC playback session chhod diya.")
 
-
 @Client.on_message(filters.regex(r"^[./]pause\b") & (filters.group | filters.private))
 async def cmd_pause(bot, msg):
     await _transport(msg, "pause")
-
 
 @Client.on_message(filters.regex(r"^[./]resume\b") & (filters.group | filters.private))
 async def cmd_resume(bot, msg):
     await _transport(msg, "resume")
 
-
 @Client.on_message(filters.regex(r"^[./]skip\b") & (filters.group | filters.private))
 async def cmd_skip(bot, msg):
     await _transport(msg, "skip")
 
-
 @Client.on_message(filters.regex(r"^[./](stop|end|leave)\b") & (filters.group | filters.private))
 async def cmd_stop(bot, msg):
     await _transport(msg, "stop")
-
 
 @Client.on_message(filters.regex(r"^[./]queue\b") & (filters.group | filters.private))
 async def cmd_queue(bot: Client, msg: Message):
@@ -443,7 +413,6 @@ async def cmd_queue(bot: Client, msg: Message):
     lines = [f"{i+1}. {n}" for i, (_, n) in enumerate(st.queue)] or ["— empty —"]
     await msg.reply_text(
         f" <b>Now:</b> {st.source_name}\n <b>Queue:</b>\n" + "\n".join(lines))
-
 
 @Client.on_message(filters.regex(r"^[./]vcinfo\b") & (filters.group | filters.private))
 async def cmd_vcinfo(bot: Client, msg: Message):
@@ -471,8 +440,6 @@ async def cmd_vcinfo(bot: Client, msg: Message):
         f"└ <b>Queue:</b> {len(st.queue)}"
     )
 
-
-# ── effects ──────────────────────────────────────────────────────────────────
 async def _apply_and_reply(msg: Message, label: str, **changes):
     from plugins.start import apply_settings_live
     uid = msg.from_user.id
@@ -489,7 +456,6 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
         reply_markup=K([[B(" Settings Panel", callback_data="menu:settings")]]),
     )
 
-
 def _num_arg(msg: Message):
     parts = msg.text.strip().split()
     if len(parts) < 2:
@@ -498,7 +464,6 @@ def _num_arg(msg: Message):
         return int(parts[1])
     except ValueError:
         return None
-
 
 @Client.on_message(filters.regex(r"^[./]vol\b") & (filters.group | filters.private))
 async def cmd_vol(bot, msg: Message):
@@ -509,7 +474,6 @@ async def cmd_vol(bot, msg: Message):
     n = clamp(n, VOLUME_MIN, VOLUME_MAX)
     await _apply_and_reply(msg, f" Volume set: <b>{n}/1000</b>", volume=n, relay_volume=n)
 
-
 @Client.on_message(filters.regex(r"^[./]bass\b") & (filters.group | filters.private))
 async def cmd_bass(bot, msg: Message):
     n = _num_arg(msg)
@@ -518,7 +482,6 @@ async def cmd_bass(bot, msg: Message):
         return
     await _apply_and_reply(msg, f" Bass set: <b>+{clamp(n, BASS_MIN, BASS_MAX)} dB</b>",
                            bass=clamp(n, BASS_MIN, BASS_MAX))
-
 
 @Client.on_message(filters.regex(r"^[./]boost\b") & (filters.group | filters.private))
 async def cmd_boost(bot, msg: Message):
@@ -531,7 +494,6 @@ async def cmd_boost(bot, msg: Message):
     await _apply_and_reply(msg, f" Boost set: <b>{clamp(n, LEVEL_MIN, LEVEL_MAX)}/10</b>",
                            boost=clamp(n, LEVEL_MIN, LEVEL_MAX))
 
-
 @Client.on_message(filters.regex(r"^[./]echolvl\b") & (filters.group | filters.private))
 async def cmd_echolvl(bot, msg: Message):
     n = _num_arg(msg)
@@ -541,7 +503,6 @@ async def cmd_echolvl(bot, msg: Message):
     lvl = clamp(n, LEVEL_MIN, LEVEL_MAX)
     await _apply_and_reply(msg, f" Echo level: <b>{lvl}/10</b>",
                            echo_level=lvl, echo=1 if lvl else 0)
-
 
 @Client.on_message(filters.regex(r"^[./]echo\b") & (filters.group | filters.private))
 async def cmd_echo(bot, msg: Message):
@@ -553,14 +514,11 @@ async def cmd_echo(bot, msg: Message):
     await _apply_and_reply(msg, f" Echo: <b>{'ON' if on else 'OFF'}</b>",
                            echo=1 if on else 0)
 
-
 @Client.on_message(filters.regex(r"^[./](max|ultra)\b") & (filters.group | filters.private))
 async def cmd_max(bot, msg: Message):
-    # Max mode stays voice-clear: excessive bass/echo makes a track feel
-    # quieter even when the waveform is technically louder.
+
     await _apply_and_reply(msg, " <b>MAXIMUM LOUD MODE</b> — sab knobs max par.",
                            auto=1, **AUTO_PRESET)
-
 
 @Client.on_message(filters.regex(r"^[./]reset\b") & (filters.group | filters.private))
 async def cmd_reset(bot, msg: Message):
@@ -574,8 +532,6 @@ async def cmd_reset(bot, msg: Message):
                            echo=1 if Config.DEFAULT_ECHO else 0,
                            echo_level=Config.DEFAULT_ECHO_LEVEL, auto=0)
 
-
-# ── live mic boost ───────────────────────────────────────────────────────────
 @Client.on_message(filters.regex(r"^[./](myboost|livegain|livevolume)\b") & (filters.group | filters.private))
 async def cmd_myboost(bot: Client, msg: Message):
     uvc = await get_engine(msg)
@@ -592,7 +548,7 @@ async def cmd_myboost(bot: Client, msg: Message):
         if v < 0:
             cid_arg = p
         else:
-            vol = max(VOL_NORMAL, min(VOL_MAX, v))   # never below 100%
+            vol = max(VOL_NORMAL, min(VOL_MAX, v))
     cid = await need_chat(msg, cid_arg)
     if not cid:
         return
@@ -610,8 +566,6 @@ async def cmd_myboost(bot: Client, msg: Message):
            if ok else "VC on hai? Aapka account VC mein hai? Check karein.")
     )
 
-
-# ── inline transport buttons ─────────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^vc:"))
 async def cb_vc(bot, cq):
     _, action, cid = cq.data.split(":")
@@ -676,10 +630,7 @@ async def cb_vc(bot, cq):
             st.loop_left = -1
             await safe_answer(cq, " Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
 
-
-# ── AUTO MODE ────────────────────────────────────────────────────────────────
 AUTO_KB = K([[B(" Settings Panel", callback_data="menu:settings")]])
-
 
 @Client.on_message(filters.regex(r"^[./]auto\b") & (filters.group | filters.private))
 async def cmd_auto(bot: Client, msg: Message):
@@ -696,7 +647,6 @@ async def cmd_auto(bot: Client, msg: Message):
     if not uvc:
         return
 
-    # Save — every next .play picks it up automatically.
     await db.save_settings(msg.from_user.id, auto=1 if on else 0,
                            **(AUTO_PRESET if on else {}))
     applied = await apply_settings_live(msg.from_user.id)
@@ -724,8 +674,6 @@ async def cmd_auto(bot: Client, msg: Message):
         reply_markup=AUTO_KB,
     )
 
-
-# ── Log channel diagnostics (owner) ──────────────────────────────────────────
 @Client.on_message(filters.regex(r"^[./]logtest\b") & filters.private)
 async def cmd_logtest(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
@@ -738,7 +686,6 @@ async def cmd_logtest(bot: Client, msg: Message):
             f" <b>Log channel OK</b> — test message bhej diya.\n"
             f"Channel: <code>{get_channel()}</code>"
         )
-
 
 @Client.on_message(filters.regex(r"^[./]setlog\b") & filters.private)
 async def cmd_setlog(bot: Client, msg: Message):
@@ -762,8 +709,6 @@ async def cmd_setlog(bot: Client, msg: Message):
         f"Channel: <code>{get_channel()}</code>"
     )
 
-
-# ── Relay audio controls ──────────────────────────────────────────────────────
 def _relay_num_arg(msg: Message):
     parts = msg.text.strip().split()
     if len(parts) < 2:
@@ -772,7 +717,6 @@ def _relay_num_arg(msg: Message):
         return int(parts[1])
     except ValueError:
         return None
-
 
 @Client.on_message(filters.regex(r"^[./]volume\b") & (filters.group | filters.private))
 async def cmd_volume(bot: Client, msg: Message):
@@ -783,7 +727,6 @@ async def cmd_volume(bot: Client, msg: Message):
     n = max(0, min(VOLUME_MAX, n))
     await _apply_and_reply(msg, f" Playback volume: <b>{n}/1000</b>", relay_volume=n, volume=n)
 
-
 @Client.on_message(filters.regex(r"^[./]gain\b") & (filters.group | filters.private))
 async def cmd_gain(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
@@ -793,7 +736,6 @@ async def cmd_gain(bot: Client, msg: Message):
     n = max(0, min(150, n))
     await _apply_and_reply(msg, f" Gain: <b>{n}/150</b>", gain=n)
 
-
 @Client.on_message(filters.regex(r"^[./]treble\b") & (filters.group | filters.private))
 async def cmd_treble(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
@@ -802,7 +744,6 @@ async def cmd_treble(bot: Client, msg: Message):
         return
     n = max(0, min(100, n))
     await _apply_and_reply(msg, f" Treble: <b>{n}/100</b>", treble=n)
-
 
 @Client.on_message(filters.regex(r"^[./]voice\b") & (filters.group | filters.private))
 async def cmd_voice(bot: Client, msg: Message):
@@ -825,7 +766,6 @@ async def cmd_voice(bot: Client, msg: Message):
         voice=profile, bass=values["bass"], treble=values["treble"],
     )
 
-
 @Client.on_message(filters.regex(r"^[./]relaystatus\b") & (filters.group | filters.private))
 async def cmd_relaystatus(bot: Client, msg: Message):
     s = await db.get_settings(msg.from_user.id)
@@ -838,10 +778,6 @@ async def cmd_relaystatus(bot: Client, msg: Message):
         f"├ Live mic: <code>{s.get('live_volume', Config.LIVE_BOOST_DEFAULT)}/20000</code>\n"
         f"└ Voice: <code>{s.get('voice', 'normal')}</code>"
     )
-
-
-
-
 
 @Client.on_message(filters.regex(r"^[./]mic\b") & (filters.group | filters.private))
 async def cmd_mic(bot: Client, msg: Message):

@@ -28,21 +28,17 @@ LEVEL_MIN, LEVEL_MAX = 0, 10
 GAIN_MAX = 150
 TREBLE_MAX = 100
 
-
 def clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, int(value)))
 
-
 def _db(value: float) -> str:
     return f"{value:.2f}"
-
 
 def _sanitize_ffmpeg_filter(value: str) -> str:
     """Normalize options rejected by common FFmpeg builds before execution."""
     value = re.sub(r"(?i)(knee=)0(?:\.0+)?(?![\d.])", r"\g<1>1", value)
     value = re.sub(r"(?i)(attack=)0(?:\.0+)?(?![\d.])", r"\g<1>0.1", value)
     return value
-
 
 def volume_to_db(vol: int) -> float:
     """0..1000 -> -30..+30 dB (500 = unity).
@@ -55,11 +51,9 @@ def volume_to_db(vol: int) -> float:
         return -30.0 + (30.0 * vol / 500.0)
     return 30.0 * (vol - 500) / 500.0
 
-
 def gain_to_db(gain: int) -> float:
     """0..150 -> 0..+12 dB extra drive into the limiter."""
     return 12.0 * clamp(gain, 0, GAIN_MAX) / GAIN_MAX
-
 
 def build_ffmpeg_filter(
     volume: int = None,
@@ -86,23 +80,18 @@ def build_ffmpeg_filter(
     filters = [
         "highpass=f=50",
         "aresample=48000",
-        # Aggressive loudness normalisation: lifts quiet sources hard towards
-        # full scale so a whisper-quiet recording comes out as loud as a mastered
-        # track. Max gain for maximum clean loudness.
+
         "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0",
-        # Extra pre-drive makes quiet Telegram files reach the density stages;
-        # the final limiter keeps the PCM output inside the safe ceiling.
+
         "volume=18dB",
     ]
 
     if bass_value:
         filters.append(f"equalizer=f=90:t=q:w=1:g={_db(min(12.0, bass_value * 0.12))}")
-    # Presence / air: 0..100 -> -6..+6 dB and -4..+4 dB.
+
     filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(-6.0 + treble_value * 0.12)}")
     filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(-4.0 + treble_value * 0.08)}")
 
-    # Boost 0..10 -> heavy compression for maximum loudness. Higher ratio and
-    # makeup gain push the average level much higher while keeping voice clear.
     ratio = 4.0 + boost_value * 1.2
     threshold = max(0.04, 0.20 - boost_value * 0.026)
     makeup = boost_value * 2.5 + 6.0
@@ -110,8 +99,7 @@ def build_ffmpeg_filter(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
         f"attack=1:release=60:makeup={makeup:.1f}:knee=1"
     )
-    # Second compressor: aggressive mastering-style density for maximum
-    # perceived loudness, while the final limiter prevents digital clipping.
+
     filters.append(
         f"acompressor=threshold=0.01:ratio=20.0:"
         f"attack=0.1:release=45:makeup=28.0:knee=8"
@@ -129,20 +117,14 @@ def build_ffmpeg_filter(
 
     if extra_filters:
         filters.append(extra_filters)
-    # Maximum loudness push: target -1 LUFS (extremely loud, well above ordinary
-    # music relays) with a tight loudness range so quiet parts stay loud too.
-    # The extra headroom is always followed by a true-peak limiter, so the louder
-    # default remains unclipped.
+
     filters.append("loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false")
-    # Requested hard-drive mode: push the signal far beyond unity and use a
-    # hard soft-clip stage for audible crunch/saturation on quiet sources.
+
     filters.append("volume=96.00dB")
     filters.append("asoftclip=type=hard:threshold=0.04:output=3.0:oversample=4")
-    # Keep a final ceiling so the intentional distortion does not create
-    # invalid PCM or break PyTgCalls playback.
+
     filters.append("alimiter=level_in=8:limit=1.0:attack=0.1:release=30:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
-
 
 def build_live_mic_filter() -> str:
     """Build the maximum safe DSP chain for a server-connected live mic.
@@ -163,14 +145,12 @@ def build_live_mic_filter() -> str:
         "volume=24dB,alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1"
     )
 
-
 def get_ffmpeg_piped_input(source: str, **kwargs) -> list:
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
         "-vn", "-af", build_ffmpeg_filter(**kwargs),
         "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
     ]
-
 
 async def process_audio_to_file(
     input_path: str,
@@ -215,14 +195,12 @@ async def process_audio_to_file(
         raise RuntimeError(f"FFmpeg failed: {stderr.decode(errors='replace')[-500:]}")
     return output_path
 
-
 def ffmpeg_available() -> bool:
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
         return True
     except (FileNotFoundError, subprocess.CalledProcessError):
         return False
-
 
 def shell_quote(args: list) -> str:
     return shlex.join(args)

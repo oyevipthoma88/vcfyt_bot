@@ -19,7 +19,6 @@ from helpers.vc_manager import session_manager
 
 BANNED_USERS: set = set()
 
-
 def owner_only(func):
     async def wrapper(bot: Client, msg: Message):
         if not msg.from_user or not Config.is_owner(msg.from_user.id):
@@ -28,7 +27,6 @@ def owner_only(func):
         return await func(bot, msg)
     wrapper.__name__ = func.__name__
     return wrapper
-
 
 def panel_kb() -> K:
     return K([
@@ -42,7 +40,6 @@ def panel_kb() -> K:
         [B(" Home", callback_data="menu:home")],
     ])
 
-
 async def _panel_text() -> str:
     users = await db.all_users()
     with_session = sum(1 for u in users if u.get("string_session"))
@@ -54,13 +51,11 @@ async def _panel_text() -> str:
         f"└ <b>Active VCs:</b> {session_manager.active_chats()}"
     )
 
-
 @Client.on_message(filters.command("owner") & filters.private)
 @owner_only
 async def cmd_owner_panel(bot: Client, msg: Message):
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, "/owner")
     await msg.reply_text(await _panel_text(), reply_markup=panel_kb())
-
 
 @Client.on_callback_query(filters.regex(r"^adm_"))
 async def cb_admin(bot, cq):
@@ -131,7 +126,6 @@ async def cb_admin(bot, cq):
 
     await safe_answer(cq)
 
-
 @Client.on_message(filters.command("setsource") & filters.private)
 @owner_only
 async def cmd_setsource(bot: Client, msg: Message):
@@ -147,14 +141,12 @@ async def cmd_setsource(bot: Client, msg: Message):
     await db.set_app_value("source_code_url", shared_ui.SOURCE_CODE_URL)
     await msg.reply_text("✅ Source Code button updated. /start dobara bhejein.")
 
-
 @Client.on_message(filters.command("clearsource") & filters.private)
 @owner_only
 async def cmd_clearsource(bot: Client, msg: Message):
     set_source_code_url("")
     await db.set_app_value("source_code_url", "")
     await msg.reply_text("✅ Source Code button removed. /start dobara bhejein.")
-
 
 @Client.on_message(filters.command("broadcast") & filters.private)
 @owner_only
@@ -173,8 +165,7 @@ async def cmd_broadcast(bot: Client, msg: Message):
         for user in users
         if user.get("user_id") is not None
     }
-    # Include every group currently tracked by a logged-in VC engine too.
-    # A single set prevents duplicate sends when an owner is also registered.
+
     recipients.update(await db.all_broadcast_chats())
     recipients.update(
         int(chat_id)
@@ -195,8 +186,7 @@ async def cmd_broadcast(bot: Client, msg: Message):
                 await bot.send_message(user_id, text_to_send)
             success += 1
         except Exception:
-            # A blocked bot, deleted account, or invalid chat must not stop
-            # delivery to the remaining registered users.
+
             pass
         await asyncio.sleep(0.05)
 
@@ -205,7 +195,6 @@ async def cmd_broadcast(bot: Client, msg: Message):
         f"└ Failed: {len(recipients) - success}\n"
         "└ Target: all registered users + tracked VC groups")
     await log_broadcast(msg.from_user.id, len(recipients), success)
-
 
 @Client.on_message(filters.command("users") & filters.private)
 @owner_only
@@ -223,12 +212,10 @@ async def cmd_users(bot: Client, msg: Message):
         text += f"\n…+{len(users) - 40} more"
     await msg.reply_text(text)
 
-
 @Client.on_message(filters.command("stats") & filters.private)
 @owner_only
 async def cmd_stats(bot: Client, msg: Message):
     await msg.reply_text(await _panel_text(), reply_markup=panel_kb())
-
 
 @Client.on_message(filters.command("ban") & filters.private)
 @owner_only
@@ -242,7 +229,6 @@ async def cmd_ban(bot: Client, msg: Message):
     await session_manager.remove(uid)
     await msg.reply_text(f" <code>{uid}</code> banned.")
 
-
 @Client.on_message(filters.command("unban") & filters.private)
 @owner_only
 async def cmd_unban(bot: Client, msg: Message):
@@ -253,14 +239,12 @@ async def cmd_unban(bot: Client, msg: Message):
     BANNED_USERS.discard(int(parts[1]))
     await msg.reply_text(f" <code>{parts[1]}</code> unbanned.")
 
-
 @Client.on_message(filters.command("restart") & filters.private)
 @owner_only
 async def cmd_restart(bot: Client, msg: Message):
     await msg.reply_text(" Restarting…")
     await asyncio.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
-
 
 @Client.on_message(filters.incoming, group=-1)
 async def ban_filter(bot: Client, msg: Message):

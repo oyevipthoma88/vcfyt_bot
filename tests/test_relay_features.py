@@ -21,14 +21,12 @@ from helpers.styled_client import _transport_markup
 
 ROOT = pathlib.Path(__file__).parents[1]
 
-
 def _mean_volume(path: str) -> float:
     probe = subprocess.run(
         ["ffmpeg", "-hide_banner", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
         capture_output=True, text=True,
     )
     return float(re.search(r"mean_volume: (-?[\d.]+) dB", probe.stderr).group(1))
-
 
 class RelayFeatureTests(unittest.TestCase):
     def test_multiple_owners(self):
@@ -50,7 +48,7 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertEqual(stages[:3], ["highpass", "aresample", "dynaudnorm"])
         self.assertEqual(stages[-1], "alimiter")
         self.assertIn("acompressor", stages)
-        self.assertIn("volume=30.00dB", af)      # +18 volume + 12 gain
+        self.assertIn("volume=30.00dB", af)
         self.assertNotIn("aecho=", af)
         self.assertIn("loudnorm=I=-5", af)
 
@@ -126,7 +124,7 @@ class RelayFeatureTests(unittest.TestCase):
                                                   volume=1000, gain=150, boost=10, echo=False)
                 after = _mean_volume(out)
                 self.assertLess(before, -30)
-                self.assertGreater(after, -8)     # near full scale, no clipping
+                self.assertGreater(after, -8)
                 self.assertGreater(after - before, 25)
 
         asyncio.run(run())
@@ -172,7 +170,6 @@ class RelayFeatureTests(unittest.TestCase):
         removed_fn = "download_" + "yt"
         self.assertNotIn(removed_fn, (ROOT / "helpers" / "audio_processor.py").read_text())
         self.assertNotIn(removed_fn, (ROOT / "plugins" / "vc_commands.py").read_text())
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,6 @@ from plugins.ui import B, edit_screen, safe_answer
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error
 
-
 def library_kb() -> K:
     return K([
         [B(" Available Audio", callback_data="aud:my"),
@@ -17,13 +16,11 @@ def library_kb() -> K:
         [B(" Home", callback_data="menu:home")],
     ])
 
-
 def _media(reply):
     if not reply:
         return None
     return (reply.audio or reply.voice or reply.video or reply.document
             or reply.video_note)
-
 
 def _item_kb(item: dict, can_delete: bool = False) -> K:
     audio_id = str(item["audio_id"])
@@ -31,7 +28,6 @@ def _item_kb(item: dict, can_delete: bool = False) -> K:
     if can_delete:
         rows.append([B(" Delete", callback_data=f"aud:del:{audio_id}")])
     return K(rows)
-
 
 async def _show_items(cq, items: list, heading: str, user_id: int):
     if not items:
@@ -56,7 +52,6 @@ async def _show_items(cq, items: list, heading: str, user_id: int):
             ),
         )
 
-
 @Client.on_message(filters.regex(r"^[./](audio|audios|myaudio)\b") &
                    (filters.group | filters.private))
 async def cmd_audio_library(bot: Client, msg: Message):
@@ -72,14 +67,12 @@ async def cmd_audio_library(bot: Client, msg: Message):
     title = parts[1].strip()
     await _save_reply_audio(msg, msg.from_user.id, title, "my")
 
-
 @Client.on_message(filters.regex(r"^[./]saveaudio\b") &
                    (filters.group | filters.private))
 async def cmd_save_audio(bot: Client, msg: Message):
     parts = msg.text.strip().split(maxsplit=1)
     title = parts[1].strip() if len(parts) > 1 else ""
     await _save_reply_audio(msg, msg.from_user.id, title, "my")
-
 
 @Client.on_message(filters.regex(r"^[./]addaudio\b") & filters.private)
 async def cmd_add_owner_audio(bot: Client, msg: Message):
@@ -89,7 +82,6 @@ async def cmd_add_owner_audio(bot: Client, msg: Message):
     parts = msg.text.strip().split(maxsplit=1)
     title = parts[1].strip() if len(parts) > 1 else ""
     await _save_reply_audio(msg, msg.from_user.id, title, "owner")
-
 
 async def _save_reply_audio(msg: Message, owner_id: int, title: str, mode: str):
     reply = msg.reply_to_message
@@ -118,7 +110,6 @@ async def _save_reply_audio(msg: Message, owner_id: int, title: str, mode: str):
         f"🆔 <code>{audio_id}</code>",
         reply_markup=library_kb(),
     )
-
 
 @Client.on_callback_query(filters.regex(r"^aud:"))
 async def cb_audio_library(bot, cq):

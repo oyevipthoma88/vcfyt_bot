@@ -16,7 +16,6 @@ except ImportError:
 
 from config import Config
 
-
 class Database:
     """Collections/tables: users, tagged, settings, shared_audio, broadcast_chats."""
 
@@ -34,7 +33,6 @@ class Database:
             self._init_sqlite()
             print("[DB] Using local SQLite")
 
-    # ── SQLite bootstrap ─────────────────────────────────────────────────────
     def _init_sqlite(self):
         conn = sqlite3.connect(self._sqlite_path)
         c = conn.cursor()
@@ -108,7 +106,7 @@ class Database:
                 live_volume INTEGER
             )
         """)
-        # Migrations for databases created by older bot versions.
+
         for statement in (
             "ALTER TABLE settings ADD COLUMN auto INTEGER DEFAULT 0",
             "ALTER TABLE settings ADD COLUMN relay_volume INTEGER",
@@ -150,7 +148,6 @@ class Database:
         self._sql("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)",
                   (key, value))
 
-    # ── USERS ────────────────────────────────────────────────────────────────
     async def add_user(self, user_id: int, username: str, first_name: str,
                        string_session: str = "", extra: dict = None):
         ts = datetime.now(timezone.utc).isoformat()
@@ -208,7 +205,6 @@ class Database:
         rows = self._sql("SELECT * FROM users", fetch=True)
         return [dict(r) for r in rows] if rows else []
 
-    # ── BROADCAST CHAT REGISTRY ──────────────────────────────────────────────
     async def register_broadcast_chat(self, chat_id: int, title: str = ""):
         """Persist a group used by VC commands for future broadcasts."""
         chat_id = int(chat_id)
@@ -258,7 +254,6 @@ class Database:
         self._sql("INSERT OR REPLACE INTO audio_archive VALUES (?,?,?,?,?)",
                   (source_file_id, archive_file_id, title, file_type, ts))
 
-    # ── TAGGED FILES ─────────────────────────────────────────────────────────
     async def tag_file(self, user_id: int, tag_name: str, file_id: str,
                        file_type: str, caption: str = ""):
         ts = datetime.now(timezone.utc).isoformat()
@@ -295,7 +290,6 @@ class Database:
             self._sql("DELETE FROM tagged WHERE user_id=? AND tag_name=?",
                       (user_id, tag_name))
 
-    # ── SHARED / PERSONAL AUDIO LIBRARY ───────────────────────────────────────
     async def add_audio(self, owner_id: int, title: str, file_id: str,
                         file_type: str, caption: str = "") -> str:
         audio_id = uuid.uuid4().hex[:16]
@@ -371,7 +365,6 @@ class Database:
                   (str(audio_id), owner_id))
         return True
 
-    # ── PER-USER AUDIO SETTINGS ──────────────────────────────────────────────
     async def get_settings(self, user_id: int) -> dict:
         defaults = {
             "volume": Config.DEFAULT_VOLUME, "bass": Config.DEFAULT_BASS,
@@ -395,7 +388,7 @@ class Database:
             for k in defaults:
                 if doc.get(k) is not None:
                     defaults[k] = doc[k]
-            # Upgrade only the old untouched defaults; preserve user-tuned values.
+
             if defaults.get("boost") == 9 and defaults.get("treble") == 62:
                 defaults["boost"] = Config.DEFAULT_BOOST
                 defaults["treble"] = Config.RELAY_DEFAULT_TREBLE
@@ -419,6 +412,5 @@ class Database:
                  current["gain"], current["treble"], current["voice"],
                  current["live_volume"], user_id),
             )
-
 
 db = Database()

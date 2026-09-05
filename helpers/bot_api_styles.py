@@ -13,12 +13,10 @@ from config import Config
 
 logger = logging.getLogger("vcbot.bot_api_styles")
 
-
 def has_native_styles(markup: Any) -> bool:
     rows = getattr(markup, "inline_keyboard", None) or []
     return any(getattr(button, "_bot_api_style", None)
                for row in rows for button in row)
-
 
 def _button_payload(button: Any) -> dict:
     text = button.text
@@ -42,13 +40,11 @@ def _button_payload(button: Any) -> dict:
         data["style"] = style
     return data
 
-
 def markup_payload(markup: Any) -> dict | None:
     rows = getattr(markup, "inline_keyboard", None)
     if not rows:
         return None
     return {"inline_keyboard": [[_button_payload(b) for b in row] for row in rows]}
-
 
 async def apply_native_styles(message: Any, markup: Any) -> bool:
     """Patch a sent bot message with Bot API styles; return whether it worked."""
