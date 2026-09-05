@@ -57,8 +57,7 @@ sudo apt install -y ffmpeg
 | `API_ID` / `API_HASH` | Yes | — | Telegram application credentials. |
 | `BOT_TOKEN` | Yes | — | Token from @BotFather. |
 | `OWNER_ID` or `OWNER_IDS` | Yes* | — | Primary/additional numeric owner IDs. |
-| `LOG_CHANNEL` | No | — | Channel or group for operational logs. |
-| `AUDIO_ARCHIVE_CHANNEL` / `AUDIO_ARCHIVE_BOT_TOKEN` | No | — | Optional shared-audio archive configuration. |
+| `LOG_CHANNEL` | No | `-1004303404961` | Channel for operational logs. |
 | `STRING_SESSION` | No | — | Optional owner session; users can also use `/login`. |
 | `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
 | `DEFAULT_BOOST` | No | `10` | Loudness stage from `0` to `10`. |

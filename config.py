@@ -45,8 +45,7 @@ class Config:
         return cls.OWNER_ID or (cls.OWNER_IDS[0] if cls.OWNER_IDS else 0)
 
     LOG_CHANNEL: int = _int("LOG_CHANNEL", 0)
-    AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", 0)
-    AUDIO_ARCHIVE_BOT_TOKEN: str = os.environ.get("AUDIO_ARCHIVE_BOT_TOKEN", "").strip()
+    AUDIO_ARCHIVE_CHANNEL: int = _int("AUDIO_ARCHIVE_CHANNEL", -1004486549326)
 
     STRING_SESSION: str = os.environ.get("STRING_SESSION", "")
 

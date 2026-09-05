@@ -19,7 +19,7 @@ from helpers.archive import init_archive
 from live_relay import serve as serve_mic_relay
 from plugins.ui import set_source_code_url
 
-class ConsoleFormatter(logging.Formatter):
+class _FourStFormatter(logging.Formatter):
     def format(self, record):
         tag = record.name.split(".")[-1].upper()
         if record.levelno >= logging.ERROR:
@@ -32,7 +32,7 @@ class ConsoleFormatter(logging.Formatter):
         return f"[{self.formatTime(record, '%Y-%m-%d %H:%M:%S')}] [{tag}] -> {text}"
 
 _handler = logging.StreamHandler(sys.stdout)
-_handler.setFormatter(ConsoleFormatter())
+_handler.setFormatter(_FourStFormatter())
 logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logging.getLogger("pytgcalls").setLevel(logging.WARNING)
