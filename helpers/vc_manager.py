@@ -19,7 +19,7 @@ from pytgcalls.types.raw import AudioParameters, AudioStream, Stream
 
 from config import Config
 from helpers.audio_processor import (
-    build_ffmpeg_filter, build_live_mic_filter, process_audio_to_file, shell_quote,
+    build_live_mic_filter, process_audio_to_file, shell_quote,
 )
 from helpers.logger_channel import (
     log_auto_mode, log_error, log_live_boost, log_vc_join, log_vc_leave,

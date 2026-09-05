@@ -3,7 +3,6 @@ import asyncio
 import os
 import re
 import shlex
-import subprocess
 import tempfile
 from typing import Optional
 
@@ -80,8 +79,8 @@ def build_ffmpeg_filter(
     )
 
     filters.append(
-        f"acompressor=threshold=0.01:ratio=20.0:"
-        f"attack=0.1:release=45:makeup=28.0:knee=8"
+        "acompressor=threshold=0.01:ratio=20.0:"
+        "attack=0.1:release=45:makeup=28.0:knee=8"
     )
 
     if use_echo and echo_value:
@@ -118,13 +117,6 @@ def build_live_mic_filter() -> str:
         "loudnorm=I=-5:LRA=1:TP=-0.05:dual_mono=true:linear=false,"
         "volume=24dB,alimiter=limit=0.995:attack=0.1:release=30:level=false:asc=1"
     )
-
-def get_ffmpeg_piped_input(source: str, **kwargs) -> list:
-    return [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
-        "-vn", "-af", build_ffmpeg_filter(**kwargs),
-        "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
-    ]
 
 async def process_audio_to_file(
     input_path: str,
@@ -163,13 +155,6 @@ async def process_audio_to_file(
             pass
         raise RuntimeError(f"FFmpeg failed: {stderr.decode(errors='replace')[-500:]}")
     return output_path
-
-def ffmpeg_available() -> bool:
-    try:
-        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
-        return True
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return False
 
 def shell_quote(args: list) -> str:
     return shlex.join(args)

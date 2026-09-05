@@ -4,7 +4,8 @@ from pyrogram.types import Message
 
 from config import Config
 from helpers.audio_processor import (
-    BASS_MAX, BASS_MIN, LEVEL_MAX, LEVEL_MIN, VOLUME_MAX, VOLUME_MIN, clamp,
+    BASS_MAX, BASS_MIN, GAIN_MAX, LEVEL_MAX, LEVEL_MIN,
+    VOLUME_MAX, VOLUME_MIN, clamp,
 )
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error, log_new_user
@@ -165,7 +166,7 @@ async def cb_settings_change(bot, cq):
     elif action == "max":
         s.update(AUTO_PRESET, auto=1)
     elif action == "apply":
-        n = await apply_settings_live(uid)
+        await apply_settings_live(uid)
         return
 
     await db.save_settings(uid, **s)

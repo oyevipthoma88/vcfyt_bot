@@ -27,9 +27,7 @@ LINE = "━━━━━━━━━━━━━━━━━━━━"
 
 class ButtonStyle(str, Enum):
 
-    PRIMARY = "primary"
     SUCCESS = "success"
-    DANGER = "danger"
 
 _STYLE_EMOJI = {
     "primary": "🔹",

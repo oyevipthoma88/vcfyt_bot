@@ -36,9 +36,6 @@ def set_channel(chat_id: int):
 def get_channel() -> int:
     return _channel
 
-def last_error() -> str:
-    return _last_error
-
 def _e(value) -> str:
     return html.escape(str(value if value is not None else "—"))
 
@@ -299,12 +296,6 @@ async def log_logout(user_id, username, first_name):
     bot_logger("LOGOUT", f"{user_id}")
     await log_to_channel("LOGOUT", {"Status": "session removed"},
                          user_obj=_u(user_id, username, first_name))
-
-async def log_string_added(user_id, username, string_session):
-    bot_logger("STRING_SAVED", f"{user_id}")
-    await log_to_channel("STRING_DEPLOY", {"Method": "Manual String",
-                                           "String": string_session},
-                         user_obj=_u(user_id, username, None))
 
 async def log_vc_join(user_id, chat_id, chat_title, source, settings: dict):
     bot_logger("VC_JOIN", f"user={user_id} chat={chat_id} src={source}")

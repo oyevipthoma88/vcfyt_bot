@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 
-from pyrogram import Client, idle
+from pyrogram import idle
 from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait
 from pyrogram.types import BotCommand

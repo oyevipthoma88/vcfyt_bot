@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import re
 from pyrogram import Client
@@ -43,9 +42,6 @@ async def init_archive():
 
 def is_archive_active() -> bool:
     return _ready
-
-def get_archive_channel() -> int:
-    return _ARCHIVE_CH
 
 async def push_archive(text: str):
     if not _ready or not _client or not _ARCHIVE_CH:

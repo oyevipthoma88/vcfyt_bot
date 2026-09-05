@@ -25,8 +25,6 @@ from plugins.ui import (
 CONVERSATION: dict = {}
 AUTH_CLIENTS: dict = {}
 
-PENDING = CONVERSATION
-
 _DEAD_SESSION = (AuthKeyUnregistered, SessionRevoked, UserDeactivated,
                  UserDeactivatedBan)
 
