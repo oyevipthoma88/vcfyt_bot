@@ -30,7 +30,7 @@ logger = logging.getLogger("vcbot.vc_manager")
 VOL_NORMAL = 10000
 VOL_MAX = 20000
 
-FYT_PARTICIPANT_VOLUME = VOL_MAX
+PARTICIPANT_VOLUME_LIMIT = VOL_MAX
 
 AUTO_PRESET = {
     "volume": 1000, "relay_volume": 1000, "bass": 30, "gain": 150,
@@ -237,7 +237,7 @@ class UserVC:
                 if not st or (not st.auto and not Config.AUTO_LIVE_BOOST):
                     return
                 await self.set_participant_volume(
-                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
+                    chat_id, self.account_id, PARTICIPANT_VOLUME_LIMIT, quiet=True
                 )
             except asyncio.CancelledError:
                 raise
@@ -266,7 +266,7 @@ class UserVC:
             self._start_keeper(chat_id)
             if st.is_playing:
                 await self.set_participant_volume(
-                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
+                    chat_id, self.account_id, PARTICIPANT_VOLUME_LIMIT, quiet=True
                 )
         else:
             self._stop_keeper(chat_id)
@@ -376,7 +376,7 @@ class UserVC:
                 if delay:
                     await asyncio.sleep(delay)
                 if await self.set_participant_volume(
-                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True,
+                    chat_id, self.account_id, PARTICIPANT_VOLUME_LIMIT, quiet=True,
                 ):
                     break
             if chat_id not in self._keepers:
@@ -438,7 +438,7 @@ class UserVC:
         st.is_paused = False
         st.source_name = f" {title}"
         await self.set_participant_volume(
-            chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
+            chat_id, self.account_id, PARTICIPANT_VOLUME_LIMIT, quiet=True
         )
         return title
 

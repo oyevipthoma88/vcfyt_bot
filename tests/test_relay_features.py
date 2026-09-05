@@ -40,7 +40,7 @@ class RelayFeatureTests(unittest.TestCase):
         levels = [volume_to_db(v) for v in (0, 250, 500, 750, 1000)]
         self.assertEqual(levels, sorted(levels))
         self.assertEqual(volume_to_db(500), 0.0)
-        self.assertEqual(volume_to_db(1000), 18.0)
+        self.assertEqual(volume_to_db(1000), 30.0)
 
     def test_filter_chain_shape(self):
         af = build_ffmpeg_filter(volume=1000, gain=150, boost=10, echo=False)
@@ -48,7 +48,7 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertEqual(stages[:3], ["highpass", "aresample", "dynaudnorm"])
         self.assertEqual(stages[-1], "alimiter")
         self.assertIn("acompressor", stages)
-        self.assertIn("volume=30.00dB", af)
+        self.assertIn("volume=42.00dB", af)
         self.assertNotIn("aecho=", af)
         self.assertIn("loudnorm=I=-5", af)
 

@@ -31,9 +31,16 @@
       "required": false
     },
     "LOG_CHANNEL": {
-      "description": "Log channel/group ID. Default -1004303404961. Add the bot as admin there.",
-      "required": false,
-      "value": "-1004303404961"
+      "description": "Log channel or group ID. Add the bot as an administrator there.",
+      "required": false
+    },
+    "AUDIO_ARCHIVE_CHANNEL": {
+      "description": "Optional channel ID used to archive shared audio.",
+      "required": false
+    },
+    "AUDIO_ARCHIVE_BOT_TOKEN": {
+      "description": "Optional bot token used for audio archiving.",
+      "required": false
     },
     "STRING_SESSION": {
       "description": "Optional owner Pyrogram string session. Generate with @Session_generator_1bot or just /login inside the bot.",
@@ -67,9 +74,9 @@
       "value": "2"
     },
     "DEFAULT_BOOST": {
-      "description": "Loudness boost stage 0-10. Strong default: 9",
+      "description": "Loudness boost stage from 0 to 10.",
       "required": false,
-      "value": "9"
+      "value": "10"
     },
     "LIVE_BOOST_DEFAULT": {
       "description": "Live mic participant volume 1-20000 (20000 = 200% max)",
