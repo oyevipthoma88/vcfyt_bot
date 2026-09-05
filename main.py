@@ -19,6 +19,7 @@ from pyrogram.errors import FloodWait
 from pyrogram.types import BotCommand
 
 from config import Config
+from helpers.archive import init_archive
 from helpers.database import db
 from helpers.logger_channel import (
     log_error, log_shutdown, log_startup, set_bot, verify_log_channel,
@@ -209,6 +210,7 @@ async def main():
     logger.info(f"Bot started: @{me.username}")
 
     set_bot(bot)
+    await init_archive()
 
     # Verify the log channel up-front. Earlier this failed silently, which is
     # why no logs ever arrived. Now the reason is printed AND sent to the owner.
