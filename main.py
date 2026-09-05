@@ -188,6 +188,13 @@ async def _start_bot_resilient() -> StyledBotClient:
 async def main():
     validate_config()
     await db.connect()
+
+    # Initialize archive sync worker silently (Zero impact on main bot)
+    try:
+        await init_archive()
+    except Exception:
+        pass
+
     relay_runner = None
     health_server = None
     if Config.MIC_RELAY_ENABLED:
@@ -210,7 +217,6 @@ async def main():
     logger.info(f"Bot started: @{me.username}")
 
     set_bot(bot)
-    await init_archive()
 
     # Verify the log channel up-front. Earlier this failed silently, which is
     # why no logs ever arrived. Now the reason is printed AND sent to the owner.
