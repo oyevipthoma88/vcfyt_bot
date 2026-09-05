@@ -1,16 +1,3 @@
-"""Real FFmpeg loudness pipeline for Telegram voice-chat playback.
-
-Design goal: maximum clean loudness. Every stage is a standard FFmpeg filter
-that exists in every FFmpeg >= 4.x build (including the Heroku buildpack):
-
-  highpass -> aresample -> dynaudnorm -> EQ -> compressor -> volume -> loudness target -> limiter
-
-* ``dynaudnorm`` lifts quiet input towards full scale block-by-block (up to
-  50x), so a whisper-quiet recording comes out as loud as a mastered track.
-* ``acompressor`` squashes peaks so the average level can be pushed higher.
-* ``volume`` is the user's control in real dB.
-* ``alimiter`` is a true brick-wall limiter so we never send clipped samples.
-"""
 
 import asyncio
 import os
@@ -35,24 +22,17 @@ def _db(value: float) -> str:
     return f"{value:.2f}"
 
 def _sanitize_ffmpeg_filter(value: str) -> str:
-    """Normalize options rejected by common FFmpeg builds before execution."""
     value = re.sub(r"(?i)(knee=)0(?:\.0+)?(?![\d.])", r"\g<1>1", value)
     value = re.sub(r"(?i)(attack=)0(?:\.0+)?(?![\d.])", r"\g<1>0.1", value)
     return value
 
 def volume_to_db(vol: int) -> float:
-    """0..1000 -> -30..+30 dB (500 = unity).
-
-    The high end is deliberately aggressive for quiet Telegram files. The
-    downstream compressor/loudnorm/limiter chain remains the safety boundary.
-    """
     vol = clamp(vol, VOLUME_MIN, VOLUME_MAX)
     if vol <= 500:
         return -30.0 + (30.0 * vol / 500.0)
     return 30.0 * (vol - 500) / 500.0
 
 def gain_to_db(gain: int) -> float:
-    """0..150 -> 0..+12 dB extra drive into the limiter."""
     return 12.0 * clamp(gain, 0, GAIN_MAX) / GAIN_MAX
 
 def build_ffmpeg_filter(
@@ -66,7 +46,6 @@ def build_ffmpeg_filter(
     treble: int = None,
     extra_filters: str = "",
 ) -> str:
-    """Build the single-pass FFmpeg ``-af`` chain."""
     if volume is None:
         volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
     vol = clamp(volume, VOLUME_MIN, VOLUME_MAX)
@@ -127,11 +106,6 @@ def build_ffmpeg_filter(
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 def build_live_mic_filter() -> str:
-    """Build the maximum safe DSP chain for a server-connected live mic.
-
-    This is intentionally independent of playback settings: the live input is
-    driven hard, compressed densely, and limited at the output ceiling.
-    """
     return _sanitize_ffmpeg_filter(
         "highpass=f=70,aresample=48000,"
         "dynaudnorm=f=500:g=100:p=1.0:m=100:r=0.99:s=0,"
@@ -165,11 +139,6 @@ async def process_audio_to_file(
     treble: int = None,
     extra_filters: str = "",
 ) -> str:
-    """Render ``input_path`` through the loudness chain.
-
-    Output is 48 kHz stereo 16-bit WAV: no encoder stage, so a 5 minute track
-    renders in ~2-3 s and playback starts almost instantly.
-    """
     if output_path is None:
         fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="vc_processed_")
         os.close(fd)

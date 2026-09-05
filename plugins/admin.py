@@ -1,6 +1,3 @@
-"""
-Owner-only admin commands + panel.
-"""
 
 import asyncio
 import os

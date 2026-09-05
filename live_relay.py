@@ -1,9 +1,3 @@
-"""Android Chrome microphone relay for the VPS live-mic path.
-
-Browser sends mono PCM16/48kHz binary frames over a private WebSocket.
-The service writes them to a named FIFO consumed by the userbot's FFmpeg
-microphone publisher. This keeps the Telegram account/session on the VPS.
-"""
 import asyncio
 import os
 from pathlib import Path
@@ -65,7 +59,6 @@ app.router.add_get("/mic", index)
 app.router.add_get("/mic/stream", stream)
 
 async def serve():
-    """Run the relay as a background service inside the bot process."""
     if not TOKEN:
         raise RuntimeError("MIC_RELAY_TOKEN must be set")
     runner = web.AppRunner(app)

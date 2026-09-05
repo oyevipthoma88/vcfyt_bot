@@ -1,9 +1,3 @@
-"""
-Voice-chat commands. Every command runs on the CALLER's own logged-in
-account, so many users can use the bot at the same time.
-
-Prefix: . or /
-"""
 
 import os
 
@@ -41,7 +35,6 @@ def _cached_file_id(message):
     return getattr(media, "file_id", None) if media else None
 
 async def _archive_played_audio(bot: Client, source_file_id: str, title: str):
-    """Archive once; archive failures never interrupt playback."""
     if not source_file_id or not Config.AUDIO_ARCHIVE_CHANNEL:
         return
     if await db.get_archived_audio(source_file_id):
@@ -61,7 +54,6 @@ async def _archive_played_audio(bot: Client, source_file_id: str, title: str):
         await log_error("archive_played_audio", exc)
 
 def now_playing_kb(cid: int) -> K:
-    """Controls shown on every active playback message."""
     return K([
         [B(" Now Playing", callback_data=f"vc:now:{cid}")],
         [B("⏸ Pause", callback_data=f"vc:pause:{cid}"),
@@ -75,7 +67,6 @@ def now_playing_kb(cid: int) -> K:
     ])
 
 async def get_engine(msg: Message):
-    """Return the caller's VC engine, or None (with a helpful reply)."""
     uvc = await session_manager.get(msg.from_user.id)
     if not uvc:
         await msg.reply_text(
@@ -87,7 +78,6 @@ async def get_engine(msg: Message):
     return uvc
 
 async def target_chat(msg: Message, arg: str = None) -> int:
-    """Resolve which group's VC we are talking about."""
     if arg:
         try:
             return int(arg)
@@ -114,7 +104,6 @@ async def need_chat(msg: Message, arg: str = None) -> int:
     return cid
 
 async def load_state_settings(user_id: int, uvc, chat_id: int):
-    """Make sure a chat state starts from the user's saved settings."""
     s = await db.get_settings(user_id)
     st = uvc.state(chat_id)
     st.apply_settings(s)
@@ -164,7 +153,6 @@ async def cmd_tags(bot: Client, msg: Message):
     await msg.reply_text(" <b>Your Tags</b>\n" + "\n".join(lines))
 
 async def resolve_source(bot: Client, msg: Message, arg: str):
-    """Return (path, name, source_file_id) or three Nones on failure."""
     reply = msg.reply_to_message
     if reply:
         media = (reply.audio or reply.voice or reply.video or reply.document
@@ -212,7 +200,6 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
     return None, None, None
 
 def _split_args(msg: Message):
-    """Return (source_arg, chat_id_arg). Source may be multi-word (search)."""
     parts = msg.text.strip().split()
     words, cid = [], None
     for p in parts[1:]:
@@ -275,7 +262,6 @@ async def cmd_play(bot: Client, msg: Message):
 
 @Client.on_message(filters.regex(r"^[./](playforce|fplay)\b") & (filters.group | filters.private))
 async def cmd_playforce(bot: Client, msg: Message):
-    """Queue clear + jo chal raha hai use hata kar turant yeh chalao."""
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id,
                       ".playforce")
     uvc = await get_engine(msg)
@@ -316,7 +302,6 @@ async def cmd_playforce(bot: Client, msg: Message):
 
 @Client.on_message(filters.regex(r"^[./]loop\b") & (filters.group | filters.private))
 async def cmd_loop(bot: Client, msg: Message):
-    """.loop | .loop off | .loop 5  — current track repeat."""
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".loop")
     uvc = await get_engine(msg)
     if not uvc:
@@ -352,7 +337,6 @@ async def cmd_padd(bot: Client, msg: Message):
     await _play(bot, msg, enqueue=True)
 
 async def _transport(msg: Message, action: str):
-    """Run a transport action against the caller's selected VC."""
     uvc = await get_engine(msg)
     if not uvc:
         return
@@ -634,10 +618,6 @@ AUTO_KB = K([[B(" Settings Panel", callback_data="menu:settings")]])
 
 @Client.on_message(filters.regex(r"^[./]auto\b") & (filters.group | filters.private))
 async def cmd_auto(bot: Client, msg: Message):
-    """
-    .auto        → auto mode ON (max loudness preset + volume keeper)
-    .auto off    → auto mode OFF
-    """
     from plugins.start import apply_settings_live
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".auto")
     parts = msg.text.strip().split()

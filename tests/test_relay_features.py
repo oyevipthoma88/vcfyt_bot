@@ -110,7 +110,6 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertNotIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=0))
 
     def test_ffmpeg_filter_is_valid_and_makes_quiet_audio_loud(self):
-        """Render a very quiet tone through the chain and measure it."""
         async def run():
             with tempfile.TemporaryDirectory() as d:
                 src = os.path.join(d, "quiet.wav")

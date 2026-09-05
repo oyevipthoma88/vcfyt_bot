@@ -3,7 +3,6 @@ from pyrogram import Client
 from helpers.bot_api_styles import apply_native_styles, has_native_styles
 
 def _transport_markup(markup):
-    """Hide styled markup during MTProto send to avoid a normal-button flash."""
 
     return None if has_native_styles(markup) else markup
 
@@ -15,7 +14,6 @@ def _quote_text(value):
     return f"<blockquote>{value}</blockquote>"
 
 class StyledBotClient(Client):
-    """Keep Pyrofork for updates while patching inline markup via Bot API."""
 
     async def send_message(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")

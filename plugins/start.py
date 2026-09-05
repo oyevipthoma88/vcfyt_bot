@@ -1,6 +1,3 @@
-"""
-/start, home menu, status, and the live audio-settings panel.
-"""
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -110,7 +107,6 @@ DEFAULT_SETTINGS = {
 }
 
 async def apply_settings_live(user_id: int) -> int:
-    """Push the user's saved settings onto every VC they are streaming in."""
     uvc = session_manager.users.get(user_id)
     if not uvc:
         return 0

@@ -1,18 +1,3 @@
-"""
-Multi-user VC engine.
-
-Every logged-in user gets their OWN Pyrogram user client + PyTgCalls instance,
-so many people can use the bot at the same time in different (or the same)
-groups without stepping on each other.
-
-Rules:
-  • Nobody's volume is ever lowered. We only raise our own participant volume.
-  • The user's own mic and the bot's audio can be live at the same time.
-  • On playback and reconnect, the bot sets the logged-in account to
-    Telegram's participant-volume maximum (20000 = 200%).
-  • If the group has no running voice chat, the bot tries to start one
-    (works when the logged-in account is an admin with "manage video chats").
-"""
 
 import asyncio
 import logging
@@ -64,12 +49,10 @@ def _unlink(path: Optional[str]):
             pass
 
 def _participant_not_joined(error: Exception) -> bool:
-    """Telegram raises this when our account is not yet a VC participant."""
     return (type(error).__name__ == "ParticipantJoinMissing" or
             "PARTICIPANT_JOIN_MISSING" in str(error))
 
 def _connection_lost(error: Exception) -> bool:
-    """Return True for transient Pyrogram transport disconnects."""
     text = str(error).lower()
     return isinstance(error, (OSError, ConnectionError)) and any(
         marker in text for marker in ("connection lost", "connection reset", "broken pipe", "eof")
@@ -82,17 +65,10 @@ _INVALID_SESSION_NAMES = frozenset({
 })
 
 def _is_invalid_session(error: Exception) -> bool:
-    """Return True for Telegram auth errors that require a fresh login.
-
-    These are expected user-session lifecycle events, not bot failures.  A
-    revoked string session cannot be repaired by retrying; it must be removed
-    from storage so the next user action can start a new login.
-    """
     return (type(error).__name__ in _INVALID_SESSION_NAMES or
             "401" in str(error) or "AUTH_KEY_DUPLICATED" in str(error))
 
 async def _invalidate_session(user_id: int, error: Exception, source: str):
-    """Remove a dead session and leave a concise operational breadcrumb."""
     try:
         await _db().clear_string(user_id)
     except Exception as clear_error:
@@ -103,7 +79,6 @@ async def _invalidate_session(user_id: int, error: Exception, source: str):
     )
 
 class ChatState:
-    """Per (user, chat) playback state."""
 
     def __init__(self):
         self.is_playing = False
@@ -130,7 +105,6 @@ class ChatState:
         self.queue: list = []
 
     def apply_settings(self, s: dict):
-        """Copy a saved settings dict (from the DB) onto this state."""
         self.volume = int(s.get("volume", Config.DEFAULT_VOLUME))
         self.relay_volume = int(s.get("relay_volume", self.volume))
         self.bass = int(s.get("bass", Config.DEFAULT_BASS))
@@ -154,7 +128,6 @@ class ChatState:
         }
 
 class UserVC:
-    """One logged-in Telegram account: user client + pytgcalls + chat states."""
 
     def __init__(self, owner_id: int, string_session: str):
         self.owner_id = owner_id
@@ -257,12 +230,6 @@ class UserVC:
         await self.leave(chat_id, reason="Queue empty")
 
     async def _keeper_loop(self, chat_id: int):
-        """Re-pin our participant volume every KEEPER_INTERVAL seconds.
-
-        Telegram stores participant volume server-side; it can reset after a
-        reconnect or an admin action. 200% is the server-side cap — all
-        loudness beyond that comes from the FFmpeg chain.
-        """
         interval = max(5, Config.KEEPER_INTERVAL)
         while True:
             try:
@@ -290,7 +257,6 @@ class UserVC:
             t.cancel()
 
     async def set_auto(self, chat_id: int, on: bool) -> bool:
-        """AUTO mode on/off for one chat. On = max preset + keeper loop."""
         st = self.state(chat_id)
         if st.auto == bool(on) and (not on or chat_id in self._keepers):
             return True
@@ -318,7 +284,6 @@ class UserVC:
         return full.full_chat.call
 
     async def start_voice_chat(self, chat_id: int) -> bool:
-        """Create a group call if none is running (needs admin rights)."""
         try:
             peer = await self.client.resolve_peer(chat_id)
             await self.client.invoke(
@@ -332,7 +297,6 @@ class UserVC:
 
     async def set_participant_volume(self, chat_id: int, user_id: int,
                                      volume: int, quiet: bool = False) -> bool:
-        """Set a participant's LIVE volume (1–20000). Never used to silence."""
         volume = max(1, min(VOL_MAX, int(volume)))
         ok = False
 
@@ -424,11 +388,6 @@ class UserVC:
         ))
 
     async def play_microphone(self, chat_id: int, device_hint: str = "") -> str:
-        """Publish a server/VM microphone or virtual input device to the VC.
-
-        The input must exist on the machine running this userbot. Telegram does
-        not expose a remote phone microphone to a bot session.
-        """
         if Config.MIC_RELAY_ENABLED:
             device = None
             title = "Android Chrome Live Relay"
@@ -498,7 +457,6 @@ class UserVC:
             )
 
     async def _reconnect_client(self):
-        """Reset and reconnect the user client after a transient transport drop."""
         async with self._reconnect_lock:
             try:
                 await self.client.disconnect()
@@ -535,7 +493,6 @@ class UserVC:
 
     async def force_play(self, chat_id: int, path: str, source_name: str = "audio",
                          chat_title: str = "") -> str:
-        """.playforce — clear queue, drop the current track, play this now."""
         self._check_group(chat_id)
         async with self._lock:
             self._stopped_chats.discard(chat_id)
@@ -579,7 +536,6 @@ class UserVC:
         return True
 
     async def reapply(self, chat_id: int) -> bool:
-        """Re-render the current track with the current effect settings."""
         st = self.chats.get(chat_id)
         if not st or st.mic_enabled or not st.current_file or not os.path.exists(st.current_file):
             return False
@@ -608,7 +564,6 @@ class UserVC:
         return bool(st and st.is_playing)
 
 class SessionManager:
-    """Registry of all logged-in users' VC engines."""
 
     def __init__(self):
         self.users: Dict[int, UserVC] = {}
@@ -620,7 +575,6 @@ class SessionManager:
         return self._locks[user_id]
 
     async def add(self, user_id: int, string_session: str) -> UserVC:
-        """Start (or restart) a user's engine with a string session."""
         async with self._lock(user_id):
             old = self.users.pop(user_id, None)
             if old:
@@ -635,7 +589,6 @@ class SessionManager:
             return uvc
 
     async def get(self, user_id: int) -> Optional[UserVC]:
-        """Return the running engine, starting it from the DB when needed."""
         if user_id in self.users:
             return self.users[user_id]
         try:
@@ -659,7 +612,6 @@ class SessionManager:
             await uvc.stop()
 
     async def restore_all(self) -> int:
-        """Start every saved session at boot. Returns how many came up."""
         try:
             users = await _db().all_users()
         except Exception as e:

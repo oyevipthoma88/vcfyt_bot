@@ -1,7 +1,3 @@
-"""
-Shared UI — every screen, keyboard and text lives here so the bot has one
-consistent, professional look. Everything is button-driven.
-"""
 
 from enum import Enum
 from urllib.parse import urlparse
@@ -17,7 +13,6 @@ GEN_NAME = f"@{Config.SESSION_BOT_USERNAME}"
 SOURCE_CODE_URL = Config.SOURCE_CODE_URL
 
 def set_source_code_url(url: str) -> str:
-    """Set or clear the owner-managed source URL."""
     global SOURCE_CODE_URL
     value = (url or "").strip()
     if value and urlparse(value).scheme not in {"http", "https"}:
@@ -26,13 +21,11 @@ def set_source_code_url(url: str) -> str:
     return SOURCE_CODE_URL
 
 def source_button():
-    """Return the current source button, or no row when disabled."""
     return [[B(" Source Code", url=SOURCE_CODE_URL)]] if SOURCE_CODE_URL else []
 
 LINE = "━━━━━━━━━━━━━━━━━━━━"
 
 class ButtonStyle(str, Enum):
-    """Bot API semantic styles; Pyrofork falls back when MTProto lacks them."""
 
     PRIMARY = "primary"
     SUCCESS = "success"
@@ -45,7 +38,6 @@ _STYLE_EMOJI = {
 }
 
 async def edit_screen(message, text: str, reply_markup=None, **kwargs):
-    """Edit a text screen, falling back to a caption for /start photos."""
     try:
         return await message.edit_text(text, reply_markup=reply_markup, **kwargs)
     except (RPCError, TypeError, AttributeError):
@@ -55,7 +47,6 @@ async def edit_screen(message, text: str, reply_markup=None, **kwargs):
         return await message.edit_caption(text, reply_markup=reply_markup)
 
 async def safe_answer(cq, text: str = "", **kwargs):
-    """Answer a callback without crashing when Telegram already expired it."""
     try:
         return await cq.answer(text, **kwargs)
     except RPCError as exc:
@@ -76,7 +67,6 @@ def _is_success(text: str, callback_data: str = None) -> bool:
 
 def B(text: str, callback_data: str = None, style: str = None,
       icon_custom_emoji_id=None, **kwargs):
-    """Build a semantic button, compatible with old and new client builds."""
     params = dict(kwargs)
     if callback_data is not None:
         params["callback_data"] = callback_data

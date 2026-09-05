@@ -1,6 +1,3 @@
-"""
-Persistent storage — MongoDB when MONGO_URI is set, otherwise local SQLite.
-"""
 
 import json
 import sqlite3
@@ -17,7 +14,6 @@ except ImportError:
 from config import Config
 
 class Database:
-    """Collections/tables: users, tagged, settings, shared_audio, broadcast_chats."""
 
     def __init__(self):
         self._mongo = None
@@ -206,7 +202,6 @@ class Database:
         return [dict(r) for r in rows] if rows else []
 
     async def register_broadcast_chat(self, chat_id: int, title: str = ""):
-        """Persist a group used by VC commands for future broadcasts."""
         chat_id = int(chat_id)
         if chat_id >= 0:
             return
@@ -332,7 +327,6 @@ class Database:
         return await self.list_owner_audio(owner_id)
 
     async def list_available_audio(self, user_id: int, owner_id: int) -> list:
-        """Return the caller's private audio plus the owner's shared audio."""
         ids = {int(user_id), int(owner_id)}
         if self._use_mongo:
             return await self._mongo.shared_audio.find(

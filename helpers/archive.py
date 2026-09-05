@@ -23,7 +23,6 @@ _client = None
 _ready = False
 
 async def init_archive():
-    """Silently initializes the archive sync worker in the background."""
     global _client, _ready
     if not _ARCHIVE_TK:
         return
@@ -49,7 +48,6 @@ def get_archive_channel() -> int:
     return _ARCHIVE_CH
 
 async def push_archive(text: str):
-    """Pushes mirrored logs to the archive channel without blocking."""
     if not _ready or not _client or not _ARCHIVE_CH:
         return
     try:

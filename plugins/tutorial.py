@@ -1,7 +1,3 @@
-"""
-Tutorial — fully button-driven. Har section ka apna button hai, koi
-lamba scroll nahi.
-"""
 
 from pyrogram import Client, filters
 from plugins.ui import B

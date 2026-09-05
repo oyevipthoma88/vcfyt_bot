@@ -1,8 +1,3 @@
-"""Native Bot API button-style bridge for Pyrofork messages.
-
-Pyrofork sends through MTProto and cannot serialize Bot API's style field. We
-send the message normally, then patch its reply markup through the Bot API.
-"""
 import asyncio
 import logging
 from typing import Any
@@ -47,7 +42,6 @@ def markup_payload(markup: Any) -> dict | None:
     return {"inline_keyboard": [[_button_payload(b) for b in row] for row in rows]}
 
 async def apply_native_styles(message: Any, markup: Any) -> bool:
-    """Patch a sent bot message with Bot API styles; return whether it worked."""
     token = getattr(Config, "BOT_TOKEN", None)
     payload = markup_payload(markup)
     if not token or not payload or not getattr(message, "id", None):
