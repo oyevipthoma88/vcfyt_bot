@@ -8,7 +8,7 @@ This mode sends microphone PCM from Android Chrome to the VPS. The bot's logged-
 sudo apt update
 sudo apt install -y python3-venv nginx certbot python3-certbot-nginx ffmpeg
 cd /opt
-sudo git clone https://github.com/oyevipthoma88/vcfyt_bot.git vcfyt_bot
+sudo mkdir -p /opt/vcfyt_bot
 sudo chown -R "$USER":"$USER" /opt/vcfyt_bot
 cd /opt/vcfyt_bot
 python3 -m venv .venv

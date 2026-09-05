@@ -8,7 +8,6 @@
     "pyrogram",
     "pytgcalls"
   ],
-  "repository": "https://github.com/oyevipthoma88/vcfyt_bot",
   "env": {
     "API_ID": {
       "description": "Telegram API ID \u2014 get from https://my.telegram.org",

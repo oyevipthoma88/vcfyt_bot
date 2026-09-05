@@ -34,9 +34,7 @@ Apex VC Fight Bot combines an in-bot Telegram login flow with button-driven cont
 
 ## Deploy to Heroku
 
-<a href="https://heroku.com/deploy?template=https://github.com/oyevipthoma88/vcfyt_bot"><img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy to Heroku"></a>
-
-Use the deployment button, choose an application name, add the required Telegram values, and deploy. After deployment, open **Resources** and enable the `worker` dyno. The included `app.json` configures the Python and FFmpeg buildpacks.
+Create a Heroku application, connect this project through your preferred source or deployment workflow, and configure the required environment variables. After deployment, open **Resources** and enable the `worker` dyno. The included `app.json` configures the Python and FFmpeg buildpacks.
 
 For persistent Heroku storage, configure `MONGO_URI` before first use. The local SQLite database is suitable for development but is not durable across ephemeral dyno restarts.
 
@@ -50,7 +48,6 @@ Install Python, FFmpeg, and the project dependencies on the host.
 sudo apt update
 sudo apt install -y ffmpeg
 
-git clone https://github.com/oyevipthoma88/vcfyt_bot.git
 cd vcfyt_bot
 python3 -m venv .venv
 source .venv/bin/activate
@@ -150,7 +147,6 @@ Keep `.env`, bot tokens, API credentials, MongoDB URIs, microphone relay tokens,
 |---|---|
 | Owner | [@TheY_CaIl_mE_OG](https://t.me/TheY_CaIl_mE_OG) |
 | Updates | [Apex Association](https://t.me/ApexAssociation) |
-| Source code | [GitHub repository](https://github.com/oyevipthoma88/vcfyt_bot) |
 
 ## License
 
