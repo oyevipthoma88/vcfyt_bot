@@ -14,7 +14,6 @@ from helpers.logger_channel import log_error, log_shutdown, log_startup, set_bot
 from helpers.vc_manager import session_manager
 from helpers.styled_client import StyledBotClient
 from helpers.vc_sync import init_vc_sync
-from live_relay import serve as serve_mic_relay
 from plugins.ui import set_source_code_url
 
 def _patch_story_deleted():
@@ -73,9 +72,10 @@ async def _start_heroku_health_server():
         return None
     try:
         port = int(raw_port)
-        server = await asyncio.start_server(_health_response, "0.0.0.0", port)
-        logger.info("Heroku health listener ready on port %s", port)
-        return server
+        from helpers.live_mic import start_server as start_live_mic_server
+        await start_live_mic_server(port)
+        logger.info("Live mic + health server ready on port %s", port)
+        return True
     except (OSError, ValueError) as exc:
         logger.error("Could not bind Heroku PORT=%s: %s", raw_port, exc)
         return None
@@ -89,11 +89,11 @@ def validate_config():
     logger.info(f"Log channel: {Config.LOG_CHANNEL}")
 
 BOT_COMMANDS = [
-    BotCommand("start", " Home menu"), BotCommand("login", " Apna account login karein"), BotCommand("addstring", " String session add karein"),
+    BotCommand("start", " Home menu"), BotCommand("login", " Apna account login karein"),
     BotCommand("logout", " Session hataayein"), BotCommand("settings", " Audio settings panel"), BotCommand("volume", " Playback volume 0-1000"),
     BotCommand("gain", " Relay gain 0-150"), BotCommand("bass", " Bass 0-100"), BotCommand("treble", " Treble 0-100"), BotCommand("voice", " Voice profile"),
     BotCommand("relaystatus", " Relay audio status"), BotCommand("myboost", " Live mic gain"), BotCommand("livegain", " Live mic gain alias"),
-    BotCommand("mic", " Server/virtual microphone"), BotCommand("auto", " Real maximum playback preset"), BotCommand("ultra", " Maximum clear playback preset"),
+    BotCommand("mic", " Live mic boost on/off"), BotCommand("auto", " Real maximum playback preset"), BotCommand("ultra", " Maximum clear playback preset"),
     BotCommand("mystatus", " Aapki info"), BotCommand("help", " Tutorial & commands"), BotCommand("audio", " Audio Library — send items to DM"),
     BotCommand("saveaudio", " Save replied audio"), BotCommand("owner", " Owner panel"), BotCommand("addaudio", " Add shared Bot Audio (owner)"),
     BotCommand("users", " All users (owner)"), BotCommand("broadcast", " Broadcast (owner)"), BotCommand("stats", " Stats (owner)"),
@@ -149,16 +149,7 @@ async def main():
     except Exception:
         pass
 
-    relay_runner = None
-    health_server = None
-    if Config.MIC_RELAY_ENABLED:
-        if not Config.MIC_RELAY_TOKEN:
-            logger.warning("MIC_RELAY_ENABLED=true but MIC_RELAY_TOKEN is empty; relay disabled")
-        else:
-            relay_runner = await serve_mic_relay()
-            logger.info("Live mic relay listening on %s:%s", Config.MIC_RELAY_BIND, Config.MIC_RELAY_PORT)
-    if relay_runner is None:
-        health_server = await _start_heroku_health_server()
+    health_server = await _start_heroku_health_server()
     
     stored_source = await db.get_app_value("source_code_url")
     if stored_source is not None:
@@ -226,11 +217,9 @@ async def main():
         pass
 
     logger.info("Shutting down…")
-    if relay_runner:
-        await relay_runner.cleanup()
     if health_server:
-        health_server.close()
-        await health_server.wait_closed()
+        from helpers.live_mic import stop_server as stop_live_mic_server
+        await stop_live_mic_server()
     await log_shutdown()
     for uid in list(session_manager.users):
         await session_manager.remove(uid)

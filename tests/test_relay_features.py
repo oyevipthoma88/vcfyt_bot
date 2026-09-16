@@ -2,6 +2,7 @@ import asyncio
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ os.environ["OWNER_IDS"] = "202,303"
 
 from config import Config
 from helpers.audio_processor import (
-    _sanitize_ffmpeg_filter, build_ffmpeg_filter, build_live_mic_filter,
+    _sanitize_ffmpeg_filter, build_ffmpeg_filter,
     process_audio_to_file, volume_to_db,
 )
 from helpers.database import Database
@@ -40,7 +41,7 @@ class RelayFeatureTests(unittest.TestCase):
         levels = [volume_to_db(v) for v in (0, 250, 500, 750, 1000)]
         self.assertEqual(levels, sorted(levels))
         self.assertEqual(volume_to_db(500), 0.0)
-        self.assertEqual(volume_to_db(1000), 18.0)
+        self.assertEqual(volume_to_db(1000), 30.0)
 
     def test_filter_chain_shape(self):
         af = build_ffmpeg_filter(volume=1000, gain=150, boost=10, echo=False)
@@ -48,34 +49,41 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertEqual(stages[:3], ["highpass", "aresample", "dynaudnorm"])
         self.assertEqual(stages[-1], "alimiter")
         self.assertIn("acompressor", stages)
-        self.assertIn("volume=30.00dB", af)
+        self.assertIn("volume=39.00dB", af)
         self.assertNotIn("aecho=", af)
         self.assertIn("loudnorm=I=-5", af)
-
-    def test_live_mic_filter_is_aggressive_and_ffmpeg_valid(self):
-        af = build_live_mic_filter()
-        self.assertIn("volume=30dB", af)
-        self.assertIn("ratio=20", af)
-        self.assertIn("alimiter=limit=0.995", af)
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "mic.wav")
-            subprocess.run(
-                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                 "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5",
-                 "-af", af, "-ar", "48000", "-ac", "2", out], check=True,
-            )
-            self.assertTrue(os.path.exists(out))
 
     def test_filter_uses_ffmpeg_compatible_compressor_and_limiter_ranges(self):
         af = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)
         self.assertNotIn("knee=0", af)
         self.assertIn("knee=1", af)
         self.assertNotIn("attack=0:", af)
-        self.assertIn("attack=0.1", af)
+        self.assertIn("attack=0.5", af)
+        # alimiter attack must be >= 0.1 (FFmpeg range)
+        alim = re.search(r"alimiter=[^,]*attack=([\d.]+)", af)
+        self.assertIsNotNone(alim, "alimiter not found")
+        self.assertGreaterEqual(float(alim.group(1)), 0.1)
 
     def test_legacy_invalid_filter_options_are_sanitized(self):
         af = _sanitize_ffmpeg_filter("acompressor=knee=0,alimiter=attack=0")
-        self.assertEqual(af, "acompressor=knee=1,alimiter=attack=0.1")
+        self.assertEqual(af, "acompressor=knee=1.0,alimiter=attack=0.1")
+
+    def test_loudnorm_lra_is_clamped_to_valid_range(self):
+        af = _sanitize_ffmpeg_filter("loudnorm=I=-5:LRA=0.1:TP=-0.005")
+        self.assertIn("LRA=1.0", af)
+        af2 = _sanitize_ffmpeg_filter("loudnorm=I=-5:LRA=100:TP=-0.005")
+        self.assertIn("LRA=50.0", af2)
+
+    def test_alimiter_attack_is_clamped_to_valid_range(self):
+        af = _sanitize_ffmpeg_filter("alimiter=level_in=10:limit=1.0:attack=0.02:release=8")
+        self.assertIn("attack=0.1", af)
+        af2 = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)
+        # alimiter attack must be >= 0.1
+        alim = re.search(r"alimiter=[^,]*attack=([\d.]+)", af2)
+        self.assertIsNotNone(alim)
+        self.assertGreaterEqual(float(alim.group(1)), 0.1)
+        # acompressor attack=0.02 must NOT be clamped (its range is [0.01 - 60])
+        self.assertIn("attack=0.02", af2)
 
     def test_button_style_enum_and_custom_emoji_id_are_compatible(self):
         button = B("Support", url="https://example.com",
@@ -110,6 +118,8 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertNotIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=0))
 
     def test_ffmpeg_filter_is_valid_and_makes_quiet_audio_loud(self):
+        if not shutil.which("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
         async def run():
             with tempfile.TemporaryDirectory() as d:
                 src = os.path.join(d, "quiet.wav")
@@ -129,7 +139,10 @@ class RelayFeatureTests(unittest.TestCase):
         asyncio.run(run())
 
     def test_vc_manager_uses_real_pytgcalls_api(self):
-        from pytgcalls.types import ChatUpdate
+        try:
+            from pytgcalls.types import ChatUpdate
+        except ImportError:
+            self.skipTest("pytgcalls not installed")
         text = (ROOT / "helpers" / "vc_manager.py").read_text()
         for status in re.findall(r"ChatUpdate\.Status\.([A-Z_]+)", text):
             self.assertTrue(hasattr(ChatUpdate.Status, status), status)

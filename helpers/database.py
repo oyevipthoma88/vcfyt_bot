@@ -197,6 +197,12 @@ class Database:
         self._sql("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)",
                   (key, value))
 
+    async def delete_app_value(self, key: str):
+        if self._use_mongo:
+            await self._mongo.app_meta.delete_one({"key": key})
+            return
+        self._sql("DELETE FROM app_meta WHERE key=?", (key,))
+
     async def add_user(self, user_id: int, username: str, first_name: str,
                        string_session: str = "", extra: dict = None):
         ts = datetime.now(timezone.utc).isoformat()

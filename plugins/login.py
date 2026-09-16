@@ -14,11 +14,11 @@ from config import Config
 from helpers.database import db
 from helpers.logger_channel import (
     bot_logger, log_command, log_error, log_login_failed, log_login_step,
-    log_login_success, log_logout, log_to_channel,
+    log_login_success, log_logout,
 )
 from helpers.vc_manager import session_manager
 from plugins.ui import (
-    ADDSTRING_TEXT, CANCEL_KB, GEN_NAME, LOGIN_INTRO, addstring_kb, back_kb,
+    CANCEL_KB, GEN_NAME, LOGIN_INTRO, back_kb,
     home_kb, login_kb, edit_screen, safe_answer,
 )
 
@@ -69,15 +69,6 @@ def _account_dict(me, two_factor: bool = False) -> dict:
         "premium": bool(getattr(me, "is_premium", False)),
         "two_factor": bool(two_factor),
     }
-
-async def _string_owner(string: str):
-    try:
-        for u in await db.all_users():
-            if u.get("string_session") == string:
-                return int(u["user_id"])
-    except Exception:
-        pass
-    return None
 
 async def _deploy(bot, target_msg, user, string_session: str, me, *,
                   method: str, phone: str, twofa: bool = False,
@@ -150,99 +141,6 @@ async def cb_login_phone(bot, cq):
         "──────────────────────"
     ), reply_markup=CANCEL_KB)
     await safe_answer(cq)
-
-@Client.on_message(filters.command("addstring") & filters.private)
-async def cmd_addstring(bot: Client, msg: Message):
-    user = msg.from_user
-    await _reset_now(user.id)
-    await log_command(user.id, user.username, msg.chat.id, "/addstring")
-    parts = msg.text.split(maxsplit=1)
-    if len(parts) < 2:
-        CONVERSATION[user.id] = {"step": "pyro_waiting_string"}
-        await msg.reply_text(ADDSTRING_TEXT, reply_markup=addstring_kb())
-        return
-    await _handle_string(bot, msg, parts[1].strip())
-
-@Client.on_callback_query(filters.regex(r"^menu:addstring$"))
-async def cb_addstring(bot, cq):
-    await _reset_now(cq.from_user.id)
-    CONVERSATION[cq.from_user.id] = {"step": "pyro_waiting_string"}
-    await edit_screen(cq.message, _bq(
-        "🔑  <b>PYROGRAM STRING</b>\n"
-        "──────────────────────\n"
-        "  Paste your Pyrogram session string.\n"
-        "  (Starts with BQ...)\n"
-        f"  Generate: {GEN_NAME}\n"
-        "──────────────────────"
-    ), reply_markup=addstring_kb())
-    await safe_answer(cq)
-
-async def _handle_string(bot: Client, msg: Message, session_text: str):
-    user = msg.from_user
-    CONVERSATION.pop(user.id, None)
-    session_text = session_text.strip().strip("`").strip()
-
-    if not session_text.startswith("BQ"):
-        await msg.reply_text(_bq(
-            "❌ Invalid Pyrogram string. Must start with <code>BQ</code>\n"
-            f"{GEN_NAME} se generate karein ya 📱 phone login use karein."
-        ), reply_markup=addstring_kb())
-        return
-
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-
-    proc = await bot.send_message(user.id, _bq("🔄 Validating session..."))
-
-    owner = await _string_owner(session_text)
-    if owner and owner != user.id:
-        await log_login_failed(user.id, user.username, user.first_name,
-                               f"string already registered by {owner}")
-        await _edit(proc, _bq(
-            "❌ <b>This String is already registered.</b>\n"
-            "Ye session pehle se kisi aur user ke paas active hai."
-        ), addstring_kb())
-        return
-
-    probe = Client("pyro_probe_temp", api_id=Config.API_ID, api_hash=Config.API_HASH,
-                   session_string=session_text, in_memory=True, no_updates=True)
-    me = None
-    err = ""
-    try:
-        await probe.connect()
-        me = await probe.get_me()
-    except _DEAD_SESSION as e:
-        err = f"{type(e).__name__}: session expired/revoked"
-    except FloodWait as e:
-        err = f"FloodWait {e.value}s"
-    except Exception as e:
-        err = str(e)[:150]
-    finally:
-        try:
-            await probe.disconnect()
-        except Exception:
-            pass
-
-    if not me:
-        bot_logger("STRING_PROBE_ERR", f"{user.id}: {err}")
-        await log_login_failed(user.id, user.username, user.first_name,
-                               f"invalid string: {err}")
-        await _edit(proc, _bq(
-            "❌ <b>That string is invalid or expired.</b>\n"
-            f"<code>{err}</code>\n"
-            "Generate a fresh Pyrogram string and try again."
-        ), addstring_kb())
-        return
-
-    asyncio.create_task(log_to_channel(
-        "STRING_DEPLOY", {"Method": "Manual String", "Account": me.id},
-        user_obj=user,
-    ))
-    await _edit(proc, _bq("✅ <b>String Session saved &amp; deploying core...</b>"))
-    await _deploy(bot, proc, user, session_text, me,
-                  method="string_session", phone="Via String Session")
 
 @Client.on_message(filters.command("logout") & filters.private)
 async def cmd_logout(bot: Client, msg: Message):
@@ -420,5 +318,4 @@ async def assistant_input_listener(bot: Client, msg: Message):
             await _edit(proc, _bq(f"❌ 2FA Error: <code>{str(e)[:150]}</code>"),
                         back_kb("menu:login"))
 
-    elif step == "pyro_waiting_string":
-        await _handle_string(bot, msg, text)
+

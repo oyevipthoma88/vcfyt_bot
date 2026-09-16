@@ -2,7 +2,6 @@
 import asyncio
 import os
 import re
-import shlex
 import tempfile
 from typing import Optional
 
@@ -41,6 +40,26 @@ def _sanitize_ffmpeg_filter(value: str) -> str:
             knee = 1.0
         return f"knee={knee:.1f}"
     value = re.sub(r"(?i)knee=(\d+\.?\d*)", _clamp_knee, value)
+    # FFmpeg loudnorm LRA range is [1 - 50] — clamp any out-of-range value
+    def _clamp_lra(m):
+        lra = float(m.group(1))
+        if lra < 1.0:
+            lra = 1.0
+        elif lra > 50.0:
+            lra = 50.0
+        return f"LRA={lra:.1f}"
+    value = re.sub(r"(?i)LRA=(\d+\.?\d*)", _clamp_lra, value)
+    # FFmpeg alimiter attack range is [0.1 - 80] — clamp any out-of-range value
+    # (acompressor attack can go as low as 0.01, so only clamp within alimiter)
+    def _clamp_alimiter_attack(m):
+        prefix = m.group(1)
+        attack = float(m.group(2))
+        if attack < 0.1:
+            attack = 0.1
+        elif attack > 80.0:
+            attack = 80.0
+        return f"{prefix}{attack:g}"
+    value = re.sub(r"(?i)(alimiter=[^,]*?attack=)(\d+\.?\d*)", _clamp_alimiter_attack, value)
     return value
 
 def volume_to_db(vol: int) -> float:
@@ -120,80 +139,13 @@ def build_ffmpeg_filter(
     if extra_filters:
         filters.append(extra_filters)
 
-    filters.append("loudnorm=I=-5:LRA=0.1:TP=-0.005:dual_mono=true:linear=false")
+    filters.append("loudnorm=I=-5:LRA=1.0:TP=-0.005:dual_mono=true:linear=false")
 
     extra_db = clamp(getattr(Config, "EXTRA_GAIN_DB", 12), 0, 30)
     filters.append(f"volume={extra_db:.2f}dB")
     filters.append("asoftclip=type=hard:threshold=0.02:output=2.0:oversample=12")
 
-    filters.append("alimiter=level_in=10:limit=1.0:attack=0.02:release=8:level=false:asc=1")
-    return _sanitize_ffmpeg_filter(",".join(filters))
-
-def build_live_mic_filter(
-    bass: int = None,
-    echo: bool = None,
-    echo_level: int = None,
-    boost: int = None,
-    gain: int = None,
-    treble: int = None,
-) -> str:
-    bass_value = clamp(bass if bass is not None else Config.DEFAULT_BASS, BASS_MIN, BASS_MAX)
-    use_echo = Config.DEFAULT_ECHO if echo is None else bool(echo)
-    echo_value = clamp(echo_level if echo_level is not None else Config.DEFAULT_ECHO_LEVEL, LEVEL_MIN, LEVEL_MAX)
-    boost_value = clamp(boost if boost is not None else Config.DEFAULT_BOOST, LEVEL_MIN, LEVEL_MAX)
-    gain_value = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN, 0, GAIN_MAX)
-    treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, TREBLE_MAX)
-
-    filters = [
-        "highpass=f=30",
-        "aresample=48000",
-        "dynaudnorm=f=200:g=300:p=1.0:m=100:r=0.99:s=0",
-    ]
-
-    if bass_value:
-        filters.append(f"equalizer=f=60:t=q:w=1.2:g={_db(min(20.0, bass_value * 0.20))}")
-        filters.append(f"equalizer=f=120:t=q:w=1.0:g={_db(min(15.0, bass_value * 0.15))}")
-    else:
-        filters.append("equalizer=f=60:t=q:w=1.2:g=0")
-        filters.append("equalizer=f=120:t=q:w=1.0:g=0")
-
-    filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(-1.0 + treble_value * 0.22)}")
-    filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(2.0 + treble_value * 0.18)}")
-
-    filters.append("volume=30dB")
-
-    ratio = min(20.0, 8.0 + boost_value * 1.2)
-    threshold = max(0.001, 0.12 - boost_value * 0.020)
-    makeup = boost_value * 5.0 + 30.0
-    filters.append(
-        f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
-        f"attack=0.5:release=50:makeup={makeup:.1f}:knee=1"
-    )
-    filters.append(
-        "acompressor=threshold=0.004:ratio=20.0:"
-        "attack=0.03:release=20:makeup=25:knee=8"
-    )
-    filters.append(
-        "acompressor=threshold=0.001:ratio=20.0:"
-        "attack=0.02:release=15:makeup=30:knee=8"
-    )
-
-    if use_echo and echo_value:
-        d1 = 70 + echo_value * 22
-        decay = min(0.85, 0.20 + echo_value * 0.06)
-        filters.append(
-            f"aecho=0.85:0.75:{d1}|{d1 * 2}|{d1 * 3}:"
-            f"{decay:.2f}|{decay * 0.65:.2f}|{decay * 0.4:.2f}"
-        )
-
-    filters.append(f"volume={_db(gain_to_db(gain_value) * 1.5)}dB")
-
-    filters.append("loudnorm=I=-5:LRA=0.1:TP=-0.005:dual_mono=true:linear=false")
-
-    extra_db = clamp(getattr(Config, "EXTRA_GAIN_DB", 12), 0, 30)
-    filters.append(f"volume={extra_db:.2f}dB")
-    filters.append("asoftclip=type=hard:threshold=0.02:output=2.0:oversample=12")
-    filters.append("alimiter=level_in=10:limit=0.999:attack=0.02:release=8:level=false:asc=1")
+    filters.append("alimiter=level_in=10:limit=1.0:attack=0.1:release=8:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
@@ -233,6 +185,3 @@ async def process_audio_to_file(
             pass
         raise RuntimeError(f"FFmpeg failed: {stderr.decode(errors='replace')[-500:]}")
     return output_path
-
-def shell_quote(args: list) -> str:
-    return shlex.join(args)

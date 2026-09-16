@@ -7,7 +7,6 @@ import time
 from collections import OrderedDict
 from typing import Dict, Optional
 
-from ntgcalls import MediaSource
 from pyrogram import Client
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.messages import GetFullChat
@@ -15,16 +14,13 @@ from pyrogram.raw.functions.phone import CreateGroupCall, EditGroupCallParticipa
 from pyrogram.raw.types import (
     InputPeerChannel, InputPeerChat, UpdateGroupCall,
 )
-from pytgcalls import MediaDevices, PyTgCalls
+from pytgcalls import PyTgCalls
 from pytgcalls import filters as call_filters
 from pytgcalls.exceptions import NoActiveGroupCall
 from pytgcalls.types import AudioQuality, ChatUpdate, MediaStream, StreamEnded
-from pytgcalls.types.raw import AudioParameters, AudioStream, Stream
 
 from config import Config
-from helpers.audio_processor import (
-    build_live_mic_filter, process_audio_to_file, shell_quote,
-)
+from helpers.audio_processor import process_audio_to_file
 from helpers.logger_channel import (
     get_bot, log_auto_mode, log_error, log_live_boost, log_vc_join, log_vc_leave,
 )
@@ -103,7 +99,8 @@ class ChatState:
         self.voice = "normal"
         self.live_volume = Config.LIVE_BOOST_DEFAULT
         self.mic_enabled = False
-        self.mic_device = Config.MIC_DEVICE
+        self.mic_boost_user_id: Optional[int] = None
+        self.live_relay = False
         self.auto = Config.AUTO_MODE_DEFAULT
         self.loop = False
         self.loop_left = -1
@@ -128,7 +125,7 @@ class ChatState:
             "relay_volume": self.relay_volume, "gain": self.gain,
             "treble": self.treble, "voice": self.voice,
             "live_volume": self.live_volume,
-            "mic_enabled": self.mic_enabled, "mic_device": self.mic_device,
+            "mic_enabled": self.mic_enabled, "mic_boost_user_id": self.mic_boost_user_id,
             "auto": self.auto, "loop": self.loop,
         }
 
@@ -299,6 +296,11 @@ class UserVC:
                 await self.set_participant_volume(
                     chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
                 )
+                if st.mic_boost_user_id:
+                    target_vol = st.live_volume or FYT_PARTICIPANT_VOLUME
+                    await self.set_participant_volume(
+                        chat_id, st.mic_boost_user_id, target_vol, quiet=True
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -461,76 +463,52 @@ class UserVC:
             source_name, st.settings(),
         ))
 
-    async def play_microphone(self, chat_id: int, device_hint: str = "") -> str:
-        await self._peer(chat_id)
-        if Config.MIC_RELAY_ENABLED:
-            device = None
-            title = "Android Chrome Live Relay"
-            input_args = [
-                "-f", "s16le", "-ar", "48000", "-ac", "1",
-                "-i", Config.MIC_RELAY_FIFO,
-            ]
-        else:
-            devices = list(MediaDevices.microphone_devices())
-            if not devices:
-                raise RuntimeError(
-                    "Server par koi microphone/virtual input device nahi mila. "
-                    "ALSA/PulseAudio virtual mic configure karein."
-                )
-            wanted = (device_hint or Config.MIC_DEVICE).strip().lower()
-            device = next(
-                (d for d in devices if wanted and (
-                    wanted in d.title.lower() or wanted in d.metadata.lower()
-                )),
-                devices[0],
-            )
-            title = device.title
-            input_args = ["-f", Config.MIC_INPUT_FORMAT, "-i", device.metadata]
+    async def boost_user_mic(self, chat_id: int, target_user_id: int) -> bool:
+        """Boost a user's live mic volume to max in the VC.
+
+        Uses EditGroupCallParticipant to set the target user's volume to max.
+        The user must already be in the voice chat. A keeper loop re-applies
+        the volume periodically so it survives Telegram server-side resets.
+        """
         st = self.state(chat_id)
+        target_vol = st.live_volume or FYT_PARTICIPANT_VOLUME
+        ok = await self.set_participant_volume(chat_id, target_user_id, target_vol)
+        if not ok:
+            return False
+        st.mic_enabled = True
+        st.mic_boost_user_id = target_user_id
+        if chat_id not in self._keepers:
+            self._start_keeper(chat_id)
+        asyncio.create_task(log_live_boost(
+            self.owner_id, chat_id, target_user_id, target_vol,
+        ))
+        return True
+
+    async def stop_mic_boost(self, chat_id: int) -> bool:
+        """Stop boosting a user's mic volume and clean up."""
+        st = self.chats.get(chat_id)
+        if not st or not st.mic_boost_user_id:
+            return False
+        target_user_id = st.mic_boost_user_id
         try:
-            saved = await _db().get_settings(self.owner_id)
-            st.apply_settings(saved)
+            await self.set_participant_volume(
+                chat_id, target_user_id, VOL_NORMAL, quiet=True
+            )
         except Exception:
             pass
-        mic_filter = build_live_mic_filter(
-            bass=st.bass, echo=st.echo, echo_level=st.echo_level,
-            boost=st.boost, gain=st.gain, treble=st.treble,
-        ) if Config.MIC_DSP else "anull"
-        command = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            *input_args,
-            "-af", mic_filter,
-            "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1",
-        ]
-        stream = Stream(microphone=AudioStream(
-            MediaSource.SHELL, shell_quote(command), AudioParameters(48000, 2),
+        st.mic_enabled = False
+        st.mic_boost_user_id = None
+        self._stop_keeper(chat_id)
+        if not st.is_playing:
+            self.chats.pop(chat_id, None)
+            try:
+                await self.calls.leave_call(chat_id)
+            except Exception:
+                pass
+        asyncio.create_task(log_vc_leave(
+            self.owner_id, chat_id, "Mic boost stopped"
         ))
-        try:
-            await self.calls.play(chat_id, stream)
-        except NoActiveGroupCall:
-            if not await self.start_voice_chat(chat_id):
-                raise RuntimeError(
-                    "Is group mein koi voice chat chalu nahi hai aur bot use "
-                    "start nahi kar saka. VC start karein ya manage-video-chats "
-                    "admin right dein."
-                )
-            await self.calls.play(chat_id, stream)
-        st.mic_enabled = True
-        st.mic_device = Config.MIC_RELAY_FIFO if Config.MIC_RELAY_ENABLED else device.metadata
-        st.is_playing = True
-        st.is_paused = False
-        st.source_name = f" {title}"
-        await self.set_participant_volume(
-            chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
-        )
-        return title
-
-    @staticmethod
-    def microphone_devices() -> list:
-        try:
-            return list(MediaDevices.microphone_devices())
-        except Exception:
-            return []
+        return True
 
     @staticmethod
     def _check_group(chat_id: int):
@@ -624,9 +602,11 @@ class UserVC:
         st = self.chats.get(chat_id)
         if not st:
             return False
-        if st.mic_enabled:
-            await self.play_microphone(chat_id, st.mic_device if not Config.MIC_RELAY_ENABLED else "")
-            return True
+        if st.mic_enabled and st.mic_boost_user_id:
+            target_vol = st.live_volume or FYT_PARTICIPANT_VOLUME
+            return await self.set_participant_volume(
+                chat_id, st.mic_boost_user_id, target_vol
+            )
         if not st.current_file or not os.path.exists(st.current_file):
             return False
         await self._stream(chat_id, st.current_file, st.source_name)
@@ -636,6 +616,11 @@ class UserVC:
         if reason != "Queue empty":
             self._stopped_chats.add(chat_id)
         self._stop_keeper(chat_id)
+        try:
+            from helpers.live_mic import stop_all_for_chat
+            await stop_all_for_chat(chat_id)
+        except Exception:
+            pass
         st = self.chats.pop(chat_id, None)
         if st:
             for queued_path, _ in st.queue:

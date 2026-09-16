@@ -115,7 +115,6 @@ def home_text(name: str, logged_in: bool) -> str:
         f"<b>Status:</b> {status}\n"
         f"{LINE}\n\n"
         f"🔐 <b>Login</b> — apna account bot se connect karein (phone + OTP)\n"
-        f"🧾 <b>Add String</b> — already string session hai? Yahan paste karein\n"
         f"📘 <b>Tutorial</b> — har feature ka step-by-step guide\n"
         f"🎚️ <b>Audio Settings</b> — volume / bass / echo / boost live control\n"
         f"💳 <b>Premium</b> — unlimited uses, no daily limit\n"
@@ -128,10 +127,9 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     rows = [
         [
             B(" Login" if not logged_in else " Re-Login", callback_data="menu:login"),
-            B(" Add String", callback_data="menu:addstring"),
+            B(" Tutorial", callback_data="menu:tutorial"),
         ],
         [
-            B(" Tutorial", callback_data="menu:tutorial"),
             B(" Audio Settings", callback_data="menu:settings"),
         ],
         [B(" Now Playing", callback_data="vc:list:0")],
@@ -147,7 +145,7 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         [B("💳 Premium", callback_data="pay:menu")],
         [B("👥 Refer & Earn", callback_data="ref:menu")],
         [B("🎟️ Redeem Coupon", callback_data="pay:coupon")],
-        [B(f" Session Generator — {GEN_NAME}", url=GEN)],
+
     ]
     rows.extend(source_button())
     if active_chat_id is not None:
@@ -165,47 +163,23 @@ def back_kb(target: str = "menu:home") -> K:
 LOGIN_INTRO = (
     " <b>Login — apna account connect karein</b>\n\n"
     f"{LINE}\n"
-    "<b>Do tarike hain:</b>\n"
-    f"{LINE}\n\n"
-    "<b>1 Phone Login (asaan)</b>\n"
+    "<b>Phone Login</b>\n"
     "• Phone number bhejein (country code ke saath)\n"
     "• Telegram jo OTP bhejega wo bot ko dein\n"
     "• 2-step password ho to wo bhi\n"
-    "• Bot khud aapka string session bana lega\n\n"
-    "<b>2 String Session (already hai)</b>\n"
-    f"• {GEN_NAME} se session generate karein\n"
-    "• Yahan paste karein\n\n"
+    "• Bot khud aapka session bana lega\n\n"
     " Session sirf aapke VC control ke liye use hota hai."
 )
 
 def login_kb() -> K:
     rows = [
         [B(" Phone se Login", callback_data="login:phone")],
-        [B(" String Session daalein", callback_data="menu:addstring")],
-        [B(f" Generator — {GEN_NAME}", url=GEN)],
         [B(" Home", callback_data="menu:home")],
     ]
     rows.extend(source_button())
     return K(rows)
 
 CANCEL_KB = K([[B(" Cancel", callback_data="login:cancel")]])
-
-ADDSTRING_TEXT = (
-    " <b>String Session Add</b>\n\n"
-    "Bas apna Pyrogram string session <b>seedha yahan bhej dein</b> "
-    "(ya <code>/addstring &lt;session&gt;</code>).\n\n"
-    f"Session nahi hai? {GEN_NAME} se banayein \n\n"
-    " Message bhejte hi bot use delete kar deta hai — safe hai."
-)
-
-def addstring_kb() -> K:
-    rows = [
-        [B(f" Generate — {GEN_NAME}", url=GEN)],
-        [B(" Ya phone se login karein", callback_data="login:phone")],
-        [B(" Home", callback_data="menu:home")],
-    ]
-    rows.extend(source_button())
-    return K(rows)
 
 def settings_text(s: dict) -> str:
     bars = lambda n: "█" * n + "░" * (10 - n)
@@ -285,8 +259,7 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
         "<b>Apply</b> = turant chal rahe mic par settings lag jayengi."
     )
 
-def mic_kb(mic_on: bool = False, logged_in: bool = False,
-           relay_url: str = "") -> K:
+def mic_kb(mic_on: bool = False, logged_in: bool = False) -> K:
     if not logged_in:
         return K([
             [B(" Login karein", callback_data="menu:login")],
@@ -296,8 +269,6 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False,
         [B("🎤 Mic ON" if not mic_on else "⏹ Mic OFF",
            callback_data="mic:off" if mic_on else "mic:on")],
     ]
-    if mic_on and relay_url:
-        rows.append([B("📱 Open Mic Page (Chrome)", url=relay_url)])
     rows.extend([
         [B("🔊 Mic Gain −2000", callback_data="mic:vol:-2000"),
          B("Mic Gain", callback_data="mic:noop"),
