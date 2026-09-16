@@ -63,20 +63,8 @@ class Config:
 
     EXTRA_GAIN_DB: int = _int("EXTRA_GAIN_DB", 12)
 
-    LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 28000)
+    LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)
-    MIC_DEVICE: str = os.environ.get("MIC_DEVICE", "")
-    MIC_INPUT_FORMAT: str = os.environ.get("MIC_INPUT_FORMAT", "pulse")
-    MIC_DSP: bool = _bool("MIC_DSP", True)
-    MIC_RELAY_ENABLED: bool = _bool("MIC_RELAY_ENABLED", True)
-    MIC_RELAY_BIND: str = os.environ.get("MIC_RELAY_BIND", "0.0.0.0").strip()
-    MIC_RELAY_PORT: int = _int("MIC_RELAY_PORT", _int("PORT", 8765))
-    MIC_RELAY_FIFO: str = os.environ.get("MIC_RELAY_FIFO", "/tmp/apex_live_mic.pcm").strip()
-    MIC_RELAY_TOKEN: str = os.environ.get("MIC_RELAY_TOKEN", "").strip()
-    MIC_RELAY_PUBLIC_URL: str = os.environ.get(
-        "MIC_RELAY_PUBLIC_URL", "https://vcfytbpt22922.herokuapp.com"
-    ).strip()
-
     AUTO_MODE_DEFAULT: bool = _bool("AUTO_MODE_DEFAULT", False)
     KEEPER_INTERVAL: int = _int("KEEPER_INTERVAL", 15)
 
@@ -86,7 +74,9 @@ class Config:
 
     MONGO_URI: str = os.environ.get("MONGO_URI", "")
 
-    HEROKU_APP_NAME: str = os.environ.get("HEROKU_APP_NAME", "")
+    LIVE_MIC_BASE_URL: str = _s(
+        "LIVE_MIC_BASE_URL", "https://vcfytbpt22922.herokuapp.com"
+    ).rstrip("/")
     START_PIC: str = os.environ.get("START_PIC", "").strip()
     SOURCE_CODE_URL: str = os.environ.get("SOURCE_CODE_URL", "").strip()
     PAYMENT_CONTACT_URL: str = os.environ.get("PAYMENT_CONTACT_URL", "").strip()

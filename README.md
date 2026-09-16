@@ -89,8 +89,7 @@ The logged-in user account must be a member of every group where it will join a 
 | `AUTO_LIVE_BOOST` | No | `true` | Re-apply participant volume after joins and reconnects. |
 | `AUDIO_ARCHIVE_CHANNEL` | No | — | Optional shared-audio archive channel. |
 | `AUDIO_ARCHIVE_BOT_TOKEN` | No | — | Optional bot token used by the archive worker. |
-| `MIC_RELAY_ENABLED` | No | `true` | Enable the browser microphone relay. |
-| `MIC_RELAY_TOKEN` | Recommended for relay | — | Private token required by the microphone relay. |
+| `LIVE_MIC_BASE_URL` | No | `https://vcfytbpt22922.herokuapp.com` | Full public URL for live mic relay links. |
 
 For multiple owners, set `OWNER_IDS` as a comma- or semicolon-separated list. `OWNER_ID` remains supported as the primary owner variable.
 
@@ -108,7 +107,7 @@ For multiple owners, set `OWNER_IDS` as a comma- or semicolon-separated list. `O
 
 | Category | Commands |
 |---|---|
-| Account | `/start`, `/login`, `/addstring`, `/logout`, `/mystatus`, `/settings`, `/help` |
+| Account | `/start`, `/login`, `/logout`, `/mystatus`, `/settings`, `/help` |
 | Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.end`, `.leave`, `.queue`, `.vcinfo` |
 | Tags | `.tag`, `.untag`, `.tags` |
 | Audio | `/volume`, `/gain`, `/bass`, `/treble`, `/voice`, `/relaystatus` |

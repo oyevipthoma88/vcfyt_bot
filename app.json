@@ -52,10 +52,10 @@
       "required": false,
       "value": "false"
     },
-    "HEROKU_APP_NAME": {
-      "description": "Your Heroku app name (e.g. my-vc-bot). Used for deep links.",
+    "LIVE_MIC_BASE_URL": {
+      "description": "Full public URL of your Heroku app (e.g. https://my-vc-bot.herokuapp.com). Used for live mic relay links.",
       "required": false,
-      "value": "vcfytbpt22922"
+      "value": "https://vcfytbpt22922.herokuapp.com"
     },
     "START_PIC": {
       "description": "Optional Telegram file_id or public image URL used by /start.",
@@ -95,26 +95,6 @@
       "description": "Relay treble/presence 0-100. Higher values improve intelligibility.",
       "required": false,
       "value": "62"
-    },
-    "MIC_RELAY_ENABLED": {
-      "description": "Enable Android Chrome live microphone relay",
-      "required": false,
-      "value": "true"
-    },
-    "MIC_RELAY_TOKEN": {
-      "description": "Private random token for the live microphone page",
-      "required": false,
-      "value": "6e05360c53c3fb7ba69fd08f64691704fd4125a719f64be22d50a3d331e4a50d"
-    },
-    "MIC_RELAY_PUBLIC_URL": {
-      "description": "Full public HTTPS URL where the mic relay page is served (no /mic suffix). Default: https://vcfytbpt22922.herokuapp.com",
-      "required": false,
-      "value": "https://vcfytbpt22922.herokuapp.com"
-    },
-    "MIC_DSP": {
-      "description": "Enable aggressive live microphone DSP",
-      "required": false,
-      "value": "true"
     },
     "MAX_ACTIVE_SESSIONS": {
       "description": "Max simultaneous user sessions in memory. Default 50 for Standard 2x dyno (1024MB).",

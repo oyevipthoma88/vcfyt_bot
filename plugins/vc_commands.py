@@ -1,6 +1,5 @@
 
 import os
-from urllib.parse import quote, urlsplit, urlunsplit
 
 from pyrogram import Client, filters
 from plugins.ui import B, edit_screen, safe_answer, mic_text, mic_kb
@@ -17,6 +16,8 @@ from helpers.logger_channel import (
     get_channel, log_command, log_error, set_channel, verify_log_channel,
 )
 from helpers.vc_manager import AUTO_PRESET, VOL_MAX, VOL_NORMAL, session_manager
+
+LINE = "━" * 28
 
 LOGIN_KB = K([
     [B(" Login karein", callback_data="menu:login")],
@@ -669,23 +670,6 @@ async def cb_vc(bot, cq):
 
 AUTO_KB = K([[B(" Settings Panel", callback_data="menu:settings")]])
 
-def _relay_url() -> str:
-    if not Config.MIC_RELAY_ENABLED or not Config.MIC_RELAY_TOKEN:
-        return ""
-    base = Config.MIC_RELAY_PUBLIC_URL or (
-        f"https://{Config.HEROKU_APP_NAME}.herokuapp.com"
-        if Config.HEROKU_APP_NAME else ""
-    )
-    if not base:
-        return ""
-    if "://" not in base:
-        base = f"https://{base}"
-    parsed = urlsplit(base)
-    path = parsed.path.rstrip("/")
-    if path != "/mic":
-        path = f"{path}/mic" if path else "/mic"
-    return urlunsplit((parsed.scheme, parsed.netloc, path, "token=" + quote(Config.MIC_RELAY_TOKEN, safe=""), ""))
-
 @Client.on_callback_query(filters.regex(r"^mic:"))
 async def cb_mic(bot: Client, cq):
     from plugins.ui import mic_text, mic_kb
@@ -708,9 +692,10 @@ async def cb_mic(bot: Client, cq):
         active_cid = next((cid for cid, st in uvc.chats.items()
                            if st.mic_enabled), None)
         mic_on = active_cid is not None
-        title = uvc.chats[active_cid].source_name if mic_on else ""
+        title = (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+                 if mic_on and uvc.chats[active_cid].mic_boost_user_id else "")
         await edit_screen(cq.message, mic_text(s, mic_on, title),
-                          reply_markup=mic_kb(mic_on, logged_in=True, relay_url=_relay_url()))
+                          reply_markup=mic_kb(mic_on, logged_in=True))
         await safe_answer(cq)
         return
 
@@ -719,69 +704,63 @@ async def cb_mic(bot: Client, cq):
                        if st.mic_enabled), None)
 
     if action == "on":
-        if active_cid is not None:
-            await safe_answer(cq, " Mic already ON hai.", show_alert=True)
+        from helpers.live_mic import generate_token, is_active
+        if active_cid is not None or is_active(uid):
+            await safe_answer(cq, " Mic already ON hai. Pehle OFF karein.", show_alert=True)
             return
-        await safe_answer(cq, " Mic start ho raha hai…")
+        await safe_answer(cq, " Mic relay link generate ho raha hai…")
         target_cid = active_cid or next(
             (cid for cid, st in uvc.chats.items() if st.is_playing), None)
         if not target_cid:
             target_cid = next((cid for cid in uvc.chats), None)
         if not target_cid:
             await edit_screen(cq.message,
-                "🎤 <b>Live Mic</b>\n\n"
+                "🎤 <b>Live Mic Boost</b>\n\n"
                 f"{LINE}\n"
-                "Mic on karne ke liye pehle bot ka account kisi group ke VC mein hona chahiye.\n\n"
+                "Mic relay on karne ke liye:\n\n"
                 "<b>Quick steps:</b>\n"
-                "1. Jis group mein VC chalana hai, wahan logged-in account add karein\n"
-                "2. Group mein Voice Chat start karein\n"
-                "3. Group mein <code>.play</code> (kisi audio ko reply karke) bhejein\n"
-                "4. Wapas yahan aa kar Mic ON dabayein\n\n"
-                "Niche buttons se tutorial dekhein ya VC commands sikhein.",
+                "1. Group mein Voice Chat start karein\n"
+                "2. Group mein <code>.mic on</code> bhejein\n"
+                "3. Bot ek link dega — phone mein open karein\n"
+                "4. Mic ON button dabayein, bolna shuru karein\n\n"
+                "Aapki aawaz VC mein bass, echo, boost ke saath jayegi.",
                 reply_markup=K([
                     [B("📘 Tutorial", callback_data="tut:livemic"),
                      B("▶ VC Commands", callback_data="tut:play")],
                     [B("⬅ Home", callback_data="menu:home")],
                 ]))
             return
-        try:
-            title = await uvc.play_microphone(target_cid)
-            s = await db.get_settings(uid)
-            await edit_screen(cq.message,
-                mic_text(s, True, title),
-                reply_markup=mic_kb(True, logged_in=True, relay_url=_relay_url()))
-            await safe_answer(cq, "🎤 Mic ON — max boost ke saath!")
-            if Config.MIC_RELAY_ENABLED and Config.MIC_RELAY_TOKEN:
-                relay_url = _relay_url()
-                if relay_url:
-                    try:
-                        await bot.send_message(uid,
-                            "🎤 <b>Live Mic ON!</b>\n\n"
-                            "Apne phone ka mic use karne ke liye:\n"
-                            "1. Niche link ko <b>Chrome</b> mein kholein\n"
-                            "2. 'Start Live Mic' dabayein\n"
-                            "3. Mic permission 'Allow' karein\n"
-                            "4. Bolna shuru karein — aawaz VC mein max boost ke saath!\n\n"
-                            f"<a href=\"{relay_url}\">📱 Mic Page Kholo</a>",
-                            disable_web_page_preview=False)
-                    except Exception:
-                        pass
-        except Exception as exc:
-            await safe_answer(cq, f" Mic fail: {exc}", show_alert=True)
+        token = await generate_token(uid, target_cid)
+        relay_url = f"{Config.LIVE_MIC_BASE_URL}/?token={token}"
+        await edit_screen(cq.message,
+            "🎤 <b>Live Mic Ready!</b>\n\n"
+            f"{LINE}\n"
+            "Niche button dabayein, phone mein page open hoga, mic ON karein, bolna shuru karein.\n\n"
+            "Settings change karne ke liye <code>.mic off</code> karein.",
+            reply_markup=K([
+                [B("🎤 Live Mic Page Open Karein", url=relay_url)],
+                [B("⬅ Home", callback_data="menu:home")],
+            ]))
         return
 
     if action == "off":
-        if not active_cid:
-            await safe_answer(cq, " Mic on nahi hai.", show_alert=True)
+        from helpers.live_mic import stop_session, is_active
+        if is_active(uid):
+            await stop_session(uid)
+            s = await db.get_settings(uid)
+            await edit_screen(cq.message, mic_text(s, False, ""),
+                              reply_markup=mic_kb(False, logged_in=True))
+            await safe_answer(cq, "⏹ Live Mic OFF")
             return
-        try:
-            await uvc.leave(active_cid, reason="Mic stopped from panel")
-        except Exception:
-            pass
+        if active_cid:
+            try:
+                await uvc.stop_mic_boost(active_cid)
+            except Exception:
+                pass
         s = await db.get_settings(uid)
         await edit_screen(cq.message, mic_text(s, False, ""),
-                          reply_markup=mic_kb(False, logged_in=True, relay_url=_relay_url()))
-        await safe_answer(cq, "⏹ Mic OFF")
+                          reply_markup=mic_kb(False, logged_in=True))
+        await safe_answer(cq, "⏹ Mic Boost OFF")
         return
 
     if action == "vol":
@@ -793,11 +772,14 @@ async def cb_mic(bot: Client, cq):
                 int(s.get("live_volume", Config.LIVE_BOOST_DEFAULT)) + delta))
         await db.save_settings(uid, live_volume=s["live_volume"])
         if active_cid:
-            await uvc.set_participant_volume(active_cid, uvc.account_id,
+            st = uvc.chats.get(active_cid)
+            target_uid = st.mic_boost_user_id if st and st.mic_boost_user_id else uid
+            await uvc.set_participant_volume(active_cid, target_uid,
                                              s["live_volume"], quiet=True)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, f"Mic gain: {s['live_volume']}/20000")
         return
 
@@ -808,8 +790,9 @@ async def cb_mic(bot: Client, cq):
         await db.save_settings(uid, gain=s["gain"])
         await apply_settings_live(uid)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, f"Gain: {s['gain']}/200")
         return
 
@@ -819,8 +802,9 @@ async def cb_mic(bot: Client, cq):
         await db.save_settings(uid, bass=s["bass"])
         await apply_settings_live(uid)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, f"Bass: +{s['bass']} dB")
         return
 
@@ -830,8 +814,9 @@ async def cb_mic(bot: Client, cq):
         await db.save_settings(uid, boost=s["boost"])
         await apply_settings_live(uid)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, f"Boost: {s['boost']}/10")
         return
 
@@ -842,8 +827,9 @@ async def cb_mic(bot: Client, cq):
         await db.save_settings(uid, echo_level=s["echo_level"], echo=s["echo"])
         await apply_settings_live(uid)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, f"Echo level: {s['echo_level']}/10")
         return
 
@@ -852,8 +838,9 @@ async def cb_mic(bot: Client, cq):
         await db.save_settings(uid, echo=s["echo"])
         await apply_settings_live(uid)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, f"Echo: {'ON' if s['echo'] else 'OFF'}")
         return
 
@@ -862,11 +849,14 @@ async def cb_mic(bot: Client, cq):
         await db.save_settings(uid, **s)
         await apply_settings_live(uid)
         if active_cid:
-            await uvc.set_participant_volume(active_cid, uvc.account_id,
+            st = uvc.chats.get(active_cid)
+            target_uid = st.mic_boost_user_id if st and st.mic_boost_user_id else uid
+            await uvc.set_participant_volume(active_cid, target_uid,
                                              20000, quiet=True)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, "⚡ MAX ALL — sab max par!")
         return
 
@@ -874,13 +864,14 @@ async def cb_mic(bot: Client, cq):
         await apply_settings_live(uid)
         if active_cid:
             st = uvc.chats.get(active_cid)
-            if st and st.mic_enabled:
-                await uvc.play_microphone(active_cid)
-            await uvc.set_participant_volume(active_cid, uvc.account_id,
-                s.get("live_volume", Config.LIVE_BOOST_DEFAULT), quiet=True)
+            if st and st.mic_enabled and st.mic_boost_user_id:
+                target_vol = s.get("live_volume", Config.LIVE_BOOST_DEFAULT)
+                await uvc.set_participant_volume(active_cid, st.mic_boost_user_id,
+                                                 target_vol, quiet=True)
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
-            uvc.chats[active_cid].source_name if active_cid else ""),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True, relay_url=_relay_url()))
+            (f"User {uvc.chats[active_cid].mic_boost_user_id}"
+             if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
+            reply_markup=mic_kb(active_cid is not None, logged_in=True))
         await safe_answer(cq, "✅ Mic par apply ho gaya!")
         return
 
@@ -1035,32 +1026,47 @@ async def cmd_mic(bot: Client, msg: Message):
     if not uvc:
         return
     parts = msg.text.strip().split()
-    action = parts[1].lower() if len(parts) > 1 else "devices"
+    action = parts[1].lower() if len(parts) > 1 else "status"
+
     if action in {"devices", "list"}:
-        if Config.MIC_RELAY_ENABLED:
-            await msg.reply_text(
-                " <b>Android live relay ready</b>\n"
-                "VPS relay FIFO: <code>" + Config.MIC_RELAY_FIFO + "</code>\n"
-                "Chrome mic page par Start dabakar yahan <code>/mic on</code> karein."
-            )
-            return
-        devices = uvc.microphone_devices()
-        if not devices:
-            await msg.reply_text(
-                " Server par microphone/virtual microphone nahi mila."
-            )
-            return
-        lines = [f"{i}. <code>{d.metadata}</code> — {d.title}"
-                 for i, d in enumerate(devices, 1)]
-        await msg.reply_text(" <b>Available microphone inputs</b>\n" + "\n".join(lines))
-        return
-    if action not in {"on", "start", "off", "stop"}:
         await msg.reply_text(
-            "Usage: <code>/mic on [device-name] [-100xxxxxxxx]</code>\n"
-            "<code>/mic off [-100xxxxxxxx]</code>\n"
-            "<code>/mic devices</code>"
+            " <b>Live Mic Boost</b>\n\n"
+            "Ye bot aapki khud ki VC aawaz ko max loud karta hai.\n"
+            "Koi device ya Chrome link nahi chahiye.\n\n"
+            "<b>Commands:</b>\n"
+            "• <code>.mic on</code> — aapki aawaz max loud ON\n"
+            "• <code>.mic on -100xxxxxxxx</code> — specific group ke liye\n"
+            "• <code>.mic off</code> — mic boost OFF\n"
+            "• <code>.mic off -100xxxxxxxx</code> — specific group ke liye\n"
+            "• <code>.mic status</code> — current mic boost status"
         )
         return
+
+    if action not in {"on", "start", "off", "stop", "status"}:
+        await msg.reply_text(
+            "Usage:\n"
+            "<code>.mic on [chat_id]</code> — aapki aawaz max loud ON\n"
+            "<code>.mic off [chat_id]</code> — mic boost OFF\n"
+            "<code>.mic status</code> — current status"
+        )
+        return
+
+    if action == "status":
+        active = [(cid, st) for cid, st in uvc.chats.items() if st.mic_enabled]
+        if not active:
+            await msg.reply_text(" Mic boost abhi OFF hai kisi bhi VC mein.")
+            return
+        lines = []
+        for cid, st in active:
+            uid = st.mic_boost_user_id or uvc.account_id
+            lines.append(
+                f" Chat: <code>{cid}</code>\n"
+                f" Boost user: <code>{uid}</code>\n"
+                f" Gain: <code>{st.live_volume}/20000</code>"
+            )
+        await msg.reply_text(" <b>Mic Boost Active:</b>\n\n" + "\n\n".join(lines))
+        return
+
     if action in {"off", "stop"}:
         cid_arg = None
         for value in parts[2:]:
@@ -1073,47 +1079,72 @@ async def cmd_mic(bot: Client, msg: Message):
         cid = await need_chat(msg, cid_arg)
         if not cid:
             return
-        st = uvc.chats.get(cid)
-        if not st or not st.mic_enabled:
-            await msg.reply_text(" Is VC mein mic on nahi hai.")
+        from helpers.live_mic import stop_session, is_active
+        if is_active(msg.from_user.id):
+            await stop_session(msg.from_user.id)
+            await msg.reply_text(
+                "⏹ <b>Live Mic OFF</b>\n\n"
+                "Aapki live aawaz relay band ho gaya.\n"
+                "Dobara start karne ke liye <code>.mic on</code> karein."
+            )
             return
-        try:
-            await uvc.leave(cid, reason="Mic stopped")
-            await msg.reply_text("⏹ <b>Live mic OFF</b> — VC session end.")
-        except Exception as exc:
-            await msg.reply_text(f" Mic stop fail: <code>{exc}</code>")
+        st = uvc.chats.get(cid)
+        if st and st.mic_enabled:
+            try:
+                await uvc.stop_mic_boost(cid)
+            except Exception:
+                pass
+        await msg.reply_text(
+            "⏹ <b>Live Mic OFF</b>\n\n"
+            "Mic relay band ho gaya.\n"
+            "Dobara start karne ke liye <code>.mic on</code> karein."
+        )
         return
+
+    # action in {"on", "start"}
     cid_arg = None
-    device_parts = []
     for value in parts[2:]:
         try:
             number = int(value)
         except ValueError:
-            device_parts.append(value)
             continue
         if number < 0:
             cid_arg = value
-        else:
-            device_parts.append(value)
     cid = await need_chat(msg, cid_arg)
     if not cid:
         return
-    try:
-        title = await uvc.play_microphone(cid, " ".join(device_parts))
-        reply_lines = [
-            f" <b>Live microphone ON</b>",
-            f"Input: <code>{title}</code>",
-            f"Gain: <code>{uvc.state(cid).live_volume}/20000</code>",
-            "",
-            "Note: mic playback stream ko replace karta hai; `/play` se audio stream wapas chala sakte hain.",
-        ]
-        if Config.MIC_RELAY_ENABLED and Config.MIC_RELAY_TOKEN:
-            relay_url = _relay_url()
-            if relay_url:
-                reply_lines.append("")
-                reply_lines.append("📱 <b>Phone se live bolna ho to:</b>")
-                reply_lines.append(f"<a href=\"{relay_url}\">Mic Page Kholo (Chrome)</a>")
-                reply_lines.append("Chrome mein kholein → Start Live Mic → Allow mic")
-        await msg.reply_text("\n".join(reply_lines))
-    except Exception as exc:
-        await msg.reply_text(f" <b>Microphone start nahi hua:</b> <code>{exc}</code>")
+
+    st = uvc.chats.get(cid)
+    if st and st.mic_enabled:
+        await msg.reply_text(
+            f" Mic boost already ON hai is VC mein.\n"
+            f"OFF karne ke liye <code>.mic off</code>."
+        )
+        return
+
+    # Generate live mic relay URL with auth token
+    from helpers.live_mic import generate_token, is_active
+    if is_active(msg.from_user.id):
+        await msg.reply_text(
+            " Mic relay already chal raha hai. Pehle <code>.mic off</code> karein."
+        )
+        return
+
+    token = await generate_token(msg.from_user.id, cid)
+    relay_url = f"{Config.LIVE_MIC_BASE_URL}/?token={token}"
+
+    await msg.reply_text(
+        "🎤 <b>Live Mic Boost — Ready!</b>\n\n"
+        f" <b>Chat:</b> <code>{cid}</code>\n\n"
+        "Aapki live aawaz ko VC mein bhejein — bass, echo, boost, gain sab apply hoga.\n\n"
+        "<b>Steps:</b>\n"
+        "1. Niche button dabayein — phone mein page open hoga\n"
+        "2. Mic ON button dabayein, mic permission dein\n"
+        "3. Bolna shuru karein — aapki aawaz VC mein max loud jayegi\n\n"
+        "Settings change karne ke liye pehle <code>.mic off</code>, settings set karein, phir <code>.mic on</code>.\n"
+        "OFF karne ke liye <code>.mic off</code> bhejein.",
+        reply_markup=K([
+            [B("🎤 Live Mic Page Open Karein", url=relay_url)],
+        ]),
+        disable_web_page_preview=True,
+    )
