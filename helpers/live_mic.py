@@ -521,6 +521,20 @@ class LiveMicSession:
         if not applied:
             logger.warning("Live mic: participant volume boost not confirmed "
                            "in chat %s — retrying in background", self.chat_id)
+        # Volume set by a group ADMIN applies for every listener.  The relay
+        # (spare) account is usually not admin, so its self-volume only counts
+        # locally.  Ask the user's own account (often admin) to set the relay
+        # to 200% too, so all fighters hear the mic at double volume.
+        if self.relay is not self.uvc:
+            for delay in (0.0, 1.0, 3.0):
+                if delay:
+                    await asyncio.sleep(delay)
+                try:
+                    if await self.uvc.set_participant_volume(
+                            self.chat_id, self.relay.account_id, 20000, quiet=True):
+                        break
+                except Exception:
+                    continue
         try:
             self.relay.state(self.chat_id).live_volume = 20000
             self.relay._start_keeper(self.chat_id)
