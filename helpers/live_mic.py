@@ -161,26 +161,9 @@ class LiveMicSession:
         return clean
 
     def _build_filter(self) -> str:
-        from helpers.audio_processor import build_ffmpeg_filter, _sanitize_ffmpeg_filter
-        # Fixed "extreme loud + crystal clear" profile — the web page has no
-        # sliders any more, so old saved slider values can't weaken the mic.
-        s = dict(self.settings)
-        s.update(FIXED_BEST)
-        s.update(getattr(self, "live_overrides", {}) or {})
-        return _sanitize_ffmpeg_filter(build_ffmpeg_filter(
-            volume=s.get("volume", 1000),
-            bass=s.get("bass", 10),
-            echo=bool(s.get("echo", False)),
-            echo_level=s.get("echo_level", 2),
-            boost=s.get("boost", 10),
-            relay_volume=s.get("relay_volume", 1000),
-            gain=s.get("gain", 200),
-            treble=s.get("treble", 105),
-            pregain=s.get("pregain", 80),
-            turbo=s.get("turbo", 12),
-            clarity=s.get("clarity", 10),
-            live=True,
-        ))
+        # Fixed chain — no sliders, presets or saved settings can change it.
+        from helpers.audio_processor import build_live_mic_filter
+        return build_live_mic_filter()
 
     # --- pipeline ---
 
@@ -525,7 +508,7 @@ class LiveMicSession:
         # (spare) account is usually not admin, so its self-volume only counts
         # locally.  Ask the user's own account (often admin) to set the relay
         # to 200% too, so all fighters hear the mic at double volume.
-        if self.relay is not self.uvc:
+        if getattr(self, "uvc", None) is not None and self.relay is not self.uvc:
             for delay in (0.0, 1.0, 3.0):
                 if delay:
                     await asyncio.sleep(delay)
@@ -754,78 +737,13 @@ class LiveMicSession:
             raise
 
     async def apply_settings(self, changes: dict) -> bool:
-        """Apply new audio settings live (rebuilds the FFmpeg filter chain)."""
-        if self._closed or self._restarting or not changes:
-            return False
+        """Live mic has no controls any more: settings are ignored.
 
-        # Ignore no-op updates.  Every settings apply restarts FFmpeg and
-        # re-attaches the py-tgcalls stream; doing that for nothing is exactly
-        # what made Telegram kick the userbot out of the voice chat.
-        # LOUDNESS FLOOR: the page's PRE-AMP / GAIN sliders used to be able to
-        # drop the whole chain by up to 20 dB (an old saved value was enough to
-        # make the mic nearly inaudible).  They may now only push it up.
-        _floors = {"pregain": 80, "gain": 200, "clarity": 14}
-        for _k in ("pregain", "gain", "clarity"):
-            if _k in changes:
-                try:
-                    self.live_overrides[_k] = max(int(_floors[_k]), int(float(changes[_k])))
-                except (TypeError, ValueError):
-                    self.live_overrides[_k] = _floors[_k]
-        if all(self.settings.get(key) == value for key, value in changes.items()) and not any(k in changes for k in ("pregain", "gain", "clarity")):
-            return True
-
-        # Pipeline not running yet (browser just connected): only remember the
-        # values, the first FFmpeg start will pick them up.
-        if self.ffmpeg_proc is None or not self._started:
-            self.settings.update(changes)
-            try:
-                from helpers.database import db
-                await db.save_settings(self.user_id, **changes)
-            except Exception as exc:
-                logger.debug("save_settings failed: %s", exc)
-            return True
-
-        self._restarting = True
-        try:
-            self.settings.update(changes)
-            try:
-                from helpers.database import db
-                await db.save_settings(self.user_id, **changes)
-            except Exception as exc:
-                logger.debug("save_settings failed: %s", exc)
-
-            old_raw_fd, old_proc = self._raw_fd, self.ffmpeg_proc
-            old_task = self._stderr_task
-            old_raw_fifo = self.raw_fifo
-            self._raw_fd, self.ffmpeg_proc, self._stderr_task = None, None, None
-            self._pending = b""
-
-            # The processed FIFO (and the keeper fd) stay exactly as they are,
-            # so py-tgcalls keeps reading the same stream.  Calling play()
-            # again here is what used to knock the userbot out of the VC.
-            if old_raw_fd is not None:
-                try:
-                    os.close(old_raw_fd)
-                except OSError:
-                    pass
-            if old_task:
-                old_task.cancel()
-            if old_proc:
-                try:
-                    old_proc.kill()
-                    await old_proc.wait()
-                except Exception:
-                    pass
-            if old_raw_fifo and os.path.exists(old_raw_fifo):
-                try:
-                    os.unlink(old_raw_fifo)
-                except OSError:
-                    pass
-
-            await self._start_pipeline(keep_proc_fifo=True)
-            return True
-        finally:
-            self._restarting = False
+        Every settings change used to kill and restart FFmpeg mid-fight
+        (audible gap, sometimes a VC drop) and let sliders over-drive the
+        chain into distortion.  The chain is fixed, so nothing to apply.
+        """
+        return True
 
     async def _restart_ffmpeg(self, max_attempts: int = 3) -> bool:
         """Relaunch FFmpeg after an unexpected exit, keeping the VC stream alive."""
@@ -1354,22 +1272,6 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 <div id="status" class="status off">Mic OFF</div>
 <div class="save" id="saveNote"></div>
 
-<div class="ctl">
-  <div class="row"><span>&#128266; AAWAZ BOOST</span><b id="loudVal">2000%</b></div>
-  <input id="loudSl" type="range" min="100" max="2000" step="25" value="2000" oninput="setLoud(this.value)">
-  <div class="row"><span>&#10022; CLARITY</span><b id="clrVal">28</b></div>
-  <input id="clrSl" type="range" min="0" max="35" step="1" value="28" oninput="setClarity(this.value)" onchange="sendSrv()">
-  <div class="row"><span>&#128266; DB (pre-amp drive)</span><b id="dbVal">200</b></div>
-  <input id="dbSl" type="range" min="0" max="200" step="1" value="200" oninput="setCtl('db',this.value)" onchange="sendSrv()">
-  <div class="row"><span>&#128200; GAIN (0-400 = 0-40 dB)</span><b id="gainVal">400</b></div>
-  <input id="gainSl" type="range" min="0" max="400" step="10" value="400" oninput="setCtl('gain',this.value)" onchange="sendSrv()">
-  <div class="row" style="gap:6px;flex-wrap:wrap">
-    <button class="btn" style="flex:1" onclick="preset('fight')">&#9876; Fight Max</button>
-    <button class="btn" style="flex:1" onclick="preset('clear')">&#10024; Super Clear</button>
-  </div>
-  <button class="btn" onclick="resetCtl()">&#128165; NUCLEAR MAX (Sabse Tez)</button>
-  <small>Sabse tez aawaj ke liye sab MAX par hai. Aavaj kam &rarr; AAWAZ BOOST badhao. Saaf nahi &rarr; CLARITY badhao. Aur tez chahiye &rarr; DB aur GAIN badhao.</small>
-</div>
 
 <button id="retryBtn" class="btn" style="display:none" onclick="retryMic()">Permission dene ke baad — Dobara try karein</button>
 <div id="permHelp" class="help"></div>
@@ -1389,7 +1291,7 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
   2. Telegram me <b>.mic on</b> bhejein aur link kholein.<br>
   3. Beech wala <b>mic button</b> dabayein aur permission <b>Allow</b> karein.<br>
   4. Telegram app ka apna mic <b>mute</b> rakhein — awaaz isi page se jaati hai.<br>
-  5. Aavaj aur tez / saaf chahiye → niche <b>LOUD</b> aur <b>CLARITY</b> slider chalayein (turant asar).<br>
+  5. Koi setting nahi — aawaz apne aap sabse tez aur saaf jaati hai.<br>
   6. Mic na chale to <b>Chrome me kholein</b> dabayein.<br>
   7. Rokne ke liye mic button dobara dabayein ya <b>.mic off</b> bhejein.
   </p>
@@ -1401,17 +1303,9 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 let ws=null, audioCtx=null, mediaStream=null, source=null, workletNode=null,
     scriptNode=null, analyser=null, silentSink=null;
 let isOn=false, readyTimer=null, firstFrameTimer=null, retryTimer=null;
-// Live loudness / clarity nodes (browser side — no FFmpeg restart, no cut-out).
-let nComp=null, nPre=null, nComp2=null, nTurbo=null;
-let nPost=null, nPr2=null, nPr3=null, nMud=null, nBass=null, nHp=null, nLp=null, nDss=null, nWet=null, nFb=null;
-// aec:true = phone's echo-cancel removes the opponent's voice leaking from
-// the speaker into the mic (that leak was pulling your voice down).
-const MAX_CLEAN={loud:2000, clarity:28, bass:0, echo:0, khar:8, aec:true, db:200, gain:400};
-const CTL_DEFAULTS={...MAX_CLEAN};
-const CTL_LIM={loud:[100,2000],clarity:[0,35],db:[0,200],gain:[0,400],bass:[-6,12],echo:[0,10],khar:[0,10]};
-const PRESETS={fight:{...MAX_CLEAN},clear:{...MAX_CLEAN,loud:1600,db:140,gain:320}};
-const CTL_VERSION = 24;
-let ctl={...CTL_DEFAULTS};
+// No controls: the phone sends a clean signal, the server makes it loud+clear.
+let nComp=null, nPre=null;
+const CTL_VERSION = 25;
 let attemptId=0, firstFrameSeen=false, pending=[], sendReady=false,
     retries=0, captureRate=48000;
 const MAX_RETRIES=600;          // ~30+ min of retrying instead of giving up
@@ -1422,104 +1316,7 @@ const noteEl=document.getElementById('saveNote');
 const tapEl=document.getElementById('tapTxt');
 const badgeEl=document.getElementById('badgeTxt');
 const TOKEN=new URLSearchParams(location.search).get('token');
-try{
-  const saved=JSON.parse(localStorage.getItem('vcfyt_ctl')||'null');
-  if(saved&&typeof saved==='object'){
-    for(const k in CTL_LIM){ if(Number.isFinite(+saved[k])) ctl[k]=Math.max(CTL_LIM[k][0],Math.min(CTL_LIM[k][1],+saved[k])); }
-    ctl.aec=!!saved.aec;
-    // v20 is a deliberate profile reset: older saved values contained the
-    // aggressive gain/makeup combination that made the mic sound flat.
-    if((+saved.version||0)<CTL_VERSION) ctl={...CTL_DEFAULTS};
-  }
-}catch(e){}
-function saveCtl(){ try{localStorage.setItem('vcfyt_ctl',JSON.stringify({...ctl,version:CTL_VERSION}));}catch(e){} }
-function ramp(param,value){
-  if(!param) return;
-  try{ param.setTargetAtTime(value, audioCtx?audioCtx.currentTime:0, 0.05); }
-  catch(e){ param.value=value; }
-}
-function applyCtl(){
-  // AAWAZ BOOST: final make-up gain before the soft-clip, so it gets louder without
-  // ever hard-clipping into a square wave.
-  // Boost does NOT just multiply the signal (that only squares off peaks and
-  // sounds torn).  It drives the compressor harder — threshold down, ratio up —
-  // so the average level (what the ear hears as loudness) really rises, and
-  // only the make-up gain after it is raised, into the soft-clip.
-  // Gains are deliberately conservative here: the browser feeds 16-bit PCM,
-  // so anything leaving this chain above 1.0 is hard-clipped into a square
-  // wave *before* the server ever sees it.  The server's limiter is what
-  // makes the final stream sit at full scale, cleanly.
-  // The old mapping hit every one of its caps at about LOUD 900%, so the
-  // default (1200%) pinned pre-amp, threshold, ratio and make-up all at max
-  // and the slider did nothing above that.  The browser therefore shipped an
-  // already-squashed signal to the server.  This mapping spans the whole
-  // 100-2000% range and leaves headroom at the default.
-  // LOUD now only trims the clean capture level.  The real loudness comes
-  // from the server chain (the same one played files use), so the phone must
-  // hand over an undistorted signal — a squashed one can never sound strong.
-  const bst = Math.max(1.0, Math.min(30.0, ctl.loud/100));
-  // MAX PRE-AMP: push the signal as hot as possible without hard-clipping.
-  // The compressor after it catches peaks, so the server gets a very hot,
-  // dense signal it can slam to full scale.
-  ramp(nPre&&nPre.gain, Math.min(14.0, 4.0 + bst*0.30));
-  // EXTREME compression: very low threshold + max ratio = everything is loud.
-  ramp(nComp&&nComp.threshold, Math.max(-38.0, -20.0 - bst*0.90));
-  ramp(nComp&&nComp.ratio, Math.min(16.0, 6.0 + bst*0.30));
-  // Stage-2 compressor: even denser — stacks on top of stage-1.
-  ramp(nComp2&&nComp2.threshold, Math.max(-24.0, -12.0 - bst*0.50));
-  ramp(nComp2&&nComp2.ratio, Math.min(10.0, 4.0 + bst*0.20));
-  // Post + turbo gain: final push before the soft-clip.
-  // CLEAN HAND-OFF: the old post x5 * turbo x4 (=20x) slammed the tanh
-  // shaper into a square wave ON THE PHONE ("tez but phati awaaz").  The
-  // server chain (multiband maximizer + exciter + limiter) makes it loud,
-  // so the phone only sends a hot-but-undistorted signal now.
-  ramp(nPost&&nPost.gain, Math.min(3.0, 1.6 + bst*0.08));
-  ramp(nTurbo&&nTurbo.gain, Math.min(2.0, 1.2 + bst*0.04));
-
-  // CLARITY: stronger presence + consonant lift and deeper mud cut.
-  ramp(nPr2&&nPr2.gain, Math.min(12.0, 1.0 + ctl.clarity*0.38));
-  ramp(nPr3&&nPr3.gain, Math.min(10.0, 0.5 + ctl.clarity*0.28));
-  ramp(nMud&&nMud.gain, Math.max(-12.0, -(2.0 + ctl.clarity*0.30)));
-
-  // BASS/ECHO/KHAR: server-side only now (no browser-side sliders for these).
-  // KHAR-KHAR CUT is baked into the server chain (aggressive denoise + gates).
-  for(const k of ['db','gain']){
-    const v=document.getElementById(k+'Val'), sl=document.getElementById(k+'Sl');
-    if(v) v.textContent=ctl[k]; if(sl) sl.value=ctl[k];
-  }
-  const lv=document.getElementById('loudVal'), cv=document.getElementById('clrVal');
-  if(lv) lv.textContent=ctl.loud+'%';
-  if(cv) cv.textContent=ctl.clarity;
-  const ls=document.getElementById('loudSl'), cs=document.getElementById('clrSl');
-  if(ls) ls.value=ctl.loud;
-  if(cs) cs.value=ctl.clarity;
-}
-function setLoud(v){ ctl.loud=Math.max(100,Math.min(2000,parseInt(v,10)||CTL_DEFAULTS.loud)); saveCtl(); applyCtl(); }
-function setClarity(v){ ctl.clarity=Math.max(0,Math.min(35,parseInt(v,10)||0)); saveCtl(); applyCtl(); }
-function setCtl(k,v){ const l=CTL_LIM[k]; const n=parseInt(v,10); ctl[k]=Math.max(l[0],Math.min(l[1],Number.isFinite(n)?n:CTL_DEFAULTS[k])); saveCtl(); applyCtl(); }
-// DB / GAIN / CLARITY also drive the server FFmpeg chain.  Sent only when a
-// slider is released (each send rebuilds FFmpeg = ~0.5s gap), debounced.
-let srvTimer=null, srvSent='';
-function sendSrv(){
-  clearTimeout(srvTimer);
-  srvTimer=setTimeout(()=>{
-    const body=JSON.stringify({pregain:Math.round(ctl.db), gain:ctl.gain, clarity:ctl.clarity});
-    if(body===srvSent) return;
-    if(ws&&ws.readyState===1&&sendReady){ try{ ws.send('settings:'+body); srvSent=body; }catch(e){} }
-  },700);
-}
-function applyAec(){
-  // Browser echo-cancel always on for VC fight — the opponent's voice leaking
-  // from the speaker into the mic is the #1 cause of "meri aawaz slow jaati hai".
-  try{ const t=mediaStream&&mediaStream.getAudioTracks()[0];
-       const ns = !!(t && t.getSettings && t.getSettings().noiseSuppression);
-       if(t&&t.applyConstraints) t.applyConstraints({echoCancellation:true, noiseSuppression:true, autoGainControl:false}).catch(()=>{});
-  }catch(e){}
-}
-function setAec(on){ ctl.aec=!!on; saveCtl(); applyAec(); applyCtl(); }
-function preset(n){ const p=PRESETS[n]; if(!p) return; ctl={...ctl,...p}; saveCtl(); applyCtl(); sendSrv(); }
-function resetCtl(){ ctl={...CTL_DEFAULTS}; saveCtl(); applyAec(); applyCtl(); sendSrv(); }
-applyCtl();   // show saved values on the sliders at page load
+try{localStorage.removeItem('vcfyt_ctl');}catch(e){}
 try{localStorage.removeItem('vcfyt_mic');}catch(e){}
 
 // decoration: stars + eq bars
@@ -1566,7 +1363,7 @@ function resetAudioState(message='Mic OFF', cls='off', sendStop=true){
   if(silentSink){try{silentSink.disconnect();}catch(e){} silentSink=null;}
   if(analyser){try{analyser.disconnect();}catch(e){} analyser=null;}
   if(source){try{source.disconnect();}catch(e){} source=null;}
-  nPost=nPr2=nPr3=nMud=nBass=nHp=nLp=nDss=nWet=nFb=nComp=nComp2=nPre=nTurbo=null;
+  nComp=nPre=null;
   if(mediaStream){mediaStream.getTracks().forEach(t=>{try{t.stop();}catch(e){}});mediaStream=null;}
   if(audioCtx){try{audioCtx.close();}catch(e){} audioCtx=null;}
   isOn=false; firstFrameSeen=false; pending=[]; retries=0;
@@ -1753,7 +1550,6 @@ function connectSocket(myAttempt){
             // settings path rebuilds FFmpeg; doing that after first audio used
             // to create an audible gap and could make the relay look dead on
             // slower phones. Explicit preset/reset actions still send changes.
-            srvSent='';
         } else if (ev.data.startsWith('settings:')) {
             // settings are fixed server-side (best loud + clear).
         } else if (ev.data.startsWith('settings_failed:')) {
@@ -1870,9 +1666,12 @@ async function toggleMic() {
         ]);
         try {
             mediaStream = await ask({
-                audio: { echoCancellation: true, noiseSuppression: true,
-                         autoGainControl: false, channelCount: 1,
-                         echoCancellationType: 'system' },
+                // Echo-cancel ON (stops the VC sound from the speaker feeding
+                // back into the mic).  Phone noise-suppression and auto-gain
+                // OFF: they muffle the voice and pump the level up and down;
+                // the server does clean denoise + levelling instead.
+                audio: { echoCancellation: true, noiseSuppression: false,
+                         autoGainControl: false, channelCount: 1 },
             });
         } catch (firstErr) {
             const n = firstErr && firstErr.name;
@@ -1882,71 +1681,22 @@ async function toggleMic() {
         if (attemptId!==myAttempt) return;
         try { await audioCtx.resume(); } catch(e){}
         source = audioCtx.createMediaStreamSource(mediaStream);
-        // Browser-side clarity + loudness chain.
-        // IMPORTANT: the PCM writer below hard-clips at +/-1.0, so anything
-        // that leaves this chain above 1.0 becomes a square wave (that was
-        // the torn / cracking voice).  So: shape first, modest pre-amp, and
-        // a compressor + soft-clip as the LAST stages so nothing ever hits
-        // the hard clip in the int16 conversion.
+        // CLEAN CAPTURE (root fix).  The old phone chain was x10 pre-amp ->
+        // 2 compressors (each with automatic make-up gain) -> x6 post gain,
+        // which hard-clipped the voice into a square wave ON THE PHONE —
+        // loud-ish but torn and unclear, and no server chain can repair it.
+        // Now: rumble cut -> +6 dB -> transparent peak limiter.  Nothing
+        // ever reaches the int16 clip; all loudness is made server-side.
         try {
-            const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=100; hp.Q.value=0.7;
-            const lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=15000; lp.Q.value=0.7;
-            // Mud cut + presence peaks = clearly more intelligible voice.
-            const mud = audioCtx.createBiquadFilter(); mud.type='peaking'; mud.frequency.value=300; mud.Q.value=1.0; mud.gain.value=-6;
-            const pr1 = audioCtx.createBiquadFilter(); pr1.type='peaking'; pr1.frequency.value=1800; pr1.Q.value=1.2; pr1.gain.value=3;
-            const pr2 = audioCtx.createBiquadFilter(); pr2.type='peaking'; pr2.frequency.value=3200; pr2.Q.value=1.1; pr2.gain.value=3.5;
-            // Consonant bite: makes words readable on tiny phone speakers.
-            const pr3 = audioCtx.createBiquadFilter(); pr3.type='peaking'; pr3.frequency.value=4500; pr3.Q.value=1.4; pr3.gain.value=2.5;
-            // De-ess so the presence lift doesn't make "s" sounds harsh.
-            const dss = audioCtx.createBiquadFilter(); dss.type='peaking'; dss.frequency.value=7200; dss.Q.value=2.0; dss.gain.value=-1.5;
-            // CLEAN CAPTURE: the phone only shapes and protects the signal —
-            // all the loudness now happens server-side in the same FFmpeg
-            // chain that makes played files sound strong.  The old x7 pre-amp
-            // + hard compressor squashed the voice flat before it left the
-            // phone, and no server chain can un-squash that.
-            const pre = audioCtx.createGain(); pre.gain.value = 12.0;
-            // Stage-1 compressor: extreme density.  Very low threshold + high
-            // ratio squashes everything loud.  This is what makes the voice
-            // HOT before the server chain pushes it further.
-            const comp = audioCtx.createDynamicsCompressor();
-            comp.threshold.value=-32; comp.knee.value=2; comp.ratio.value=14; comp.attack.value=0.001; comp.release.value=0.08;
-            // Stage-2 compressor: another layer of density on top.
-            const comp2 = audioCtx.createDynamicsCompressor();
-            comp2.threshold.value=-20; comp2.knee.value=4; comp2.ratio.value=8; comp2.attack.value=0.002; comp2.release.value=0.10;
-            const post = audioCtx.createGain(); post.gain.value = 2.5;
-            // Turbo gain: final push before soft-clip = extra loudness.
-            const turbo = audioCtx.createGain(); turbo.gain.value = 1.8;
-
-            const bass = audioCtx.createBiquadFilter(); bass.type='lowshelf'; bass.frequency.value=160; bass.gain.value=2;
-            // Echo send: feedback delay mixed back in before the compressor,
-            // so even max echo can never clip.
-            const dly = audioCtx.createDelay(1.0); dly.delayTime.value=0.19;
-            const fb = audioCtx.createGain(); fb.gain.value=0;
-            const wet = audioCtx.createGain(); wet.gain.value=0;
-            const dlp = audioCtx.createBiquadFilter(); dlp.type='lowpass'; dlp.frequency.value=4500;
-            nMud = mud; nPr2 = pr2; nPr3 = pr3; nPost = post; nComp = comp; nComp2 = comp2; nPre = pre; nTurbo = turbo;
-            nBass = bass; nHp = hp; nLp = lp; nDss = dss; nWet = wet; nFb = fb;
-            // Final safety: tanh soft-clip curve, so peaks round off smoothly
-            // instead of being chopped flat by the int16 conversion.
-            const shaper = audioCtx.createWaveShaper();
-            const curve = new Float32Array(1025);
-            for (let i = 0; i < curve.length; i++) {
-                const x = (i / (curve.length - 1)) * 2 - 1;
-                // Transparent for speech, rounds only true peaks.  Any real
-                // saturation here reaches the server as distortion and is
-                // what made the live voice sound thin next to played audio.
-                curve[i] = Math.tanh(x * 1.05) / Math.tanh(1.05) * 0.99;
-
-
-            }
-            shaper.curve = curve; shaper.oversample = '4x';
-            source.connect(hp); hp.connect(lp); lp.connect(bass); bass.connect(mud); mud.connect(pr1);
-            pr1.connect(pr2); pr2.connect(pr3); pr3.connect(dss); dss.connect(pre);
-            dss.connect(dly); dly.connect(dlp); dlp.connect(fb); fb.connect(dly); dlp.connect(wet); wet.connect(pre);
-            pre.connect(comp); comp.connect(comp2); comp2.connect(post); post.connect(turbo); turbo.connect(shaper);
-            source = shaper;
-            applyCtl();   // saved LOUD / CLARITY
-        } catch(e){ nMud=nPr2=nPr3=nPost=nBass=nHp=nLp=nDss=nWet=nFb=nComp=nPre=null; }
+            const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
+            const pre = audioCtx.createGain(); pre.gain.value = 2.0;
+            const lim = audioCtx.createDynamicsCompressor();
+            lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20;
+            lim.attack.value=0.002; lim.release.value=0.06;
+            source.connect(hp); hp.connect(pre); pre.connect(lim);
+            nPre = pre; nComp = lim;
+            source = lim;
+        } catch(e){ nComp=nPre=null; }
     } catch (e) {
         const friendly = micErrorText(e);
         resetAudioState(friendly, 'err');

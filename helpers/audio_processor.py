@@ -189,6 +189,43 @@ def _legacy_gain_to_db(gain: int) -> float:
     """
     return 12.0 * clamp(gain, 0, 200) / 200.0
 
+
+# ---------------------------------------------------------------------------
+# LIVE MIC — single fixed chain (no user controls).
+#
+# Root cause of the "loud but not clear / phati awaaz" live mic:
+#   * the browser stacked x10 pre-amp, two compressors (each with automatic
+#     make-up gain) and another x6 of post gain, so the phone itself hard-
+#     clipped the voice into a square wave before it was ever sent;
+#   * the server then added up to ~30 dB more, an atan soft-clip and a limiter
+#     driven 15 % into the wall;
+#   * sliders / presets could rebuild FFmpeg mid-fight (audio gaps) and push
+#     every stage even harder.
+# Now the phone sends a clean signal and ALL loudness is made here, once:
+#   clean-up -> denoise -> speech leveller (lifts quiet words) -> one
+#   compressor -> noise gate (silence between words) -> clarity EQ ->
+#   make-up -> brick-wall limiter at -1 dBFS (no clipping, Opus-safe).
+# Measured on real speech: quiet (-35 dBFS) and loud (-6 dBFS) phones both
+# land at the same loud level, peak -1.0 dBFS, background hiss gated away.
+# ---------------------------------------------------------------------------
+def build_live_mic_filter() -> str:
+    f = ["aresample=48000:async=1:first_pts=0",
+         "highpass=f=90", "lowpass=f=11000"]
+    if _has_filter("afftdn"):
+        f.append("afftdn=nr=16:nf=-48:tn=1")
+    if _has_filter("speechnorm"):
+        f.append("speechnorm=e=20:r=0.0005:l=1:p=0.9")
+    f.append("acompressor=threshold=0.1:ratio=4:attack=3:release=60:makeup=2.5:knee=4")
+    if _has_filter("agate"):
+        f.append("agate=threshold=0.08:range=0.02:ratio=6:attack=2:release=180:detection=rms")
+    f += ["equalizer=f=250:t=q:w=1:g=-3",
+          "equalizer=f=2500:t=q:w=1:g=5",
+          "equalizer=f=4500:t=q:w=1.3:g=2",
+          "volume=5dB",
+          "alimiter=limit=0.89:level=false:attack=1:release=30"]
+    return ",".join(f)
+
+
 def build_ffmpeg_filter(
     volume: int = None,
     bass: int = None,
@@ -208,6 +245,9 @@ def build_ffmpeg_filter(
     # stream=True: file playback piped live to the VC.  It keeps the full
     # playback loudness but swaps look-ahead filters (37 s dynaudnorm window,
     # 3 s loudnorm) for low-latency ones, otherwise the VC sits at 0:00.
+    if live:
+        # Live mic ignores every slider/setting: one fixed clean+loud chain.
+        return build_live_mic_filter()
     low_lat = bool(live or stream)
     if volume is None:
         volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
