@@ -32,7 +32,8 @@ PRESETS = {
     "echo": {"echo": 1, "echo_level": 3},
     "full": {"bass": 30, "echo": 1, "echo_level": 2},
 }
-DEFAULT_PRESET = "full"
+# Echo smears words -> sounds farther/quieter. Clean = max clarity.
+DEFAULT_PRESET = "clean"
 
 # ---------------------------------------------------------------------------
 # LOUD MODE — bridge ki aawaz ko playback se bhi zyada hot banata hai.
@@ -42,7 +43,9 @@ DEFAULT_PRESET = "full"
 # nahi bhejta, isliye "zyada aawaz" = zyada drive + saturation; high levels par
 # aawaz phategi — ye jaan-boojh kar hai, control se kam karo.
 # ---------------------------------------------------------------------------
-LOUD_DEFAULT = {"drive": 20, "bass": 15, "presence": 15, "clip": "hard"}
+# Bass eats headroom without adding perceived loudness; presence (2-4 kHz)
+# is where the ear hears "loud".  Voice-first default.
+LOUD_DEFAULT = {"drive": 20, "bass": 4, "presence": 15, "clip": "hard"}
 LOUD_PRESETS = {
     "safe": {"drive": 5, "bass": 3, "presence": 6, "clip": "soft"},
     "loud": dict(LOUD_DEFAULT),
@@ -84,8 +87,10 @@ def drive_db(level: int) -> int:
 # hai, isliye bolte waqt contrast zyada = kaan ko aawaz zyada tez lagti hai.
 # NOTE: gate hamesha INPUT_LIFT ke BAAD chalta hai.  Raw VC frames -50..-70
 # dBFS hote hain, isliye pehle gate lagana speech ko hi kill kar deta tha.
-INPUT_GATE = ("agate=threshold=0.0012:ratio=3:range=0.03:attack=2:"
-              "release=120:knee=2:detection=rms")
+# Soft gate (range -12 dB, was -30 dB): the hard gate was chopping quiet
+# syllables and word endings, making the voice sound thin and low.
+INPUT_GATE = ("agate=threshold=0.0008:ratio=2:range=0.25:attack=1:"
+              "release=250:knee=3:detection=rms")
 
 # BRUTAL INPUT LIFT: Telegram VC incoming frames -50..-70 dBFS hote hain.
 # 4-stage lift ensures even a whisper reaches full scale:
@@ -302,13 +307,21 @@ class VCBridge:
         if not rid or setter is None:
             return
         delays = [0.5, 1.5, 3, 6, 10]
+        relay_setter = getattr(self.relay, "set_participant_volume", None)
         try:
             while not self._closed:
                 try:
                     await setter(self.target_chat, rid, 20000, quiet=True)
                 except Exception:
                     pass
-                await asyncio.sleep(delays.pop(0) if delays else 45)
+                # Spare ID khud bhi apna stream volume 200% pe lock kare.
+                if relay_setter is not None:
+                    try:
+                        await relay_setter(self.target_chat, rid, 20000, quiet=True)
+                    except Exception:
+                        pass
+                # Telegram kabhi-kabhi volume 100% pe reset karta hai -> 12 s me wapas 200%.
+                await asyncio.sleep(delays.pop(0) if delays else 12)
         except asyncio.CancelledError:
             pass
 
