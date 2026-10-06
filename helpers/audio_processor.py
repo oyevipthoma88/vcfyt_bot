@@ -60,9 +60,7 @@ def _live_chain_mode() -> str:
     (one leveller, one compressor, one limiter).  Override with
     ``LIVE_MIC_CHAIN=soft``.
     """
-    mode = (os.environ.get("LIVE_MIC_CHAIN", "") or "clear").strip().lower()
-    if mode in ("clear", "clean", "voice", "default"):
-        return "clear"
+    mode = (os.environ.get("LIVE_MIC_CHAIN", "") or "fight").strip().lower()
     if mode in ("soft", "broadcast", "gentle"):
         return "soft"
     if mode in ("match", "playback", "old"):
@@ -245,52 +243,6 @@ def build_ffmpeg_filter(
     # softer live than a played file.  Now the live chain uses stronger
     # levelling: speechnorm e=45 (up from 25) and dynaudnorm g=12 (up from 5),
     # plus an extra +6 dB drive into the limiter.  Playback is untouched.
-    if live and _live_chain_mode() == "clear":
-        # ---------------------------------------------------------------
-        # LIVE MIC — CLEAR CHAIN (default, fixes "0 clarity" recording).
-        #
-        # The "fight" chain stacked +30 dB pre-amp, speechnorm e=50 (+34 dB),
-        # mcompand, 3 compressors, exciter, +16 dB drive and LOUD_EXTRA_DB
-        # (+18) into a limiter.  A real VC recording measured -4.4 dBFS
-        # *mean* with peaks pinned at 0 dBFS: pure square-wave distortion,
-        # room noise pumped up to voice level, words unreadable.  Telegram's
-        # Opus encoder then crackles on top of that.
-        #
-        # This chain: clean input -> light denoise -> voice EQ -> ONE
-        # compressor -> modest make-up -> limiter at -1 dBFS.  Voice lands
-        # around -14..-10 dBFS RMS: loud on phones, zero clipping, and the
-        # browser AGC/noise-suppression stays in charge of mic level.
-        # Old chains: LIVE_MIC_CHAIN=fight | soft | match.
-        # ---------------------------------------------------------------
-        filters = [
-            "aresample=48000:first_pts=0:async=1",
-            "highpass=f=100",
-            "lowpass=f=12000",
-        ]
-        if _has_filter("afftdn"):
-            filters.append("afftdn=nr=10:nf=-50:tn=1")
-        filters.append("equalizer=f=250:t=q:w=1.2:g=-3.00")
-        if bass_value:
-            filters.append(f"lowshelf=f=140:g={_db(min(3.0, bass_value * 0.04))}")
-        filters.append("equalizer=f=2800:t=q:w=1.4:g=3.00")
-        filters.append("equalizer=f=5000:t=q:w=1.6:g=1.50")
-        filters.append("acompressor=threshold=0.08:ratio=3:attack=5:"
-                       "release=120:makeup=2:knee=4")
-        if use_echo and echo_value:
-            d1 = 90 + echo_value * 20
-            decay = min(0.30, 0.10 + echo_value * 0.02)
-            filters.append(f"aecho=1.0:0.85:{d1}:{decay:.2f}")
-        if extra_filters:
-            filters.append(extra_filters)
-        try:
-            drive = float(os.environ.get("LIVE_MIC_DRIVE_DB", "") or 6.0)
-        except ValueError:
-            drive = 6.0
-        filters.append(f"volume={_db(max(0.0, min(12.0, drive)))}dB")
-        filters.append("alimiter=level_in=1:level_out=1:limit=0.89:"
-                       "attack=3:release=50:level=false")
-        return _sanitize_ffmpeg_filter(",".join(filters))
-
     if live and _live_chain_mode() == "fight":
         # ---------------------------------------------------------------
         # LIVE MIC — FIGHT CHAIN (BRUTAL max loudness + zero khar-khar).
@@ -315,7 +267,7 @@ def build_ffmpeg_filter(
             drive_db = max(30.0, min(42.0, 30.0 + (float(pregain if pregain is not None else 200) / 200.0) * 12.0))
         except (TypeError, ValueError):
             drive_db = 42.0
-        final_db = 20.0 + 18.0 * (gain_value / float(GAIN_MAX or 6.0))
+        final_db = 20.0 + 18.0 * (gain_value / float(GAIN_MAX or 400))
         final_db = min(44.0, final_db + extra_loud_db())
 
         # FIX: old chain used "dialoguenhance=recipe=default" — that option does
@@ -325,67 +277,32 @@ def build_ffmpeg_filter(
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
         filters = [
             "aresample=48000:first_pts=0:async=1",
-            # Phone speakers play nothing below ~200 Hz: removing it frees headroom
-            # for the 1-5 kHz band the ear hears loudest (+1.5 LU on phones vs old chain).
-            "highpass=f=250:p=2",
-            "highpass=f=250:p=2",
-            "lowpass=f=11000:p=2",
-            "equalizer=f=60:t=q:w=1.0:g=-12.00",
+            "highpass=f=85",
+            "lowpass=f=14000",
+            "equalizer=f=350:t=q:w=1.2:g=-3.50",
         ]
         if _has_filter("afftdn"):
-            # Strong adaptive denoise (fan / hiss / khar-khar).
-            # nf=-75: old nf=-30/-40 treated every soft voice as noise and erased it.
-            filters.append("afftdn=nr=20:nf=-75:tn=1")
+            filters.append("afftdn=nr=10:nf=-50:tn=1")
         if _has_filter("agate"):
-            filters.append("agate=range=0.0001:threshold=0.0008:ratio=4:"
-                           "attack=5:release=200:knee=1:detection=rms")
-        # Voice-band EQ: cut mud, push intelligibility 1.8-4.5 kHz so the voice
-        # cuts through 5 people talking at once on phone speakers.
-        filters.append("equalizer=f=300:t=q:w=1.0:g=-5.00")
-        filters.append("equalizer=f=3000:t=q:w=1.5:g=6.00")
-        filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(4.0 + 3.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(5.0 + 4.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=4500:t=q:w=1.2:g={_db(3.0 + 2.0 * clarity_amt)}")
-        # Pre-amp so even a far / whisper-level mic (-65 dBFS) hits the levellers.
-        # Measured: -67 dBFS in -> -5.8 dBFS RMS out; -57..-17 in -> ~-2.4 out.
-        filters.append("volume=30dB")
-        filters.append("acompressor=threshold=0.05:ratio=8:attack=2:release=60:makeup=4:knee=4")
-        # Speech levelling: expands quiet syllables up to 50x (+34 dB).
+            filters.append("agate=range=0.03:threshold=0.0012:ratio=3:"
+                           "attack=3:release=150:knee=2:detection=rms")
+        filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(3.0 + 2.0 * clarity_amt)}")
+        filters.append(f"equalizer=f=2800:t=q:w=1.1:g={_db(4.0 + 2.5 * clarity_amt)}")
+        filters.append(f"equalizer=f=4500:t=q:w=1.3:g={_db(2.5 + 1.5 * clarity_amt)}")
         if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=50:c=4:r=0.0005:f=0.0005:p=0.95:l=1")
-            if _has_filter("agate"):
-                filters.append("agate=range=0.0001:threshold=0.02:ratio=4:"
-                               "attack=3:release=250:knee=1:detection=rms")
-        # Multiband maximizer (silence stays silence: -90/-90, -60/-60).
-        if _has_filter("mcompand"):
-            filters.append(
-                "mcompand="
-                "0.005\\,0.1 6 -90/-90\\,-60/-60\\,-47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 |"
-                " 0.003\\,0.05 6 -90/-90\\,-60/-60\\,-47/-30\\,-34/-22\\,-17/-12\\,0/-8 3500 |"
-                " 0.000625\\,0.03 6 -90/-90\\,-60/-60\\,-47/-34\\,-34/-26\\,-17/-16\\,0/-12 20000"
-            )
-        if _has_filter("adynamicequalizer"):
-            filters.append("adynamicequalizer=threshold=12:dfrequency=6500:dqfactor=2:"
-                           "tfrequency=6500:tqfactor=2:attack=1:release=40:ratio=3:"
-                           "range=8:mode=cutabove:tftype=bell")
-        if _has_filter("aexciter"):
-            filters.append("aexciter=amount=4:drive=10:blend=0:freq=2500:ceil=12000")
+            filters.append("speechnorm=e=12:c=2:r=0.001:f=0.001:p=0.95:l=1")
+        filters.append("acompressor=threshold=0.15:ratio=4.0:attack=2:release=50:makeup=4.0:knee=2")
         if use_echo and echo_value:
             d1 = 90 + echo_value * 20
-            decay = min(0.40, 0.12 + echo_value * 0.03)
+            decay = min(0.35, 0.10 + echo_value * 0.03)
             filters.append(f"aecho=1.0:0.85:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
         if extra_filters:
             filters.append(extra_filters)
-        # Final maximizer: glue compressor -> drive -> soft clip -> limiter.
-        filters.append("acompressor=threshold=0.25:ratio=20:attack=1:release=40:makeup=2:knee=2")
-        filters.append(f"volume={_db(min(16.0, 6.0 + final_db * 0.23))}dB")
+        filters.append(f"volume={_db(min(6.0, 2.0 + final_db * 0.08))}dB")
         if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=tanh:threshold=0.98")
-        if _has_filter("agate"):
-            filters.append("agate=range=0.0001:threshold=0.02:ratio=4:"
-                           "attack=3:release=250:knee=1:detection=rms")
-        filters.append("alimiter=level_in=1:level_out=1:limit=0.99:"
-                       "attack=1:release=20:level=false")
+            filters.append("asoftclip=type=atan:oversample=4")
+        filters.append("alimiter=level_in=1.15:level_out=1:limit=0.96:"
+                       "attack=1:release=25:level=false:asc=1")
         return _sanitize_ffmpeg_filter(",".join(filters))
 
     if live and _live_chain_mode() == "soft":
@@ -515,92 +432,53 @@ def build_ffmpeg_filter(
 
 
     filters = [
-        # LOUDER (Bug 1): sub-bass nobody hears on a phone eats limiter
-        # headroom, so it is cut unless the user asked for bass.
-        f"highpass=f={20 if bass_value else 65}",
+        f"highpass=f={30 if bass_value else 75}",
         "aresample=48000",
-        # Both channels carry the full mix: a phone's single speaker / one
-        # earbud now gets 100% of the signal instead of a stereo half.
         "aformat=channel_layouts=stereo",
         "pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1",
-
-        ("dynaudnorm=f=50:g=12:p=0.97:m=100:r=0.95:s=0" if low_lat
-         else "dynaudnorm=f=150:g=250:p=1.0:m=100:r=0.99:s=0"),
-
-        "volume=45dB",
+        ("dynaudnorm=f=50:g=8:p=0.95:m=15:r=0.95:s=0" if low_lat
+         else "dynaudnorm=f=120:g=15:p=0.96:m=20:r=0.98:s=0"),
     ]
 
     if bass_value:
-        filters.append(f"equalizer=f=60:t=q:w=1.2:g={_db(min(20.0, bass_value * 0.20))}")
-        filters.append(f"equalizer=f=120:t=q:w=1.0:g={_db(min(15.0, bass_value * 0.15))}")
+        filters.append(f"equalizer=f=80:t=q:w=1.2:g={_db(min(8.0, bass_value * 0.12))}")
+        filters.append(f"equalizer=f=160:t=q:w=1.0:g={_db(min(6.0, bass_value * 0.08))}")
 
-    filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(-1.0 + treble_value * 0.22)}")
-    # Presence lift where the ear is most sensitive (2-4 kHz): at the same
-    # peak level this is perceived several dB louder and cuts through a VC.
+    filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(min(6.0, -1.0 + treble_value * 0.08))}")
     if not live:
-        filters.append("equalizer=f=2600:t=q:w=1.4:g=5")
-    filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(2.0 + treble_value * 0.18)}")
+        filters.append("equalizer=f=2600:t=q:w=1.4:g=3.5")
+    filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(min(5.0, 1.0 + treble_value * 0.06))}")
 
-    ratio = min(20.0, 8.0 + boost_value * 1.2)
-    threshold = max(0.001, 0.12 - boost_value * 0.020)
-    # acompressor makeup is hard-capped at 64 dB by FFmpeg.
-    makeup = min(64.0, boost_value * 3.0 + 34.0)
+    ratio = min(6.0, 3.0 + boost_value * 0.3)
+    threshold = max(0.05, 0.20 - boost_value * 0.015)
+    makeup = min(12.0, boost_value * 1.0 + 3.0)
     filters.append(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
-        f"attack=0.5:release=50:makeup={makeup:.1f}:knee=1"
-    )
-
-    filters.append(
-        "acompressor=threshold=0.003:ratio=20.0:"
-        "attack=0.05:release=30:makeup=45.0:knee=8"
-    )
-
-    filters.append(
-        "acompressor=threshold=0.001:ratio=20.0:"
-        "attack=0.02:release=20:makeup=50.0:knee=8"
+        f"attack=1.0:release=40:makeup={makeup:.1f}:knee=2"
     )
 
     if use_echo and echo_value:
         d1 = 70 + echo_value * 22
-        decay = min(0.85, 0.20 + echo_value * 0.06)
+        decay = min(0.60, 0.15 + echo_value * 0.04)
         filters.append(
-            f"aecho=0.85:0.75:{d1}|{d1 * 2}|{d1 * 3}:"
-            f"{decay:.2f}|{decay * 0.65:.2f}|{decay * 0.4:.2f}"
+            f"aecho=0.85:0.75:{d1}|{d1 * 2}:"
+            f"{decay:.2f}|{decay * 0.5:.2f}"
         )
 
-    filters.append(f"volume={_db(volume_to_db(vol) + _legacy_gain_to_db(gain_value))}dB")
+    filters.append(f"volume={_db(min(12.0, volume_to_db(vol) * 0.25 + _legacy_gain_to_db(gain_value) * 0.5))}dB")
 
     if extra_filters:
         filters.append(extra_filters)
 
     if not low_lat:
-        # Single-pass loudnorm buffers ~3 s of audio — unusable for live mic.
-        # I=-5 is the loudest target FFmpeg accepts; TP=0 lets it slam the
-        # ceiling.  (I=0 was out of range and killed the whole filtergraph.)
-        filters.append("loudnorm=I=-5:LRA=1.0:TP=0.0:dual_mono=true:linear=false")
+        filters.append("loudnorm=I=-12:LRA=6.0:TP=-0.5:dual_mono=true:linear=false")
     else:
-        # Live stand-in for loudnorm: speechnorm parks every syllable at the
-        # ceiling with a few ms of latency instead of 3 s, so the live voice
-        # lands at the same level as a played file.
         if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=50:r=0.0004:l=1:p=0.99:t=0.004")
-            filters.append("volume=12.00dB")
-        if stream:
-            # extra drive so streamed playback is as hot as the old loudnorm path
-            filters.append("volume=6.00dB")
+            filters.append("speechnorm=e=10:r=0.001:l=1:p=0.95:t=0.01")
 
-
-    extra_db = clamp(getattr(Config, "EXTRA_GAIN_DB", 60), 0, 66)
-    if live:
-        extra_db = max(extra_db, 40)
-    filters.append(f"volume={extra_db:.2f}dB")
-    # Live mic gets the same final +14 dB drive as file playback — this was
-    # the last reason a live voice sat below a played file.
-    filters.append("volume=20.00dB")
-    filters.append(f"volume={extra_loud_db():.2f}dB")
-    filters.append("asoftclip=type=hard:threshold=0.01:output=8.0:oversample=24")
-
-    filters.append("alimiter=level_in=28:limit=1.0:attack=0.1:release=4:level=false:asc=1")
+    if _has_filter("asoftclip"):
+        filters.append("asoftclip=type=atan:oversample=4")
+    filters.append("alimiter=level_in=1.1:limit=0.96:attack=1:release=25:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
