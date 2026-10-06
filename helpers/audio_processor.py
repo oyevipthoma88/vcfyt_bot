@@ -209,20 +209,34 @@ def _legacy_gain_to_db(gain: int) -> float:
 # land at the same loud level, peak -1.0 dBFS, background hiss gated away.
 # ---------------------------------------------------------------------------
 def build_live_mic_filter() -> str:
+    # HEADROOM FOR TELEGRAM 200 % VOLUME (record_19 analysis):
+    # the relay is set to 200 % participant volume (x2 = +6 dB) by Telegram
+    # itself.  A stream already peaking at -1 dBFS therefore reached the VC at
+    # +5/+6 dBFS: the VC recording showed peaks of exactly +6.0 dB, 140k
+    # clipped samples and a spectrum of flat broadband distortion with the
+    # voice band 17-20 dB under it — loud noise, buried voice.  So the stream
+    # now ends at about -6.5 dBFS (LIVE_MIC_CEILING_DB) and Telegram's x2
+    # brings it to ~-0.5 dBFS: the loudest level possible WITHOUT clipping.
+    # Voice-band focus (140 Hz - 8 kHz, strong 2-4 kHz presence) puts all of
+    # that loudness where the ear is most sensitive.
+    ceiling_db = _env_db("LIVE_MIC_CEILING_DB", -6.5, high=-0.5, low=-12.0)
+    limit = 10 ** (ceiling_db / 20.0)
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=90", "lowpass=f=11000"]
+         "highpass=f=140", "highpass=f=140",
+         "lowpass=f=8000", "lowpass=f=8000"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=16:nf=-48:tn=1")
+        f.append("afftdn=nr=20:nf=-42:tn=1")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=20:r=0.0005:l=1:p=0.9")
-    f.append("acompressor=threshold=0.1:ratio=4:attack=3:release=60:makeup=2.5:knee=4")
+        f.append("speechnorm=e=12:r=0.0005:l=1:p=0.9")
+    f.append("acompressor=threshold=0.08:ratio=6:attack=3:release=60:makeup=3:knee=4")
     if _has_filter("agate"):
-        f.append("agate=threshold=0.08:range=0.02:ratio=6:attack=2:release=180:detection=rms")
-    f += ["equalizer=f=250:t=q:w=1:g=-3",
-          "equalizer=f=2500:t=q:w=1:g=5",
-          "equalizer=f=4500:t=q:w=1.3:g=2",
-          "volume=5dB",
-          "alimiter=limit=0.89:level=false:attack=1:release=30"]
+        f.append("agate=threshold=0.1:range=0.02:ratio=6:attack=2:release=180:detection=rms")
+    f += ["equalizer=f=300:t=q:w=1:g=-4",
+          "equalizer=f=1200:t=q:w=1:g=2",
+          "equalizer=f=2600:t=q:w=0.9:g=6",
+          "equalizer=f=3800:t=q:w=1.2:g=3",
+          f"volume={_db(6.0 + ceiling_db + 1.0)}dB",
+          f"alimiter=limit={limit:.3f}:level=false:attack=1:release=30"]
     return ",".join(f)
 
 
