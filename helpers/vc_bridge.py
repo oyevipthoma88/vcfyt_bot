@@ -28,30 +28,34 @@ logger = logging.getLogger(__name__)
 # Presets on top of live_mic.FIXED_BEST (loud + clear base).
 PRESETS = {
     "clean": {},
-    "bass": {"bass": 35},
+    "bass": {"bass": 5},
     "echo": {"echo": 1, "echo_level": 3},
-    "full": {"bass": 30, "echo": 1, "echo_level": 2},
+    "full": {"bass": 4, "echo": 1, "echo_level": 2},
 }
 # Echo smears words -> sounds farther/quieter. Clean = max clarity.
 DEFAULT_PRESET = "clean"
 
 # ---------------------------------------------------------------------------
-# LOUD MODE — bridge ki aawaz ko playback se bhi zyada hot banata hai.
-# Normal live chain (wahi jo .play use karta hai) ke BAAD ek extra stage lagta
-# hai: bass punch + presence (2-4 kHz, kaan sabse tez yahin sunta hai) ->
-# drive (dB) -> hard/soft clip -> final ceiling.  Telegram 0 dBFS se upar kuch
-# nahi bhejta, isliye "zyada aawaz" = zyada drive + saturation; high levels par
-# aawaz phategi — ye jaan-boojh kar hai, control se kam karo.
+# FIGHT VOICE (v3) — real recordings se tuned (6-Oct-2026):
+#   saamne wala: -2.9 LUFS, energy 400-1000 Hz me, <150 Hz lagbhag zero.
+#   hamara bridge: -7.4 LUFS, energy ka bada hissa <150 Hz (bass/boom) me,
+#   speech band (300-3500 Hz) ~10 dB dheema.  Bass limiter ki poori jagah kha
+#   leta tha, isliye shabd dab jaate the -> "uski aawaz 5 guna tez".
+# Fix: bass ko 200 Hz se steep kaat do, aawaz ki body (750 Hz) + presence
+# (2.8 kHz) uthao, fast compressor + limiter se density, aur end me "drive" dB
+# ka hard clip (Telegram 0 dBFS se upar nahi bhejta; jitna clip utni tez).
+# Sim (Opus 48k round-trip): drive 4 ≈ -3.0 LUFS (saamne wale jitna),
+# drive 6 ≈ -2.1 LUFS, drive 10 ≈ -1.2 LUFS.
 # ---------------------------------------------------------------------------
-# Bass eats headroom without adding perceived loudness; presence (2-4 kHz)
-# is where the ear hears "loud".  Voice-first default.
-LOUD_DEFAULT = {"drive": 20, "bass": 4, "presence": 15, "clip": "hard"}
+LOUD_DEFAULT = {"drive": 6, "bass": 0, "presence": 6, "clip": "hard"}
 LOUD_PRESETS = {
-    "safe": {"drive": 5, "bass": 3, "presence": 6, "clip": "soft"},
+    "safe": {"drive": 2, "bass": 0, "presence": 5, "clip": "soft"},
     "loud": dict(LOUD_DEFAULT),
-    "max":  {"drive": 20, "bass": 15, "presence": 15, "clip": "hard"},
+    "max":  {"drive": 10, "bass": 0, "presence": 8, "clip": "hard"},
 }
-LOUD_LIMITS = {"drive": (0, 20), "bass": (0, 15), "presence": (0, 15)}
+LOUD_LIMITS = {"drive": (0, 10), "bass": (0, 10), "presence": (0, 10)}
+# v3 key: purane saved settings (drive 20 / bass 15) wapas bass-heavy chain na laayein.
+_LOUD_KEY = "bridge_loud3_{}"
 
 
 def clean_loud(cfg: Optional[dict]) -> dict:
@@ -67,32 +71,13 @@ def clean_loud(cfg: Optional[dict]) -> dict:
 
 
 def drive_db(level: int) -> int:
-    """Controlled drive for punch and presence without blowing into square wave distortion."""
-    return min(18, int(round(int(level) * 0.9)))
+    """Final clip push in dB (0-10 -> 0-10 dB above the limiter ceiling)."""
+    return max(0, min(10, int(level)))
 
 
-# ---------------------------------------------------------------------------
-# BRIDGE CORE CHAIN (v2) — pehle bridge par 3 chain stack hoti thi:
-#   INPUT_LIFT + gate  ->  pura .mic/.play chain (2nd gate range -30 dB,
-#   afftdn denoiser, presence EQ, speechnorm, compressor, limiter)  ->  loud
-#   stage (wahi presence EQ dobara, compressor dobara, limiter dobara).
-# Result: 2 gate + denoiser dheeme syllables kaat dete the (LRA ~11 LU =
-# aawaz upar-neeche), 3 limiter + 2 softclip aawaz ko patli/flat bana dete
-# the, aur Opus squashed signal ko aur dabata hai -> saamne wale ki natural
-# aawaz kai guna tez lagti thi.
-#
-# Ab: Python PCM AGC (PcmAgc) har 10 ms frame ko FFmpeg se PEHLE -12 dBFS RMS
-# par le aata hai (dheemi aawaz +50 dB tak).  Fir FFmpeg me sirf EK lean
-# chain: rumble/mud cut -> fast leveller -> loud stage (presence + density
-# compressor + drive + ek limiter).  Test: -50 aur -70 dBFS input dono
-# ~ -4.6 LUFS, LRA 0.7 LU (har shabd barabar tez).
-# ---------------------------------------------------------------------------
-INPUT_GATE = ("agate=threshold=0.004:ratio=1.6:range=0.35:attack=2:"
-              "release=200:knee=4:detection=rms")
-INPUT_LIFT = ("highpass=f=95:p=2,"
-              "lowpass=f=11000,"
-              "equalizer=f=320:t=q:w=1.1:g=-3.5,"
-              "acompressor=threshold=0.09:ratio=6:attack=1:release=60:makeup=5:knee=4")
+# Soft gate: sirf bolne ke beech ki hiss dabata hai (-18 dB), shabd nahi kaatta.
+INPUT_GATE = ("agate=threshold=0.006:ratio=2:range=0.12:attack=2:"
+              "release=180:knee=4:detection=rms")
 
 
 class PcmAgc:
@@ -113,6 +98,8 @@ class PcmAgc:
 
     def __init__(self):
         self.gain = 8.0          # +18 dB start: pehla shabd bhi dheema na aaye
+        self.noise = None        # background noise floor (frame RMS)
+        self.duck = 1.0          # smoothed hiss-duck factor (no clicks)
         try:
             import numpy as np
             self._np = np
@@ -121,12 +108,27 @@ class PcmAgc:
 
     def _next_gain(self, rms: float) -> tuple:
         g0 = self.gain
-        if rms < self.FLOOR:
-            return g0, g0, 0.35
+        # Noise floor: neeche turant, upar dheere (~1.7 dB/s) -> lagatar bolne
+        # par bhi shabdon ke beech ke dips floor ko neeche rakhte hain.
+        if self.noise is None or rms < self.noise:
+            self.noise = rms
+        else:
+            self.noise *= 1.002
+        if rms < self.FLOOR or rms < self.noise * 3.5:
+            # Khamoshi / sirf hiss: gain freeze + duck, taaki AGC hiss ko
+            # full volume par na le jaaye (-22 dB).
+            return g0, g0, self._duck(0.08)
         want = max(self.MIN_GAIN, min(self.MAX_GAIN, self.TARGET / rms))
         k = self.ATTACK if want < g0 else self.RELEASE
         self.gain = g0 + (want - g0) * k
-        return g0, self.gain, 1.0
+        return g0, self.gain, self._duck(1.0)
+
+    def _duck(self, target: float) -> tuple:
+        # Kholna fast (shabd ki shuruaat na kate), band karna ~80 ms me.
+        d0 = self.duck
+        k = 0.7 if target > d0 else 0.12
+        self.duck = d0 + (target - d0) * k
+        return d0, self.duck
 
     def process(self, data: bytes) -> bytes:
         if not data:
@@ -138,7 +140,7 @@ class PcmAgc:
                 return data
             rms = float(np.sqrt(np.mean(x * x))) + 1e-9
             g0, g1, att = self._next_gain(rms)
-            y = x * (np.linspace(g0, g1, x.size, dtype=np.float32) * att)
+            y = x * (np.linspace(g0 * att[0], g1 * att[1], x.size, dtype=np.float32))
             lim = 29000.0
             over = np.abs(y) > lim
             if over.any():
@@ -150,40 +152,41 @@ class PcmAgc:
             return data
         rms = (sum(v * v for v in a) / n) ** 0.5 + 1e-9
         g0, g1, att = self._next_gain(rms)
-        step = (g1 - g0) / n
-        g = g0
+        s0, s1 = g0 * att[0], g1 * att[1]
+        step = (s1 - s0) / n
+        g = s0
         for i in range(n):
             g += step
-            v = int(a[i] * g * att)
+            v = int(a[i] * g)
             a[i] = 32767 if v > 32767 else (-32768 if v < -32768 else v)
         return a.tobytes()
 
 
 def loud_stage(cfg: dict) -> str:
+    """EQ (bass cut, body + presence) -> density -> limiter -> drive clip."""
     from helpers.audio_processor import _has_filter
     c = clean_loud(cfg)
-    f = []
-    # BASS PUNCH: natural warmth without muddy resonant rumble.
+    hp = 200 - c["bass"] * 8            # bass 0 -> 200 Hz, bass 10 -> 120 Hz
+    f = [f"highpass=f={hp}:p=2", f"highpass=f={hp}:p=2",
+         "equalizer=f=300:t=q:w=1:g=-4"]
     if c["bass"]:
-        f.append(f"equalizer=f=100:t=q:w=1.0:g={min(6.0, c['bass'] * 0.4):.1f}")
-        f.append(f"equalizer=f=200:t=q:w=1.2:g={min(4.0, c['bass'] * 0.25):.1f}")
-    # PRESENCE: speech clarity band (1.8-4.5 kHz) for cutting through VC fights.
+        f.append(f"equalizer=f={hp + 40}:t=q:w=1:g={c['bass'] * 0.6:.1f}")
+    f.append("equalizer=f=750:t=q:w=0.9:g=8")
     if c["presence"]:
-        f.append(f"equalizer=f=1800:t=q:w=1.2:g={min(5.0, c['presence'] * 0.35):.1f}")
-        f.append(f"equalizer=f=2800:t=q:w=1.1:g={min(6.0, c['presence'] * 0.45):.1f}")
-        f.append(f"equalizer=f=4000:t=q:w=1.3:g={min(4.0, c['presence'] * 0.30):.1f}")
-    # Crispness without harsh harmonic feedback.
-    if _has_filter("aexciter"):
-        f.append("aexciter=level_in=1:level_out=1:amount=1.2:drive=3:blend=0:freq=2500:ceil=11000")
-    # Density compressor: RMS ko peak ke paas laata hai (= kaan ko zyada tez).
-    f.append("acompressor=threshold=0.06:ratio=10:attack=0.5:release=35:makeup=6:knee=3")
-    # Controlled drive.
-    if c["drive"]:
-        f.append(f"volume={drive_db(c['drive'])}dB")
-    if _has_filter("asoftclip"):
-        f.append("asoftclip=type=atan:oversample=4")
-    # Clean brickwall limiter protecting Telegram Opus ceiling.
-    f.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.3:release=15:level=false:asc=1")
+        f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 0.8:.1f}")
+    f.append("lowpass=f=7500")
+    # Density: har shabd lagbhag peak par (RMS up = kaan ko tez).
+    f.append("acompressor=threshold=0.05:ratio=20:attack=1:release=40:makeup=10:knee=2")
+    f.append("volume=10dB")
+    f.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
+    d = drive_db(c["drive"])
+    if c["clip"] == "hard" and d and _has_filter("asoftclip"):
+        f.append(f"volume={d}dB")
+        f.append("asoftclip=type=hard:threshold=0.95")
+    elif d:
+        # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
+        f.append(f"volume={min(d, 6)}dB")
+        f.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=0.3:release=6:level=false")
     return ",".join(f)
 
 
@@ -193,12 +196,13 @@ def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET) 
     cfg = clean_loud(loud_cfg)
     p = PRESETS.get(preset, {})
     if p.get("bass"):
-        cfg["bass"] = max(cfg["bass"], min(15, int(p["bass"]) // 2))
-    parts = ["aresample=48000:async=1", INPUT_GATE, INPUT_LIFT, loud_stage(cfg)]
+        cfg["bass"] = max(cfg["bass"], min(10, int(p["bass"])))
+    parts = ["aresample=48000:async=1", INPUT_GATE]
     if p.get("echo"):
+        # Echo compressor se PEHLE: tail bhi utni hi tez, level nahi girta.
         lvl = max(1, min(5, int(p.get("echo_level", 2))))
-        parts.append(f"aecho=0.8:0.6:{40 + lvl * 15}:{0.12 + lvl * 0.04:.2f}")
-        parts.append("alimiter=limit=0.98:attack=0.3:release=15:level=false")
+        parts.append(f"aecho=0.9:0.7:{40 + lvl * 15}:{0.12 + lvl * 0.04:.2f}")
+    parts.append(loud_stage(cfg))
     # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
     return _sanitize_ffmpeg_filter(",".join(parts))
 
@@ -207,7 +211,7 @@ async def load_loud(user_id: int) -> dict:
     import json
     from helpers.database import db
     try:
-        raw = await db.get_app_value(f"bridge_loud_{user_id}")
+        raw = await db.get_app_value(_LOUD_KEY.format(user_id))
         return clean_loud(json.loads(raw) if raw else None)
     except Exception:
         return dict(LOUD_DEFAULT)
@@ -217,7 +221,7 @@ async def save_loud(user_id: int, cfg: dict) -> dict:
     import json
     from helpers.database import db
     c = clean_loud(cfg)
-    await db.set_app_value(f"bridge_loud_{user_id}", json.dumps(c))
+    await db.set_app_value(_LOUD_KEY.format(user_id), json.dumps(c))
     b = _bridges.get(user_id)
     if b:
         await b.apply_loud(c)
