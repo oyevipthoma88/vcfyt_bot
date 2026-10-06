@@ -277,8 +277,11 @@ def build_ffmpeg_filter(
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
         filters = [
             "aresample=48000:first_pts=0:async=1",
-            "highpass=f=90:p=2",
-            "lowpass=f=12500:p=2",
+            # Phone speakers play nothing below ~200 Hz: removing it frees headroom
+            # for the 1-5 kHz band the ear hears loudest (+0.4 LU on phones).
+            "highpass=f=170:p=2",
+            "highpass=f=170:p=2",
+            "lowpass=f=11000:p=2",
             "equalizer=f=60:t=q:w=1.0:g=-12.00",
         ]
         if _has_filter("afftdn"):
@@ -291,7 +294,7 @@ def build_ffmpeg_filter(
         # Voice-band EQ: cut mud, push intelligibility 1.8-4.5 kHz so the voice
         # cuts through 5 people talking at once on phone speakers.
         filters.append("equalizer=f=300:t=q:w=1.0:g=-5.00")
-        filters.append(f"equalizer=f=160:t=q:w=1.0:g={_db(2.0 + min(4.0, bass_value * 0.06))}")
+        filters.append("equalizer=f=2500:t=q:w=1.5:g=4.00")
         filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(4.0 + 3.0 * clarity_amt)}")
         filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(5.0 + 4.0 * clarity_amt)}")
         filters.append(f"equalizer=f=4500:t=q:w=1.2:g={_db(3.0 + 2.0 * clarity_amt)}")
