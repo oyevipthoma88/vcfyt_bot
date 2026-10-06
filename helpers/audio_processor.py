@@ -283,10 +283,10 @@ def build_ffmpeg_filter(
         ]
         if _has_filter("afftdn"):
             # Strong adaptive denoise (fan / hiss / khar-khar).
-            filters.append("afftdn=nr=40:nf=-30:tn=1")
-            filters.append("afftdn=nr=30:nf=-40:tn=1")
+            # nf=-75: old nf=-30/-40 treated every soft voice as noise and erased it.
+            filters.append("afftdn=nr=20:nf=-75:tn=1")
         if _has_filter("agate"):
-            filters.append("agate=range=0.0001:threshold=0.008:ratio=20:"
+            filters.append("agate=range=0.0001:threshold=0.0008:ratio=4:"
                            "attack=5:release=200:knee=1:detection=rms")
         # Voice-band EQ: cut mud, push intelligibility 1.8-4.5 kHz so the voice
         # cuts through 5 people talking at once on phone speakers.
@@ -295,14 +295,15 @@ def build_ffmpeg_filter(
         filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(4.0 + 3.0 * clarity_amt)}")
         filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(5.0 + 4.0 * clarity_amt)}")
         filters.append(f"equalizer=f=4500:t=q:w=1.2:g={_db(3.0 + 2.0 * clarity_amt)}")
-        # Pre-amp so even a far / very soft mic hits the levellers.
-        filters.append("volume=18dB")
+        # Pre-amp so even a far / whisper-level mic (-65 dBFS) hits the levellers.
+        # Measured: -67 dBFS in -> -5.8 dBFS RMS out; -57..-17 in -> ~-2.4 out.
+        filters.append("volume=30dB")
         filters.append("acompressor=threshold=0.05:ratio=8:attack=2:release=60:makeup=4:knee=4")
         # Speech levelling: expands quiet syllables up to 50x (+34 dB).
         if _has_filter("speechnorm"):
             filters.append("speechnorm=e=50:c=4:r=0.0005:f=0.0005:p=0.95:l=1")
             if _has_filter("agate"):
-                filters.append("agate=range=0.0001:threshold=0.1:ratio=20:"
+                filters.append("agate=range=0.0001:threshold=0.02:ratio=4:"
                                "attack=3:release=250:knee=1:detection=rms")
         # Multiband maximizer (silence stays silence: -90/-90, -60/-60).
         if _has_filter("mcompand"):
@@ -326,13 +327,13 @@ def build_ffmpeg_filter(
             filters.append(extra_filters)
         # Final maximizer: glue compressor -> drive -> soft clip -> limiter.
         filters.append("acompressor=threshold=0.25:ratio=20:attack=1:release=40:makeup=2:knee=2")
-        filters.append(f"volume={_db(min(14.0, 6.0 + final_db * 0.15))}dB")
+        filters.append(f"volume={_db(min(16.0, 6.0 + final_db * 0.23))}dB")
         if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=tanh:threshold=0.9")
+            filters.append("asoftclip=type=tanh:threshold=0.98")
         if _has_filter("agate"):
-            filters.append("agate=range=0.0001:threshold=0.06:ratio=20:"
+            filters.append("agate=range=0.0001:threshold=0.02:ratio=4:"
                            "attack=3:release=250:knee=1:detection=rms")
-        filters.append("alimiter=level_in=1:level_out=1:limit=0.97:"
+        filters.append("alimiter=level_in=1:level_out=1:limit=0.99:"
                        "attack=1:release=20:level=false")
         return _sanitize_ffmpeg_filter(",".join(filters))
 
