@@ -64,10 +64,8 @@ def clean_loud(cfg: Optional[dict]) -> dict:
 
 
 def drive_db(level: int) -> int:
-    """0..20 -> 0..+80 dB.  Non-admin GC me Telegram volume 100% pe atka
-    rehta hai, isliye loudness sirf signal density se aati hai.
-    20 = +80 dB = absolute max drive — signal brute-force full scale."""
-    return int(level) * 4
+    """Controlled drive for punch and presence without blowing into square wave distortion."""
+    return min(16, int(round(int(level) * 1.2)))
 
 
 # INPUT LIFT: Telegram VC se aane wale incoming frames aksar bohot dheeme
@@ -86,8 +84,8 @@ def drive_db(level: int) -> int:
 # hai, isliye bolte waqt contrast zyada = kaan ko aawaz zyada tez lagti hai.
 # NOTE: gate hamesha INPUT_LIFT ke BAAD chalta hai.  Raw VC frames -50..-70
 # dBFS hote hain, isliye pehle gate lagana speech ko hi kill kar deta tha.
-INPUT_GATE = ("agate=threshold=0.005:ratio=8:range=0.008:attack=1:"
-              "release=150:knee=3:detection=rms:makeup=1")
+INPUT_GATE = ("agate=threshold=0.0012:ratio=3:range=0.03:attack=2:"
+              "release=120:knee=2:detection=rms")
 
 # BRUTAL INPUT LIFT: Telegram VC incoming frames -50..-70 dBFS hote hain.
 # 4-stage lift ensures even a whisper reaches full scale:
@@ -97,67 +95,36 @@ INPUT_GATE = ("agate=threshold=0.005:ratio=8:range=0.008:attack=1:"
 #   4. Second speechnorm pass — koi bhi dheema syllable miss nahi hota
 #   5. Limiter ceiling 0.99 — signal squash nahi hota
 # Even dhire se bolne par bhi signal 0 dBFS ke paas pahunchega.
-INPUT_LIFT = ("volume=42dB,"
-              "speechnorm=e=50:c=2:r=0.0002:f=0.001:p=0.99:t=0.002:l=1,"
-              "volume=16dB,"
-              "speechnorm=e=50:c=2:r=0.0002:f=0.001:p=0.99:t=0.002:l=1,"
-              "alimiter=level_in=1:limit=0.99:attack=0.2:release=10:level=false")
+INPUT_LIFT = ("volume=10dB,"
+              "speechnorm=e=12:c=2:r=0.001:f=0.001:p=0.95:t=0.01:l=1,"
+              "alimiter=level_in=1:limit=0.97:attack=0.5:release=15:level=false")
 
 
 def loud_stage(cfg: dict) -> str:
     from helpers.audio_processor import _has_filter
     c = clean_loud(cfg)
     f = []
-    # BASS PUNCH: chest warmth + punch — aawaz "strong" lagti hai, patli nahi.
+    # BASS PUNCH: natural warmth without muddy resonant rumble.
     if c["bass"]:
-        f.append(f"equalizer=f=80:t=q:w=0.7:g={c['bass'] * 2.5:.1f}")
-        f.append(f"equalizer=f=120:t=q:w=0.9:g={c['bass'] * 2.0:.1f}")
-        f.append(f"equalizer=f=200:t=q:w=1.0:g={c['bass'] * 1.0:.1f}")
-    # PRESENCE: phone speaker ka sabse sensitive zone (1.5-5 kHz).
-    # MAX lift here = same peak level par kaan ko DBS zyada tez sunai deta hai.
+        f.append(f"equalizer=f=100:t=q:w=1.0:g={min(6.0, c['bass'] * 0.4):.1f}")
+        f.append(f"equalizer=f=200:t=q:w=1.2:g={min(4.0, c['bass'] * 0.25):.1f}")
+    # PRESENCE: speech clarity band (1.8-4.5 kHz) for cutting through VC fights.
     if c["presence"]:
-        f.append(f"equalizer=f=1600:t=q:w=1.3:g={c['presence'] * 2.5:.1f}")
-        f.append(f"equalizer=f=2200:t=q:w=1.0:g={c['presence'] * 2.0:.1f}")
-        f.append(f"equalizer=f=2800:t=q:w=1.0:g={c['presence'] * 2.2:.1f}")
-        f.append(f"equalizer=f=3500:t=q:w=1.1:g={c['presence'] * 2.0:.1f}")
-        f.append(f"equalizer=f=5000:t=q:w=1.4:g={c['presence'] * 1.0:.1f}")
-    # HARMONIC EXCITER: MAX crispness + phone speaker par cut-through.
+        f.append(f"equalizer=f=1800:t=q:w=1.2:g={min(5.0, c['presence'] * 0.35):.1f}")
+        f.append(f"equalizer=f=2800:t=q:w=1.1:g={min(6.0, c['presence'] * 0.45):.1f}")
+        f.append(f"equalizer=f=4000:t=q:w=1.3:g={min(4.0, c['presence'] * 0.30):.1f}")
+    # Crispness without harsh harmonic feedback.
     if _has_filter("aexciter"):
-        f.append("aexciter=level_in=1:level_out=1:amount=3.0:drive=10:"
-                 "blend=0:freq=2800:ceil=12000:listen=0")
-    # CRYSTALIZER: sharpens transients = consonants punchier, words sharper.
-    if _has_filter("crystalizer"):
-        # c= is an on/off clip switch; "c=1.5" made FFmpeg refuse to start.
-        f.append("crystalizer=i=2.5")
-    # MULTIBAND GLUE: 4-band, har band separately ceiling ke paas pack.
-    if _has_filter("mcompand"):
-        f.append(
-            "mcompand="
-            r"0.003\,0.08 10 -90/-90\,-60/-36\,-30/-12\,-12/-6\,0/-4 250 0 0 |"
-            r" 0.002\,0.06 10 -90/-90\,-60/-30\,-30/-8\,-12/-5\,0/-3 2000 0 0 |"
-            r" 0.001\,0.05 10 -90/-90\,-60/-26\,-30/-6\,-12/-4\,0/-2 5500 0 0 |"
-            r" 0.001\,0.04 10 -90/-90\,-60/-32\,-30/-10\,-12/-6\,0/-4 20000 0 0"
-        )
-    # DOUBLE GLUE COMPRESSOR: har syllable ko ceiling ke paas brute-force pack.
-    f.append("acompressor=threshold=0.01:ratio=16:attack=0.2:release=18:"
-             "makeup=12:knee=1")
-    f.append("acompressor=threshold=0.06:ratio=18:attack=0.15:release=12:"
-             "makeup=8:knee=1")
-    f.append("acompressor=threshold=0.20:ratio=20:attack=0.1:release=10:"
-             "makeup=4:knee=1")
-    # FINAL DRIVE: drive_db (0..60 dB) — signal ko absolute max tak push.
+        f.append("aexciter=level_in=1:level_out=1:amount=0.8:drive=2.5:blend=0:freq=3000:ceil=12000")
+    # Punch compressor: density without destroying dynamic consonants.
+    f.append("acompressor=threshold=0.12:ratio=4.0:attack=2:release=45:makeup=3.5:knee=2")
+    # Controlled drive.
     if c["drive"]:
         f.append(f"volume={drive_db(c['drive'])}dB")
-    # Pre-limiter extra push.
-    f.append("volume=8dB")
-    # SOFT CLIP: oversampled — warm saturation + loud harmonics, no crackle.
-    if c["clip"] == "hard" and _has_filter("asoftclip"):
-        f.append("asoftclip=type=hard:oversample=8")
-    elif _has_filter("asoftclip"):
-        f.append("asoftclip=type=atan:oversample=8")
-    # BRICK-WALL LIMITER: absolute max ceiling, no digital clipping.
-    f.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=0.1:release=5:"
-             "level=false:asc=1:asc_level=0.4")
+    if _has_filter("asoftclip"):
+        f.append("asoftclip=type=atan:oversample=4")
+    # Clean brickwall limiter protecting Telegram Opus ceiling.
+    f.append("alimiter=level_in=1.1:level_out=1:limit=0.96:attack=0.5:release=20:level=false:asc=1")
     return ",".join(f)
 
 
@@ -191,7 +158,7 @@ _handlers: Dict[int, bool] = {}
 # hi amplify karte hain BEFORE FFmpeg.  Ye signal ko FFmpeg ke denoiser /
 # gate tak pahunchne se pehle hi boost karta hai, taaki dheemi aawaz
 # noise samajh ke dab na jaye.  2x = +6 dB raw PCM boost (safe, no clipping).
-PCM_PREAMP = 4
+PCM_PREAMP = 1
 
 def _mix(frames) -> bytes:
     """Mix every incoming speaker (ssrc) into one mono s16le frame.
