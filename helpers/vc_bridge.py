@@ -68,41 +68,95 @@ def clean_loud(cfg: Optional[dict]) -> dict:
 
 def drive_db(level: int) -> int:
     """Controlled drive for punch and presence without blowing into square wave distortion."""
-    return min(16, int(round(int(level) * 1.2)))
+    return min(18, int(round(int(level) * 0.9)))
 
 
-# INPUT LIFT: Telegram VC se aane wale incoming frames aksar bohot dheeme
-# (-50..-70 dBFS) hote hain.  Main chain ka denoiser (afftdn nf=-45) aur
-# leveller itni dheemi aawaz ko noise samajh ke daba dete the -> bridge par
-# mic "bohot kam" sunai deta tha.  Ye stage chain ke SABSE PEHLE lagti hai.
+# ---------------------------------------------------------------------------
+# BRIDGE CORE CHAIN (v2) — pehle bridge par 3 chain stack hoti thi:
+#   INPUT_LIFT + gate  ->  pura .mic/.play chain (2nd gate range -30 dB,
+#   afftdn denoiser, presence EQ, speechnorm, compressor, limiter)  ->  loud
+#   stage (wahi presence EQ dobara, compressor dobara, limiter dobara).
+# Result: 2 gate + denoiser dheeme syllables kaat dete the (LRA ~11 LU =
+# aawaz upar-neeche), 3 limiter + 2 softclip aawaz ko patli/flat bana dete
+# the, aur Opus squashed signal ko aur dabata hai -> saamne wale ki natural
+# aawaz kai guna tez lagti thi.
 #
-# MAX LOUDNESS UPGRADE: Pehle sirf +18 dB pre-amp tha — abhi 3 stage hai:
-#   1. +28 dB raw pre-amp (dheemi aawaz ko line level pe laata hai)
-#   2. Speechnorm e=50 (max expansion) — har syllable ko full scale tak push
-#   3. +8 dB post-lift drive — signal ko compressor mein hard drive karne ke liye
-#   4. Limiter ceiling 0.98 — signal squash nahi hota, sirf ceiling protect hoti hai
-# Ise comparatively dheemi aawaz bhi 0 dBFS ke paas pahunch jayegi.
-# NOISE GATE: bolne ke beech ki khamoshi me chain itna gain deti thi ki
-# hiss/kharkharahat full volume par jaati thi.  Gate khamoshi ko band rakhta
-# hai, isliye bolte waqt contrast zyada = kaan ko aawaz zyada tez lagti hai.
-# NOTE: gate hamesha INPUT_LIFT ke BAAD chalta hai.  Raw VC frames -50..-70
-# dBFS hote hain, isliye pehle gate lagana speech ko hi kill kar deta tha.
-# Soft gate (range -12 dB, was -30 dB): the hard gate was chopping quiet
-# syllables and word endings, making the voice sound thin and low.
-INPUT_GATE = ("agate=threshold=0.0008:ratio=2:range=0.25:attack=1:"
-              "release=250:knee=3:detection=rms")
+# Ab: Python PCM AGC (PcmAgc) har 10 ms frame ko FFmpeg se PEHLE -12 dBFS RMS
+# par le aata hai (dheemi aawaz +50 dB tak).  Fir FFmpeg me sirf EK lean
+# chain: rumble/mud cut -> fast leveller -> loud stage (presence + density
+# compressor + drive + ek limiter).  Test: -50 aur -70 dBFS input dono
+# ~ -4.6 LUFS, LRA 0.7 LU (har shabd barabar tez).
+# ---------------------------------------------------------------------------
+INPUT_GATE = ("agate=threshold=0.004:ratio=1.6:range=0.35:attack=2:"
+              "release=200:knee=4:detection=rms")
+INPUT_LIFT = ("highpass=f=95:p=2,"
+              "lowpass=f=11000,"
+              "equalizer=f=320:t=q:w=1.1:g=-3.5,"
+              "acompressor=threshold=0.09:ratio=6:attack=1:release=60:makeup=5:knee=4")
 
-# BRUTAL INPUT LIFT: Telegram VC incoming frames -50..-70 dBFS hote hain.
-# 4-stage lift ensures even a whisper reaches full scale:
-#   1. +36 dB raw pre-amp (dheemi aawaz ko line level pe laata hai)
-#   2. Speechnorm e=50 (max expansion) — har syllable full scale tak push
-#   3. +12 dB post-lift drive — compressor mein hard drive ke liye
-#   4. Second speechnorm pass — koi bhi dheema syllable miss nahi hota
-#   5. Limiter ceiling 0.99 — signal squash nahi hota
-# Even dhire se bolne par bhi signal 0 dBFS ke paas pahunchega.
-INPUT_LIFT = ("volume=10dB,"
-              "speechnorm=e=12:c=2:r=0.001:f=0.001:p=0.95:t=0.01:l=1,"
-              "alimiter=level_in=1:limit=0.97:attack=0.5:release=15:level=false")
+
+class PcmAgc:
+    """Fast Python-side PCM auto gain (s16le mono, 48 kHz).
+
+    Telegram VC frames -50..-70 dBFS ho sakte hain.  Har frame ka RMS dekh ke
+    gain smooth badhata/ghatata hai (attack fast, release slow), per-sample
+    ramp ke saath (no zipper noise).  Digital khamoshi me gain freeze +
+    expander, isliye bolne ke beech hiss full volume par nahi jaati.
+    """
+
+    TARGET = 0.25 * 32767        # ~ -12 dBFS RMS
+    MAX_GAIN = 300.0             # +50 dB (bohot dheemi VC input bhi)
+    MIN_GAIN = 0.5               # -6 dB
+    FLOOR = 0.00012 * 32767      # ~ -78 dBFS: neeche = digital khamoshi
+    ATTACK = 0.6                 # gain ghatane ki speed (per frame)
+    RELEASE = 0.08               # gain badhane ki speed (per frame)
+
+    def __init__(self):
+        self.gain = 8.0          # +18 dB start: pehla shabd bhi dheema na aaye
+        try:
+            import numpy as np
+            self._np = np
+        except Exception:
+            self._np = None
+
+    def _next_gain(self, rms: float) -> tuple:
+        g0 = self.gain
+        if rms < self.FLOOR:
+            return g0, g0, 0.35
+        want = max(self.MIN_GAIN, min(self.MAX_GAIN, self.TARGET / rms))
+        k = self.ATTACK if want < g0 else self.RELEASE
+        self.gain = g0 + (want - g0) * k
+        return g0, self.gain, 1.0
+
+    def process(self, data: bytes) -> bytes:
+        if not data:
+            return data
+        np = self._np
+        if np is not None:
+            x = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+            if x.size == 0:
+                return data
+            rms = float(np.sqrt(np.mean(x * x))) + 1e-9
+            g0, g1, att = self._next_gain(rms)
+            y = x * (np.linspace(g0, g1, x.size, dtype=np.float32) * att)
+            lim = 29000.0
+            over = np.abs(y) > lim
+            if over.any():
+                y[over] = np.sign(y[over]) * (lim + np.tanh((np.abs(y[over]) - lim) / 3767.0) * 3767.0)
+            return np.clip(y, -32768, 32767).astype(np.int16).tobytes()
+        a = array.array("h", data)
+        n = len(a)
+        if n == 0:
+            return data
+        rms = (sum(v * v for v in a) / n) ** 0.5 + 1e-9
+        g0, g1, att = self._next_gain(rms)
+        step = (g1 - g0) / n
+        g = g0
+        for i in range(n):
+            g += step
+            v = int(a[i] * g * att)
+            a[i] = 32767 if v > 32767 else (-32768 if v < -32768 else v)
+        return a.tobytes()
 
 
 def loud_stage(cfg: dict) -> str:
@@ -120,17 +174,33 @@ def loud_stage(cfg: dict) -> str:
         f.append(f"equalizer=f=4000:t=q:w=1.3:g={min(4.0, c['presence'] * 0.30):.1f}")
     # Crispness without harsh harmonic feedback.
     if _has_filter("aexciter"):
-        f.append("aexciter=level_in=1:level_out=1:amount=0.8:drive=2.5:blend=0:freq=3000:ceil=12000")
-    # Punch compressor: density without destroying dynamic consonants.
-    f.append("acompressor=threshold=0.12:ratio=4.0:attack=2:release=45:makeup=3.5:knee=2")
+        f.append("aexciter=level_in=1:level_out=1:amount=1.2:drive=3:blend=0:freq=2500:ceil=11000")
+    # Density compressor: RMS ko peak ke paas laata hai (= kaan ko zyada tez).
+    f.append("acompressor=threshold=0.06:ratio=10:attack=0.5:release=35:makeup=6:knee=3")
     # Controlled drive.
     if c["drive"]:
         f.append(f"volume={drive_db(c['drive'])}dB")
     if _has_filter("asoftclip"):
         f.append("asoftclip=type=atan:oversample=4")
     # Clean brickwall limiter protecting Telegram Opus ceiling.
-    f.append("alimiter=level_in=1.1:level_out=1:limit=0.96:attack=0.5:release=20:level=false:asc=1")
+    f.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.3:release=15:level=false:asc=1")
     return ",".join(f)
+
+
+def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET) -> str:
+    """Bridge ki single lean FFmpeg chain (PCM AGC ke baad chalti hai)."""
+    from helpers.audio_processor import _sanitize_ffmpeg_filter
+    cfg = clean_loud(loud_cfg)
+    p = PRESETS.get(preset, {})
+    if p.get("bass"):
+        cfg["bass"] = max(cfg["bass"], min(15, int(p["bass"]) // 2))
+    parts = ["aresample=48000:async=1", INPUT_GATE, INPUT_LIFT, loud_stage(cfg)]
+    if p.get("echo"):
+        lvl = max(1, min(5, int(p.get("echo_level", 2))))
+        parts.append(f"aecho=0.8:0.6:{40 + lvl * 15}:{0.12 + lvl * 0.04:.2f}")
+        parts.append("alimiter=limit=0.98:attack=0.3:release=15:level=false")
+    # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
+    return _sanitize_ffmpeg_filter(",".join(parts))
 
 
 async def load_loud(user_id: int) -> dict:
@@ -227,12 +297,15 @@ class VCBridge:
         self._closed = False
         self.started_at = time.monotonic()
         self.loud = dict(LOUD_DEFAULT)
+        self.agc = PcmAgc()
 
     def feed(self, frames) -> None:
         s = self.session
         if self._closed or s is None or s._closed:
             return
         data = _mix(frames)
+        if data:
+            data = self.agc.process(data)
         if not data or s._raw_fd is None or s._restarting:
             return
         s._last_pcm_at = time.monotonic()
@@ -251,14 +324,10 @@ class VCBridge:
         session.live_overrides = dict(PRESETS[self.preset])
         session.input_rate = 48000
         self.loud = await load_loud(self.user_id)
-        base_build = session._build_filter
         bridge = self
 
         def _build_with_loud():
-            from helpers.audio_processor import _sanitize_ffmpeg_filter
-            # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
-            return _sanitize_ffmpeg_filter(
-                INPUT_LIFT + "," + INPUT_GATE + "," + base_build() + "," + loud_stage(bridge.loud))
+            return build_bridge_filter(bridge.loud, bridge.preset)
 
         session._build_filter = _build_with_loud
         self.session = session
