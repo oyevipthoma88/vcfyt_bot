@@ -1,0 +1,267 @@
+import asyncio
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+os.environ["OWNER_ID"] = "101"
+os.environ["OWNER_IDS"] = "202,303"
+
+from config import Config
+from helpers.audio_processor import (
+    _sanitize_ffmpeg_filter, build_ffmpeg_filter,
+    process_audio_to_file, volume_to_db,
+)
+from helpers.database import Database
+from plugins.ui import B, ButtonStyle
+from helpers.bot_api_styles import markup_payload
+from helpers.styled_client import _transport_markup
+
+ROOT = pathlib.Path(__file__).parents[1]
+
+def _mean_volume(path: str) -> float:
+    probe = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    return float(re.search(r"mean_volume: (-?[\d.]+) dB", probe.stderr).group(1))
+
+class RelayFeatureTests(unittest.TestCase):
+    def test_multiple_owners(self):
+        self.assertEqual(Config.primary_owner(), 101)
+        self.assertTrue(Config.is_owner(101))
+        self.assertTrue(Config.is_owner(202))
+        self.assertTrue(Config.is_owner(303))
+        self.assertFalse(Config.is_owner(404))
+
+    def test_volume_curve_is_monotonic_and_real_db(self):
+        levels = [volume_to_db(v) for v in (0, 250, 500, 750, 1000)]
+        self.assertEqual(levels, sorted(levels))
+        self.assertEqual(volume_to_db(500), 0.0)
+        self.assertEqual(volume_to_db(1000), 30.0)
+
+    def test_filter_chain_shape(self):
+        af = build_ffmpeg_filter(volume=1000, gain=150, boost=10, echo=False)
+        stages = [s.split("=")[0] for s in af.split(",")]
+        self.assertEqual(stages[:3], ["highpass", "aresample", "dynaudnorm"])
+        self.assertEqual(stages[-1], "alimiter")
+        self.assertIn("acompressor", stages)
+        # Slider gain is clamped: loudness comes from loudnorm + the limiter,
+        # not from a huge raw boost that just clips.
+        self.assertIn("volume=12.00dB", af)
+        self.assertNotIn("aecho=", af)
+        self.assertIn("loudnorm=I=-5", af)
+        # Exactly one compressor — stacked compressors crushed the audio.
+        self.assertEqual(stages.count("acompressor"), 1)
+
+    def test_filter_uses_ffmpeg_compatible_compressor_and_limiter_ranges(self):
+        af = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)
+        self.assertNotIn("knee=0", af)
+        self.assertNotIn("attack=0:", af)
+        self.assertIn("acompressor=", af)
+        # alimiter attack must be >= 0.1 (FFmpeg range)
+        alim = re.search(r"alimiter=[^,]*attack=([\d.]+)", af)
+        self.assertIsNotNone(alim, "alimiter not found")
+        self.assertGreaterEqual(float(alim.group(1)), 0.1)
+
+    def test_legacy_invalid_filter_options_are_sanitized(self):
+        af = _sanitize_ffmpeg_filter("acompressor=knee=0,alimiter=attack=0")
+        self.assertEqual(af, "acompressor=knee=1.0,alimiter=attack=0.1")
+
+    def test_loudnorm_lra_is_clamped_to_valid_range(self):
+        af = _sanitize_ffmpeg_filter("loudnorm=I=-5:LRA=0.1:TP=-0.005")
+        self.assertIn("LRA=1.0", af)
+        af2 = _sanitize_ffmpeg_filter("loudnorm=I=-5:LRA=100:TP=-0.005")
+        self.assertIn("LRA=50.0", af2)
+
+    def test_alimiter_attack_is_clamped_to_valid_range(self):
+        af = _sanitize_ffmpeg_filter("alimiter=level_in=10:limit=1.0:attack=0.02:release=8")
+        self.assertIn("attack=0.1", af)
+        af2 = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)
+        # alimiter attack must be >= 0.1
+        alim = re.search(r"alimiter=[^,]*attack=([\d.]+)", af2)
+        self.assertIsNotNone(alim)
+        self.assertGreaterEqual(float(alim.group(1)), 0.1)
+        # acompressor attack=0.02 must NOT be clamped (its range is [0.01 - 60])
+        self.assertIn("attack=0.02",
+                      _sanitize_ffmpeg_filter("acompressor=threshold=0.05:attack=0.02"))
+
+    def test_button_style_enum_and_custom_emoji_id_are_compatible(self):
+        button = B("Support", url="https://example.com",
+                   style=ButtonStyle.SUCCESS,
+                   icon_custom_emoji_id=5443038326535759644)
+        self.assertEqual(button.text, "✅ Support")
+        self.assertEqual(button.url, "https://example.com")
+
+    def test_web_app_button_is_preserved_in_bot_api_payload(self):
+        from pyrogram.types import InlineKeyboardMarkup, WebAppInfo
+        button = B("🎤 Live Mic Page Open Karein",
+                   web_app=WebAppInfo(url="https://example.com/?token=test"))
+        self.assertEqual(button.web_app.url, "https://example.com/?token=test")
+        payload = markup_payload(InlineKeyboardMarkup([[button]]))
+        self.assertEqual(
+            payload["inline_keyboard"][0][0]["web_app"]["url"],
+            "https://example.com/?token=test",
+        )
+
+    def test_auto_button_semantics_are_visible_without_emoji(self):
+        button = B("Logout", callback_data="menu:logout")
+        self.assertEqual(button.text, "❌ Logout")
+        self.assertEqual(button.callback_data, "menu:logout")
+
+    def test_bot_api_bridge_emits_native_style_without_numeric_emoji_id(self):
+        from pyrogram.types import InlineKeyboardMarkup
+        markup = InlineKeyboardMarkup([[
+            B("Support", url="https://example.com",
+              style=ButtonStyle.SUCCESS,
+              icon_custom_emoji_id=5443038326535759644),
+        ]])
+        payload = markup_payload(markup)
+        self.assertEqual(payload["inline_keyboard"][0][0]["style"], "success")
+        self.assertNotIn("icon_custom_emoji_id", payload["inline_keyboard"][0][0])
+        self.assertEqual(payload["inline_keyboard"][0][0]["text"], "Support")
+
+    def test_styled_dm_transport_omits_initial_markup(self):
+        from plugins.ui import home_kb
+        self.assertIsNone(_transport_markup(home_kb()))
+
+    def test_echo_only_when_enabled(self):
+        self.assertIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=5))
+        self.assertNotIn("aecho=", build_ffmpeg_filter(echo=True, echo_level=0))
+
+    def test_ffmpeg_filter_is_valid_and_makes_quiet_audio_loud(self):
+        if not shutil.which("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
+        async def run():
+            with tempfile.TemporaryDirectory() as d:
+                src = os.path.join(d, "quiet.wav")
+                subprocess.run(
+                    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                     "-i", "sine=frequency=440:duration=3", "-af", "volume=0.02", src],
+                    check=True,
+                )
+                before = _mean_volume(src)
+                out = await process_audio_to_file(src, os.path.join(d, "loud.wav"),
+                                                  volume=1000, gain=150, boost=10, echo=False)
+                after = _mean_volume(out)
+                self.assertLess(before, -30)
+                # Streaming-loud, without the square-wave distortion the old
+                # +100 dB chain produced.
+                self.assertGreater(after, -14)
+                self.assertGreater(after - before, 25)
+
+        asyncio.run(run())
+
+    def test_live_chain_is_loud_without_clipping(self):
+        if not shutil.which("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
+        af = build_ffmpeg_filter(live=True, volume=1000, gain=200, boost=10,
+                                 treble=80, bass=15, clarity=7, echo=False)
+        self.assertIn("makeup=2.5:knee=5", af)
+        self.assertIn("makeup=2.0:knee=4", af)
+        self.assertIn("volume=10.50dB", af)
+        # No single stage may add an absurd amount of gain (that was the bug:
+        # +60/+22/+28 dB stages turned every syllable into a square wave).
+        for db in re.findall(r"volume=(-?[\d.]+)dB", af):
+            self.assertLessEqual(float(db), 20.0, af)
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "quiet.wav")
+            out = os.path.join(d, "live.wav")
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                 "-i", "anoisesrc=c=pink:d=5:a=0.05", "-af",
+                 "tremolo=f=3:d=0.9,lowpass=4000", "-ar", "48000", "-ac", "1", src],
+                check=True)
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src,
+                 "-af", af, "-ar", "48000", "-ac", "2", out], check=True)
+            probe = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-i", out, "-af", "volumedetect",
+                 "-f", "null", "-"], capture_output=True, text=True)
+            mean = float(re.search(r"mean_volume: (-?[\d.]+) dB", probe.stderr).group(1))
+            peak = float(re.search(r"max_volume: (-?[\d.]+) dB", probe.stderr).group(1))
+            self.assertGreater(mean, -12.0)     # very loud
+            self.assertLessEqual(peak, 0.0)     # but never over full scale
+
+    def test_vc_manager_uses_real_pytgcalls_api(self):
+        try:
+            from pytgcalls.types import ChatUpdate
+        except ImportError:
+            self.skipTest("pytgcalls not installed")
+        text = (ROOT / "helpers" / "vc_manager.py").read_text()
+        for status in re.findall(r"ChatUpdate\.Status\.([A-Z_]+)", text):
+            self.assertTrue(hasattr(ChatUpdate.Status, status), status)
+        self.assertIn("NoActiveGroupCall", text)
+        self.assertIn("change_volume_call", text)
+
+    def test_no_dead_button_hack(self):
+        self.assertFalse((ROOT / "helpers" / "buttons.py").exists())
+        for py in (ROOT / "plugins").glob("*.py"):
+            self.assertNotIn("helpers.buttons", py.read_text(), py.name)
+
+    def test_shared_audio_round_trip_and_scope(self):
+        async def run():
+            with tempfile.TemporaryDirectory() as directory:
+                db = Database()
+                db._sqlite_path = os.path.join(directory, "bot.db")
+                await db.connect()
+                owner_id = await db.add_audio(101, "Owner Intro", "file-owner", "audio")
+                user_id = await db.add_audio(404, "Private Clip", "file-user", "audio")
+                owner_items = await db.list_bot_audio(101)
+                user_items = await db.list_user_audio(404)
+                self.assertEqual([x["audio_id"] for x in owner_items], [owner_id])
+                self.assertEqual([x["audio_id"] for x in user_items], [user_id])
+                self.assertEqual((await db.get_audio(owner_id))["file_id"], "file-owner")
+                self.assertTrue(await db.delete_audio(404, user_id))
+                self.assertFalse(await db.list_user_audio(404))
+                available = await db.list_available_audio(404, 101)
+                self.assertEqual(len(available), 1)
+                self.assertEqual(available[0]["file_id"], "file-owner")
+
+        asyncio.run(run())
+
+    def test_external_media_integration_is_removed(self):
+        downloader = "yt-" + "dlp"
+        for path in (ROOT / "README.md", ROOT / "requirements.txt"):
+            self.assertNotIn(downloader, path.read_text().lower())
+        removed_fn = "download_" + "yt"
+        self.assertNotIn(removed_fn, (ROOT / "helpers" / "audio_processor.py").read_text())
+        self.assertNotIn(removed_fn, (ROOT / "plugins" / "vc_commands.py").read_text())
+
+    def test_live_mic_uses_fifo_as_explicit_pytgcalls_audio_source(self):
+        source = (ROOT / "helpers" / "live_mic.py").read_text()
+        self.assertIn("AudioStream(", source)
+        self.assertIn("MediaSource.SHELL", source)
+        self.assertIn('shlex.join(["cat", self.proc_fifo])', source)
+        self.assertIn("AudioParameters(48000, 2)", source)
+
+    def test_live_mic_browser_graph_is_pulled_without_feedback(self):
+        source = (ROOT / "helpers" / "live_mic.py").read_text()
+        self.assertIn("await audioCtx.resume()", source)
+        self.assertIn("silentSink = audioCtx.createGain()", source)
+        self.assertIn("silentSink.gain.value = 0", source)
+        self.assertIn("workletNode.connect(silentSink)", source)
+        # 2048 frames @48 kHz = ~43 ms: low latency without underruns.
+        self.assertIn("createScriptProcessor(2048, 1, 1)", source)
+        self.assertIn('if (ev.data === \'ready\')', source)
+        self.assertIn('await ws.send_str("ready")', source)
+        self.assertIn("self._first_pcm.set()", source)
+        self.assertIn("function resetAudioState", source)
+        self.assertIn("AudioWorkletNode unavailable; using ScriptProcessor", source)
+        self.assertIn("Microphone permission timeout", source)
+
+    def test_live_mic_does_not_leave_vc_or_trigger_queue_eviction(self):
+        live = (ROOT / "helpers" / "live_mic.py").read_text()
+        vc = (ROOT / "helpers" / "vc_manager.py").read_text()
+        commands = (ROOT / "plugins" / "vc_commands.py").read_text()
+        self.assertNotIn("await self.uvc.calls.leave_call(self.chat_id)", live)
+        self.assertIn("GroupCallConfig(auto_start=False)", live)
+        self.assertIn("is_active_for_chat", vc)
+        self.assertIn("if is_active(self.owner_id):", vc)
+        self.assertIn("if is_active(msg.from_user.id):", commands)
+
+if __name__ == "__main__":
+    unittest.main()
