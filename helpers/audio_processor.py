@@ -227,15 +227,17 @@ def build_live_mic_filter() -> str:
     if _has_filter("afftdn"):
         f.append("afftdn=nr=20:nf=-42:tn=1")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=12:r=0.0005:l=1:p=0.9")
-    f.append("acompressor=threshold=0.08:ratio=6:attack=3:release=60:makeup=3:knee=4")
+        # Denser fight voice: lift quiet syllables harder, while the final
+        # limiter keeps Telegram's 200 % participant gain clip-safe.
+        f.append("speechnorm=e=20:r=0.0005:l=1:p=0.95")
+    f.append("acompressor=threshold=0.05:ratio=10:attack=2:release=80:makeup=4:knee=4")
     if _has_filter("agate"):
-        f.append("agate=threshold=0.1:range=0.02:ratio=6:attack=2:release=180:detection=rms")
+        f.append("agate=threshold=0.07:range=0.02:ratio=6:attack=2:release=180:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",
-          "equalizer=f=1200:t=q:w=1:g=2",
-          "equalizer=f=2600:t=q:w=0.9:g=6",
-          "equalizer=f=3800:t=q:w=1.2:g=3",
-          f"volume={_db(6.0 + ceiling_db + 1.0)}dB",
+           "equalizer=f=1200:t=q:w=1:g=3",
+           "equalizer=f=2600:t=q:w=0.9:g=8",
+           "equalizer=f=3800:t=q:w=1.2:g=4",
+           f"volume={_db(9.0 + ceiling_db + 1.0)}dB",
           f"alimiter=limit={limit:.3f}:level=false:attack=1:release=30"]
     return ",".join(f)
 
