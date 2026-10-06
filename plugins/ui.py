@@ -290,6 +290,7 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False) -> K:
         [B("🎤 Mic ON" if not mic_on else "⏹ Mic OFF",
            callback_data="mic:off" if mic_on else "mic:on")],
         [B("👥 Spare Mic Account (2nd ID)", callback_data="mic:acct")],
+        [B("💬 Spare ID se Chat bhejo", callback_data="mic:chat")],
     ]
     rows.extend([
         [B("🔊 Mic Gain −2000", callback_data="mic:vol:-2000"),

@@ -1164,6 +1164,25 @@ async def cb_mic(bot: Client, cq):
         await safe_answer(cq)
         return
 
+    if action == "chat":
+        sub = rest[0] if rest else ""
+        if sub == "off":
+            _spare_chat.pop(uid, None)
+            await safe_answer(cq, "Spare chat mode OFF")
+        elif sub == "on":
+            cid = await _spare_chat_target(uid)
+            if not cid:
+                await safe_answer(cq, "Pehle group me .mic on karein ya .setgc lagayein",
+                                  show_alert=True)
+            else:
+                _spare_chat[uid] = cid
+                await safe_answer(cq, "Spare chat mode ON")
+        else:
+            await safe_answer(cq)
+        text, kb = await spare_chat_screen(uid)
+        await edit_screen(cq.message, text, reply_markup=kb)
+        return
+
     if action == "acct":
         sub = rest[0] if rest else ""
         if sub == "phone":
@@ -1974,3 +1993,111 @@ async def cmd_vcreact(bot: Client, msg: Message):
             await asyncio.sleep(0.7)  # Telegram flood-limit se bachne ke liye
     if sent and not (msg.chat and msg.chat.id < 0):
         await msg.reply_text(f"✅ {sent} reaction VC me bhej diye.")
+
+
+# ───────────────────────────── Spare ID chat ─────────────────────────────
+# Fight ke time message spare account se group me bhejna:
+#   • Mic panel → "💬 Spare ID se Chat bhejo" → ON → ab bot DM me jo bhi
+#     text likhoge wo spare ID se group me chala jayega (aur tumhara msg
+#     DM se delete ho jayega).
+#   • Ya seedha: .say <text>   (group me likho to tumhara msg delete hoke
+#     spare ID se jayega; DM me likho to default/mic wale group me).
+#   • Reply ke saath .say karoge to spare ID usi msg ko reply karegi.
+
+_spare_chat: dict = {}   # uid -> target chat id
+
+
+async def _spare_chat_target(uid: int) -> int:
+    if uid in DEFAULT_GC:
+        return DEFAULT_GC[uid]
+    try:
+        uvc = await session_manager.get(uid)
+        if uvc:
+            for cid, st in uvc.chats.items():
+                if getattr(st, "mic_enabled", False):
+                    return cid
+            for cid, st in uvc.chats.items():
+                if getattr(st, "is_playing", False):
+                    return cid
+    except Exception:
+        pass
+    return 0
+
+
+async def spare_chat_screen(uid: int):
+    on = uid in _spare_chat
+    cid = _spare_chat.get(uid) or await _spare_chat_target(uid)
+    text = (
+        "💬 <b>Spare ID se Chat</b>\n\n"
+        f"Status: <b>{'🟢 ON' if on else '🔴 OFF'}</b>\n"
+        f"Group: <code>{cid or 'set nahi'}</code>\n\n"
+        "ON karne ke baad is DM me jo bhi likhoge, wo <b>spare account</b> "
+        "se group me jayega.\n\n"
+        "Shortcut: <code>.say teri aawaz nahi aa rahi</code>\n"
+        "Kisi msg ko reply karke <code>.say ...</code> = spare ID us msg ko reply karegi."
+    )
+    kb = K([
+        [B("🔴 Chat mode OFF" if on else "🟢 Chat mode ON",
+           callback_data="mic:chat:off" if on else "mic:chat:on")],
+        [B("⬅ Back", callback_data="mic:panel")],
+    ])
+    return text, kb
+
+
+async def _send_via_spare(uid: int, cid: int, text: str, reply_to: int = None):
+    relay = await session_manager.get_relay(uid)
+    if not relay or not getattr(relay, "client", None):
+        return "❌ Spare account login nahi hai. Mic panel → Spare Mic Account."
+    try:
+        kwargs = {"disable_web_page_preview": True}
+        if reply_to:
+            kwargs["reply_to_message_id"] = reply_to
+        await relay.client.send_message(cid, text, **kwargs)
+        return None
+    except Exception as e:
+        return f"❌ Spare ID se msg nahi gaya: <code>{html.escape(str(e))}</code>\n" \
+               "(Spare ID group me member honi chahiye aur muted nahi.)"
+
+
+@Client.on_message(HAS_USER & cmd_prefix(r"say\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_say(bot: Client, msg: Message):
+    uid = msg.from_user.id
+    parts = cmd_text(msg).split(maxsplit=1)
+    text = parts[1].strip() if len(parts) > 1 else ""
+    if not text:
+        t, kb = await spare_chat_screen(uid)
+        await msg.reply_text(t, reply_markup=kb)
+        return
+    if msg.chat and msg.chat.id < 0:
+        cid = msg.chat.id
+    else:
+        cid = _spare_chat.get(uid) or await _spare_chat_target(uid)
+    if not cid:
+        await msg.reply_text("❌ Group nahi mila. Group me <code>.say</code> likho ya pehle mic ON karo.")
+        return
+    reply_to = None
+    if msg.reply_to_message and msg.chat and msg.chat.id == cid:
+        reply_to = msg.reply_to_message.id
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    err = await _send_via_spare(uid, cid, text, reply_to)
+    if err:
+        await mic_notify(msg, err)
+
+
+@Client.on_message(HAS_USER & filters.private & filters.text
+                   & ~filters.regex(r"^[/.!]"), group=4)
+async def spare_chat_listener(bot: Client, msg: Message):
+    uid = msg.from_user.id
+    if uid not in _spare_chat or uid in _mic_login:
+        return
+    err = await _send_via_spare(uid, _spare_chat[uid], msg.text)
+    if err:
+        await msg.reply_text(err)
+        return
+    try:
+        await msg.delete()
+    except Exception:
+        pass

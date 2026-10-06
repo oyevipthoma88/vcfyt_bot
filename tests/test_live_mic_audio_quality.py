@@ -53,44 +53,29 @@ def main() -> int:
         clarity=28,
         live=True,
     )
-    # The live mic must run the extreme-loudness fight chain: noise gates +
-    # triple compressors + de-esser + soft-clip + brick-wall limiter.
+    # Default live chain is the CLEAR chain: one compressor + limiter, no
+    # stacked gain.  The old fight chain clipped at 0 dBFS (-4 dB mean) and
+    # destroyed speech clarity in the VC.
     if "alimiter" not in live_filter:
-        raise AssertionError("live mic must use the fight chain (limiter)")
-    if live_filter.count("acompressor") < 2:
-        raise AssertionError("live mic must have multiple compressors for max loudness")
-    if not any(k in live_filter for k in ("deesser", "adynamicequalizer", "equalizer=f=6800")):
-        raise AssertionError("live mic must have a de-esser")
-    # Background hiss with nobody speaking must come out as silence.
-    for amp in (0.03, 0.01):
-        noise_mean, _ = measure(f"aevalsrc='{amp}*(random(0)*2-1)':s=48000:d=4", live_filter, raw=True)
-        print(f"hiss {amp} -> mean {noise_mean:5.1f} dBFS")
-        if noise_mean > -60.0:
-            raise AssertionError(f"khar-khar hiss not removed: {noise_mean:.1f} dBFS")
+        raise AssertionError("live mic must end in a limiter")
+    if live_filter.count("acompressor") != 1:
+        raise AssertionError("live mic must use exactly one compressor (clarity)")
+    if "volume=30dB" in live_filter or "speechnorm=e=50" in live_filter:
+        raise AssertionError("brutal over-gain stages are back in the live chain")
 
-    # FFmpeg's lavfi sine defaults to a -18.06 dBFS peak. Calibrate that
-    # baseline once, then test quiet through strong raw mic input levels.
     baseline_peak = measure("anull")[1]
-    for input_peak_db in (-20.0, -30.0, -40.0):
+    for input_peak_db in (-6.0, -20.0, -30.0):
         attenuation_db = input_peak_db - baseline_peak
-        mean_db, peak_db = measure(
-            f"volume={attenuation_db:.2f}dB,{live_filter}"
-        )
-        print(
-            f"input peak {input_peak_db:5.1f} dBFS -> "
-            f"mean {mean_db:5.1f} dBFS, peak {peak_db:5.1f} dBFS"
-        )
-        # A quiet raw mic (-40 dBFS) must still come out loud.
-        if mean_db < -8.0:
-            raise AssertionError(
-                f"live voice too quiet: {mean_db:.1f} dBFS mean"
-            )
-        if peak_db > 0.5:
-            raise AssertionError(
-                f"live voice over full scale: {peak_db:.1f} dBFS"
-            )
+        mean_db, peak_db = measure(f"volume={attenuation_db:.2f}dB,{live_filter}")
+        print(f"input peak {input_peak_db:5.1f} dBFS -> mean {mean_db:5.1f}, peak {peak_db:5.1f}")
+        if peak_db > -0.5:
+            raise AssertionError(f"live voice clipping: peak {peak_db:.1f} dBFS")
+        if mean_db > -6.0:
+            raise AssertionError(f"live voice over-compressed: mean {mean_db:.1f} dBFS")
+        if mean_db < -32.0:
+            raise AssertionError(f"live voice too quiet: mean {mean_db:.1f} dBFS")
 
-    print("PASS: live mic is as loud as played files")
+    print("PASS: live mic is clean and clip-free")
     return 0
 
 

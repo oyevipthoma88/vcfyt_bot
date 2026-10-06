@@ -60,7 +60,9 @@ def _live_chain_mode() -> str:
     (one leveller, one compressor, one limiter).  Override with
     ``LIVE_MIC_CHAIN=soft``.
     """
-    mode = (os.environ.get("LIVE_MIC_CHAIN", "") or "fight").strip().lower()
+    mode = (os.environ.get("LIVE_MIC_CHAIN", "") or "clear").strip().lower()
+    if mode in ("clear", "clean", "voice", "default"):
+        return "clear"
     if mode in ("soft", "broadcast", "gentle"):
         return "soft"
     if mode in ("match", "playback", "old"):
@@ -243,6 +245,52 @@ def build_ffmpeg_filter(
     # softer live than a played file.  Now the live chain uses stronger
     # levelling: speechnorm e=45 (up from 25) and dynaudnorm g=12 (up from 5),
     # plus an extra +6 dB drive into the limiter.  Playback is untouched.
+    if live and _live_chain_mode() == "clear":
+        # ---------------------------------------------------------------
+        # LIVE MIC — CLEAR CHAIN (default, fixes "0 clarity" recording).
+        #
+        # The "fight" chain stacked +30 dB pre-amp, speechnorm e=50 (+34 dB),
+        # mcompand, 3 compressors, exciter, +16 dB drive and LOUD_EXTRA_DB
+        # (+18) into a limiter.  A real VC recording measured -4.4 dBFS
+        # *mean* with peaks pinned at 0 dBFS: pure square-wave distortion,
+        # room noise pumped up to voice level, words unreadable.  Telegram's
+        # Opus encoder then crackles on top of that.
+        #
+        # This chain: clean input -> light denoise -> voice EQ -> ONE
+        # compressor -> modest make-up -> limiter at -1 dBFS.  Voice lands
+        # around -14..-10 dBFS RMS: loud on phones, zero clipping, and the
+        # browser AGC/noise-suppression stays in charge of mic level.
+        # Old chains: LIVE_MIC_CHAIN=fight | soft | match.
+        # ---------------------------------------------------------------
+        filters = [
+            "aresample=48000:first_pts=0:async=1",
+            "highpass=f=100",
+            "lowpass=f=12000",
+        ]
+        if _has_filter("afftdn"):
+            filters.append("afftdn=nr=10:nf=-50:tn=1")
+        filters.append("equalizer=f=250:t=q:w=1.2:g=-3.00")
+        if bass_value:
+            filters.append(f"lowshelf=f=140:g={_db(min(3.0, bass_value * 0.04))}")
+        filters.append("equalizer=f=2800:t=q:w=1.4:g=3.00")
+        filters.append("equalizer=f=5000:t=q:w=1.6:g=1.50")
+        filters.append("acompressor=threshold=0.08:ratio=3:attack=5:"
+                       "release=120:makeup=2:knee=4")
+        if use_echo and echo_value:
+            d1 = 90 + echo_value * 20
+            decay = min(0.30, 0.10 + echo_value * 0.02)
+            filters.append(f"aecho=1.0:0.85:{d1}:{decay:.2f}")
+        if extra_filters:
+            filters.append(extra_filters)
+        try:
+            drive = float(os.environ.get("LIVE_MIC_DRIVE_DB", "") or 6.0)
+        except ValueError:
+            drive = 6.0
+        filters.append(f"volume={_db(max(0.0, min(12.0, drive)))}dB")
+        filters.append("alimiter=level_in=1:level_out=1:limit=0.89:"
+                       "attack=3:release=50:level=false")
+        return _sanitize_ffmpeg_filter(",".join(filters))
+
     if live and _live_chain_mode() == "fight":
         # ---------------------------------------------------------------
         # LIVE MIC — FIGHT CHAIN (BRUTAL max loudness + zero khar-khar).
@@ -267,7 +315,7 @@ def build_ffmpeg_filter(
             drive_db = max(30.0, min(42.0, 30.0 + (float(pregain if pregain is not None else 200) / 200.0) * 12.0))
         except (TypeError, ValueError):
             drive_db = 42.0
-        final_db = 20.0 + 18.0 * (gain_value / float(GAIN_MAX or 400))
+        final_db = 20.0 + 18.0 * (gain_value / float(GAIN_MAX or 6.0))
         final_db = min(44.0, final_db + extra_loud_db())
 
         # FIX: old chain used "dialoguenhance=recipe=default" — that option does
