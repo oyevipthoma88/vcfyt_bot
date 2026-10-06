@@ -278,9 +278,9 @@ def build_ffmpeg_filter(
         filters = [
             "aresample=48000:first_pts=0:async=1",
             # Phone speakers play nothing below ~200 Hz: removing it frees headroom
-            # for the 1-5 kHz band the ear hears loudest (+0.4 LU on phones).
-            "highpass=f=170:p=2",
-            "highpass=f=170:p=2",
+            # for the 1-5 kHz band the ear hears loudest (+1.5 LU on phones vs old chain).
+            "highpass=f=250:p=2",
+            "highpass=f=250:p=2",
             "lowpass=f=11000:p=2",
             "equalizer=f=60:t=q:w=1.0:g=-12.00",
         ]
@@ -294,7 +294,7 @@ def build_ffmpeg_filter(
         # Voice-band EQ: cut mud, push intelligibility 1.8-4.5 kHz so the voice
         # cuts through 5 people talking at once on phone speakers.
         filters.append("equalizer=f=300:t=q:w=1.0:g=-5.00")
-        filters.append("equalizer=f=2500:t=q:w=1.5:g=4.00")
+        filters.append("equalizer=f=3000:t=q:w=1.5:g=6.00")
         filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(4.0 + 3.0 * clarity_amt)}")
         filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(5.0 + 4.0 * clarity_amt)}")
         filters.append(f"equalizer=f=4500:t=q:w=1.2:g={_db(3.0 + 2.0 * clarity_amt)}")
@@ -321,7 +321,7 @@ def build_ffmpeg_filter(
                            "tfrequency=6500:tqfactor=2:attack=1:release=40:ratio=3:"
                            "range=8:mode=cutabove:tftype=bell")
         if _has_filter("aexciter"):
-            filters.append("aexciter=amount=2.5:drive=8:blend=0:freq=2500:ceil=12000")
+            filters.append("aexciter=amount=4:drive=10:blend=0:freq=2500:ceil=12000")
         if use_echo and echo_value:
             d1 = 90 + echo_value * 20
             decay = min(0.40, 0.12 + echo_value * 0.03)
