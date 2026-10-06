@@ -123,19 +123,20 @@ def loud_stage(cfg: dict) -> str:
         f.append(f"equalizer=f=5000:t=q:w=1.4:g={c['presence'] * 1.0:.1f}")
     # HARMONIC EXCITER: MAX crispness + phone speaker par cut-through.
     if _has_filter("aexciter"):
-        f.append("aexciter=level_in=1:level_out=1:amount=3.0:drive=12:"
+        f.append("aexciter=level_in=1:level_out=1:amount=3.0:drive=10:"
                  "blend=0:freq=2800:ceil=12000:listen=0")
     # CRYSTALIZER: sharpens transients = consonants punchier, words sharper.
     if _has_filter("crystalizer"):
-        f.append("crystalizer=i=2.5:c=1.5")
+        # c= is an on/off clip switch; "c=1.5" made FFmpeg refuse to start.
+        f.append("crystalizer=i=2.5")
     # MULTIBAND GLUE: 4-band, har band separately ceiling ke paas pack.
     if _has_filter("mcompand"):
         f.append(
             "mcompand="
-            "0.003\,0.08 10 -90/-90\,-60/-36\,-30/-12\,-12/-6\,0/-4 250 0 0 |"
-            " 0.002\,0.06 10 -90/-90\,-60/-30\,-30/-8\,-12/-5\,0/-3 2000 0 0 |"
-            " 0.001\,0.05 10 -90/-90\,-60/-26\,-30/-6\,-12/-4\,0/-2 5500 0 0 |"
-            " 0.001\,0.04 10 -90/-90\,-60/-32\,-30/-10\,-12/-6\,0/-4 20000 0 0"
+            r"0.003\,0.08 10 -90/-90\,-60/-36\,-30/-12\,-12/-6\,0/-4 250 0 0 |"
+            r" 0.002\,0.06 10 -90/-90\,-60/-30\,-30/-8\,-12/-5\,0/-3 2000 0 0 |"
+            r" 0.001\,0.05 10 -90/-90\,-60/-26\,-30/-6\,-12/-4\,0/-2 5500 0 0 |"
+            r" 0.001\,0.04 10 -90/-90\,-60/-32\,-30/-10\,-12/-6\,0/-4 20000 0 0"
         )
     # DOUBLE GLUE COMPRESSOR: har syllable ko ceiling ke paas brute-force pack.
     f.append("acompressor=threshold=0.01:ratio=16:attack=0.2:release=18:"
@@ -282,7 +283,10 @@ class VCBridge:
         bridge = self
 
         def _build_with_loud():
-            return INPUT_LIFT + "," + INPUT_GATE + "," + base_build() + "," + loud_stage(bridge.loud)
+            from helpers.audio_processor import _sanitize_ffmpeg_filter
+            # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
+            return _sanitize_ffmpeg_filter(
+                INPUT_LIFT + "," + INPUT_GATE + "," + base_build() + "," + loud_stage(bridge.loud))
 
         session._build_filter = _build_with_loud
         self.session = session
