@@ -270,119 +270,70 @@ def build_ffmpeg_filter(
         final_db = 20.0 + 18.0 * (gain_value / float(GAIN_MAX or 400))
         final_db = min(44.0, final_db + extra_loud_db())
 
+        # FIX: old chain used "dialoguenhance=recipe=default" — that option does
+        # not exist (and dialoguenhance needs stereo), so FFmpeg died on start
+        # and NO mic audio reached the VC.  New chain: every filter valid on
+        # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
+        # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
         filters = [
             "aresample=48000:first_pts=0:async=1",
-            "highpass=f=75:p=2",
-            "lowpass=f=15000:p=2",
-            "equalizer=f=50:t=q:w=1.0:g=-16.00",
-            "equalizer=f=100:t=q:w=1.5:g=-12.00",
+            "highpass=f=90:p=2",
+            "lowpass=f=12500:p=2",
+            "equalizer=f=60:t=q:w=1.0:g=-12.00",
         ]
-
-        # --- Stage 1: ADAPTIVE DENOISE ---
         if _has_filter("afftdn"):
-            filters.append("afftdn=nr=16:nf=-55:tn=1")
-        elif _has_filter("arnndn"):
-            filters.append("arnndn=m=d:c=0:0:m=ns:r=sf")
-
-        # --- Stage 1b: DIALOGUE ENHANCE (speech over background leak) ---
-        if _has_filter("dialoguenhance"):
-            filters.append("dialoguenhance=recipe=default")
-
-        # --- Stage 2: PRE-GATE ---
+            # Strong adaptive denoise (fan / hiss / khar-khar).
+            filters.append("afftdn=nr=40:nf=-30:tn=1")
+            filters.append("afftdn=nr=30:nf=-40:tn=1")
         if _has_filter("agate"):
-            filters.append("agate=mode=downward:range=0.02:threshold=0.001:"
-                           "ratio=15:attack=0.3:release=150:knee=2:detection=rms:makeup=1")
-
-        # --- Stage 3: VOICE-BAND EQ (BRUTAL clarity) ---
-        filters.append("equalizer=f=200:t=q:w=1.2:g=-8.00")
-        filters.append("equalizer=f=400:t=q:w=1.0:g=-6.00")
-        filters.append("equalizer=f=800:t=q:w=1.0:g=-3.00")
-        filters.append("equalizer=f=1000:t=q:w=1.0:g=4.00")
-        filters.append(f"equalizer=f=1500:t=q:w=1.3:g={_db(5.0 + 5.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=2000:t=q:w=1.1:g={_db(7.0 + 7.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=2500:t=q:w=1.0:g={_db(7.0 + 7.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(6.0 + 6.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=4000:t=q:w=1.1:g={_db(5.0 + 5.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=5500:t=q:w=1.4:g={_db(4.0 + 4.0 * clarity_amt)}")
-        filters.append(f"highshelf=f=7000:g={_db(3.0 + 3.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=160:t=q:w=1.0:g={_db(3.0 + min(5.0, bass_value * 0.08))}")
-
-        # --- Stage 4: PRE-AMP DRIVE (BRUTAL MAX) ---
-        filters.append(f"volume={_db(drive_db)}dB")
-
-        # --- Stage 4b: CRYSTALIZER (transients = punchy consonants) ---
-        if _has_filter("crystalizer"):
-            filters.append("crystalizer=i=3.0:c=2.0")
-
-        # --- Stage 4c: DIALOGUENHANCE second pass (even more speech isolation) ---
-        if _has_filter("dialoguenhance"):
-            filters.append("dialoguenhance=recipe=default")
-
-        # --- Stage 5: STAGE-1 COMPRESSOR (catch peaks, max density) ---
-        filters.append("acompressor=threshold=0.02:ratio=15:attack=0.2:release=25:makeup=16:knee=1")
-
-        # --- Stage 6: MULTIBAND LOUDNESS MAXIMIZER (4-band, BRUTAL) ---
+            filters.append("agate=range=0.0001:threshold=0.008:ratio=20:"
+                           "attack=5:release=200:knee=1:detection=rms")
+        # Voice-band EQ: cut mud, push intelligibility 1.8-4.5 kHz so the voice
+        # cuts through 5 people talking at once on phone speakers.
+        filters.append("equalizer=f=300:t=q:w=1.0:g=-5.00")
+        filters.append(f"equalizer=f=160:t=q:w=1.0:g={_db(2.0 + min(4.0, bass_value * 0.06))}")
+        filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(4.0 + 3.0 * clarity_amt)}")
+        filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(5.0 + 4.0 * clarity_amt)}")
+        filters.append(f"equalizer=f=4500:t=q:w=1.2:g={_db(3.0 + 2.0 * clarity_amt)}")
+        # Pre-amp so even a far / very soft mic hits the levellers.
+        filters.append("volume=18dB")
+        filters.append("acompressor=threshold=0.05:ratio=8:attack=2:release=60:makeup=4:knee=4")
+        # Speech levelling: expands quiet syllables up to 50x (+34 dB).
+        if _has_filter("speechnorm"):
+            filters.append("speechnorm=e=50:c=4:r=0.0005:f=0.0005:p=0.95:l=1")
+            if _has_filter("agate"):
+                filters.append("agate=range=0.0001:threshold=0.1:ratio=20:"
+                               "attack=3:release=250:knee=1:detection=rms")
+        # Multiband maximizer (silence stays silence: -90/-90, -60/-60).
         if _has_filter("mcompand"):
             filters.append(
                 "mcompand="
-                "0.003\\,0.08 12 -90/-90\\,-60/-34\\,-30/-10\\,-12/-5\\,0/-3 250 0 0 |"
-                " 0.002\\,0.06 12 -90/-90\\,-60/-28\\,-30/-6\\,-12/-4\\,0/-2 2000 0 0 |"
-                " 0.001\\,0.05 12 -90/-90\\,-60/-24\\,-30/-4\\,-12/-3\\,0/-1 5500 0 0 |"
-                " 0.001\\,0.04 12 -90/-90\\,-60/-30\\,-30/-8\\,-12/-5\\,0/-3 20000 0 0"
+                "0.005\\,0.1 6 -90/-90\\,-60/-60\\,-47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 |"
+                " 0.003\\,0.05 6 -90/-90\\,-60/-60\\,-47/-30\\,-34/-22\\,-17/-12\\,0/-8 3500 |"
+                " 0.000625\\,0.03 6 -90/-90\\,-60/-60\\,-47/-34\\,-34/-26\\,-17/-16\\,0/-12 20000"
             )
-
-        # --- Stage 7: DYNAMIC DE-ESSER ---
         if _has_filter("adynamicequalizer"):
             filters.append("adynamicequalizer=threshold=12:dfrequency=6500:dqfactor=2:"
                            "tfrequency=6500:tqfactor=2:attack=1:release=40:ratio=3:"
                            "range=8:mode=cutabove:tftype=bell")
-        elif _has_filter("deesser"):
-            filters.append("deesser=i=0.35:m=0.50:f=0.60")
-        else:
-            filters.append("equalizer=f=6800:t=q:w=2.5:g=-4.00")
-
-        # --- Stage 8: HARMONIC EXCITER (MAX) ---
         if _has_filter("aexciter"):
-            filters.append("aexciter=level_in=1:level_out=1:amount=4.0:drive=15:"
-                           "blend=0:freq=2500:ceil=12000:listen=0")
-
-        # --- Stage 9: DOUBLE SPEECHNORM (MAX levelling) ---
-        # Two passes: first lifts everything toward ceiling, second catches any
-        # remaining quiet syllables.  Third pass would add latency without benefit.
-        if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=50:c=2:r=0.0001:f=0.001:p=0.99:t=0.001:l=1")
-            filters.append("speechnorm=e=50:c=2:r=0.0001:f=0.001:p=0.99:t=0.001:l=1")
-
-        # --- Stage 10: QUINTUPLE GLUE COMPRESSORS (RMS to absolute max) ---
-        filters.append("acompressor=threshold=0.01:ratio=16:attack=0.15:release=18:makeup=18:knee=1")
-        filters.append("acompressor=threshold=0.04:ratio=18:attack=0.12:release=15:makeup=12:knee=1")
-        filters.append("acompressor=threshold=0.10:ratio=20:attack=0.08:release=12:makeup=8:knee=1")
-        filters.append("acompressor=threshold=0.25:ratio=20:attack=0.05:release=10:makeup=4:knee=1")
-        filters.append("acompressor=threshold=0.50:ratio=20:attack=0.03:release=8:makeup=2:knee=1")
-
-        # --- Stage 11: POST-GATE ---
-        if _has_filter("agate"):
-            filters.append("agate=mode=downward:range=0.06:threshold=0.003:"
-                           "ratio=15:attack=0.3:release=100:knee=2:detection=rms:makeup=1")
-
+            filters.append("aexciter=amount=2.5:drive=8:blend=0:freq=2500:ceil=12000")
         if use_echo and echo_value:
             d1 = 90 + echo_value * 20
             decay = min(0.40, 0.12 + echo_value * 0.03)
             filters.append(f"aecho=1.0:0.85:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
         if extra_filters:
             filters.append(extra_filters)
-
-        # --- Stage 12: FINAL DRIVE + SOFT CLIP + BRICK-WALL LIMITER (MAX) ---
-        filters.append(f"volume={_db(min(34.0, final_db * 0.8 + 10.0))}dB")
-        # Pre-limiter drive: slam the soft-clip for max saturation harmonics.
-        filters.append("volume=12dB")
+        # Final maximizer: glue compressor -> drive -> soft clip -> limiter.
+        filters.append("acompressor=threshold=0.25:ratio=20:attack=1:release=40:makeup=2:knee=2")
+        filters.append(f"volume={_db(min(14.0, 6.0 + final_db * 0.15))}dB")
         if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=atan:threshold=0.75:output=1:param=1:oversample=8")
-        # NOTE: extrastereo removed — it needs stereo input but FFmpeg receives
-        # mono (-ac 1), so it would crash the pipeline.
-        # Final brick-wall at absolute max.
-        filters.append("alimiter=level_in=1:level_out=1:limit=1.0:"
-                       "attack=0.1:release=6:level=false:asc=1:asc_level=0.3")
+            filters.append("asoftclip=type=tanh:threshold=0.9")
+        if _has_filter("agate"):
+            filters.append("agate=range=0.0001:threshold=0.06:ratio=20:"
+                           "attack=3:release=250:knee=1:detection=rms")
+        filters.append("alimiter=level_in=1:level_out=1:limit=0.97:"
+                       "attack=1:release=20:level=false")
         return _sanitize_ffmpeg_filter(",".join(filters))
 
     if live and _live_chain_mode() == "soft":
