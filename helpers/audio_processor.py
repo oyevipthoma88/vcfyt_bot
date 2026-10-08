@@ -229,6 +229,10 @@ def build_live_mic_filter(ceiling_db: float = None) -> str:
     if ceiling_db is None:
         ceiling_db = _env_db("LIVE_MIC_CEILING_DB", -6.5, high=-0.5, low=-12.0)
     ceiling_db = max(-12.0, min(-0.5, float(ceiling_db)))
+    # USER CHOICE: admin ho ya non-admin, awaaz hamesha FULL.  The admin
+    # -6.5 dB headroom is skipped unless LIVE_MIC_RESPECT_ADMIN=1.
+    if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") != "1":
+        ceiling_db = max(ceiling_db, -1.0)
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
     drive = _env_db("LIVE_MIC_DRIVE_DB", 6.0, high=12.0, low=0.0)
@@ -241,13 +245,17 @@ def build_live_mic_filter(ceiling_db: float = None) -> str:
     # clarity).  speechnorm alone could lift only ~28 dB, so quiet phones
     # stayed quiet and the noise gate then chopped words.  Fixed +12 dB
     # pre-amp (float, cannot clip) + stronger expansion fixes that.
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 12.0, high=24.0, low=0.0))}dB")
+    if _has_filter("agate"):
+        # Pre-gate on the RAW mic (before any gain): room hiss below
+        # ~-64 dBFS is muted so the huge boost below lifts only the voice.
+        f.append("agate=threshold=0.0006:range=0.003:ratio=20:attack=1:release=250:detection=peak")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 22.0, high=30.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
         # Lift quiet syllables hard (whisper -> normal level).
         f.append("speechnorm=e=40:r=0.0005:l=1:p=0.95")
     f.append("acompressor=threshold=0.05:ratio=10:attack=2:release=80:makeup=4:knee=4")
     if _has_filter("agate"):
-        f.append("agate=threshold=0.07:range=0.02:ratio=6:attack=2:release=180:detection=rms")
+        f.append("agate=threshold=0.025:range=0.05:ratio=6:attack=2:release=180:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",
           "equalizer=f=1200:t=q:w=1:g=3",
           "equalizer=f=2600:t=q:w=0.9:g=8",
