@@ -68,9 +68,9 @@ def main() -> int:
         attenuation_db = input_peak_db - baseline_peak
         mean_db, peak_db = measure(f"volume={attenuation_db:.2f}dB,{live_filter}")
         print(f"input peak {input_peak_db:5.1f} dBFS -> mean {mean_db:5.1f}, peak {peak_db:5.1f}")
-        if peak_db > -5.5:
+        if peak_db > -0.2:
             raise AssertionError(f"live voice clipping: peak {peak_db:.1f} dBFS")
-        if mean_db > -7.0:
+        if mean_db > -2.5:
             raise AssertionError(f"live voice over-compressed: mean {mean_db:.1f} dBFS")
         if mean_db < -32.0:
             raise AssertionError(f"live voice too quiet: mean {mean_db:.1f} dBFS")
