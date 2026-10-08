@@ -23,8 +23,8 @@ logger = logging.getLogger("vcbot.auto_core")
 AUTO_KEY = "autocore_on"
 MARK_KEY = "autocore_marks"          # {"uid": {"chat_id": last_reacted_msg_id}}
 OLD_POSTS = 15
-USER_CONCURRENCY = 5
-POLL_SECONDS = 45
+USER_CONCURRENCY = 10
+POLL_SECONDS = 15
 MAX_FLOOD = 300
 
 DEFAULT_EMOJIS = ["👍", "❤", "🔥", "🥰", "👏", "😁", "🎉", "🤩", "⚡", "💯",
@@ -157,25 +157,33 @@ async def core_user(user_id: int, string_session: str | None = None) -> dict:
         per_post = 3 if rep["premium"] else 1
         marks = (await _load_marks()).get(str(user_id), {})
 
+        # PASS 1 — VIEWS INSTANT: join every channel and count a view on the
+        # newest post + last 15 posts right away (no sleeps, no marks), so
+        # views land in seconds just like reactions target the same posts.
+        work = []
         for entry in entries:
             chat = await _join(client, entry)
             if not chat:
                 rep["failed"] += 1
                 continue
             rep["joined"] += 1
-            emojis = _allowed_emojis(chat)
-            done_upto = int(marks.get(str(chat.id), 0))
-            msgs = []
+            all_msgs = []
             try:
                 async for m in client.get_chat_history(chat.id, limit=OLD_POSTS + 1):
-                    if m.id > done_upto and not getattr(m, "service", None):
-                        msgs.append(m)
+                    if not getattr(m, "service", None):
+                        all_msgs.append(m)
             except Exception as e:
                 logger.info("core history %s: %r", chat.id, e)
                 continue
+            rep["viewed"] += await _add_views(client, chat.id, [m.id for m in all_msgs])
+            work.append((chat, all_msgs))
+
+        # PASS 2 — reactions (only posts not reacted yet).
+        for chat, all_msgs in work:
+            emojis = _allowed_emojis(chat)
+            done_upto = int(marks.get(str(chat.id), 0))
+            msgs = [m for m in all_msgs if m.id > done_upto]
             top = done_upto
-            # VIEWS: like reactions, every core adds 1 view per post.
-            rep["viewed"] += await _add_views(client, chat.id, [m.id for m in msgs])
             if not emojis:
                 if msgs:
                     await _save_mark(user_id, chat.id, max(m.id for m in msgs))
@@ -198,7 +206,7 @@ async def core_user(user_id: int, string_session: str | None = None) -> dict:
                         rep["failed"] += 1
                         logger.info("core react %s/%s: %r", chat.id, m.id, e)
                 top = max(top, m.id)
-                await asyncio.sleep(random.uniform(1.0, 2.5))
+                await asyncio.sleep(random.uniform(0.6, 1.5))
             if top > done_upto:
                 await _save_mark(user_id, chat.id, top)
     except Exception as e:
