@@ -208,39 +208,58 @@ def _legacy_gain_to_db(gain: int) -> float:
 # Measured on real speech: quiet (-35 dBFS) and loud (-6 dBFS) phones both
 # land at the same loud level, peak -1.0 dBFS, background hiss gated away.
 # ---------------------------------------------------------------------------
-def build_live_mic_filter() -> str:
+def build_live_mic_filter(ceiling_db: float = None) -> str:
     # HEADROOM FOR TELEGRAM 200 % VOLUME (record_19 analysis):
-    # the relay is set to 200 % participant volume (x2 = +6 dB) by Telegram
-    # itself.  A stream already peaking at -1 dBFS therefore reached the VC at
-    # +5/+6 dBFS: the VC recording showed peaks of exactly +6.0 dB, 140k
-    # clipped samples and a spectrum of flat broadband distortion with the
-    # voice band 17-20 dB under it — loud noise, buried voice.  So the stream
-    # now ends at about -6.5 dBFS (LIVE_MIC_CEILING_DB) and Telegram's x2
-    # brings it to ~-0.5 dBFS: the loudest level possible WITHOUT clipping.
-    # Voice-band focus (140 Hz - 8 kHz, strong 2-4 kHz presence) puts all of
-    # that loudness where the ear is most sensitive.
-    ceiling_db = _env_db("LIVE_MIC_CEILING_DB", -6.5, high=-0.5, low=-12.0)
+    # when an ADMIN sets the relay to 200 % participant volume (x2 = +6 dB)
+    # a stream peaking at -1 dBFS reached the VC at +5/+6 dBFS and clipped.
+    # So with a CONFIRMED admin 200 % the stream ends at ~-6.5 dBFS.
+    #
+    # ROOT FIX "live mic bohot dheema": that -6.5 dB ceiling was applied
+    # ALWAYS — also when the 200 % boost never reached listeners (relay not
+    # admin, user account not admin, Telegram reset to 100 %).  Then the
+    # voice simply arrived 6.5 dB too quiet.  The session now passes the
+    # ceiling it actually needs (see LiveMicSession._ceiling_db): -6.5 dB
+    # only while an admin boost is confirmed, otherwise -1 dBFS.
+    #
+    # LOUDNESS (density): perceived loudness = average level, not peak.
+    # Old chain: mean ~8 dB under the peak.  New chain drives the voice into
+    # a slow pre-limiter (levels whole words) and then a fast brick-wall
+    # (catches transients), so the average sits ~4-5 dB under the ceiling —
+    # roughly +4 dB louder to the ear at the same clip-safe peak.
+    if ceiling_db is None:
+        ceiling_db = _env_db("LIVE_MIC_CEILING_DB", -6.5, high=-0.5, low=-12.0)
+    ceiling_db = max(-12.0, min(-0.5, float(ceiling_db)))
     limit = 10 ** (ceiling_db / 20.0)
+    pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 6.0, high=12.0, low=0.0)
     f = ["aresample=48000:async=1:first_pts=0",
          "highpass=f=140", "highpass=f=140",
          "lowpass=f=8000", "lowpass=f=8000"]
     if _has_filter("afftdn"):
         f.append("afftdn=nr=20:nf=-42:tn=1")
+    # Phone mics arrive at -40..-55 dBFS (browser auto-gain is OFF for
+    # clarity).  speechnorm alone could lift only ~28 dB, so quiet phones
+    # stayed quiet and the noise gate then chopped words.  Fixed +12 dB
+    # pre-amp (float, cannot clip) + stronger expansion fixes that.
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 12.0, high=24.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # Denser fight voice: lift quiet syllables harder, while the final
-        # limiter keeps Telegram's 200 % participant gain clip-safe.
-        f.append("speechnorm=e=20:r=0.0005:l=1:p=0.95")
+        # Lift quiet syllables hard (whisper -> normal level).
+        f.append("speechnorm=e=40:r=0.0005:l=1:p=0.95")
     f.append("acompressor=threshold=0.05:ratio=10:attack=2:release=80:makeup=4:knee=4")
     if _has_filter("agate"):
         f.append("agate=threshold=0.07:range=0.02:ratio=6:attack=2:release=180:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",
-           "equalizer=f=1200:t=q:w=1:g=3",
-           "equalizer=f=2600:t=q:w=0.9:g=8",
-           "equalizer=f=3800:t=q:w=1.2:g=4",
-           # Presence exciter: upper harmonics cut through phone speakers.
-           *(["aexciter=amount=0.6:drive=4:freq=3000:ceil=10000"] if _has_filter("aexciter") else []),
-           f"volume={_db(12.0 + ceiling_db + 1.0)}dB",
-          f"alimiter=limit={limit:.3f}:level=false:attack=1:release=30"]
+          "equalizer=f=1200:t=q:w=1:g=3",
+          "equalizer=f=2600:t=q:w=0.9:g=8",
+          "equalizer=f=3800:t=q:w=1.2:g=4"]
+    if _has_filter("aexciter"):
+        # Presence harmonics: cut through phone speakers.
+        f.append("aexciter=amount=0.6:drive=4:freq=3000:ceil=10000")
+    f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
+          # Stage 1: slow leveller-limiter (whole words dense, no pumping).
+          f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",
+          # Stage 2: fast brick-wall at the ceiling (no clipping, Opus-safe).
+          f"alimiter=limit={limit:.3f}:level=false:attack=0.5:release=15"]
     return ",".join(f)
 
 
