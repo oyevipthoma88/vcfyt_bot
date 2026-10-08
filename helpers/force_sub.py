@@ -45,9 +45,8 @@ def parse_target(raw: str) -> dict:
         return {"ref": username, "url": f"https://t.me/{username}", "kind": "username"}
 
     if value.lstrip("-").isdigit():
-        chat_id = int(value)
-        if chat_id >= 0:
-            raise ValueError("Channel ID negative honi chahiye (-100...).")
+        from helpers.peer_guard import chat_id_variants
+        chat_id = chat_id_variants(value)[0]
         return {"ref": str(chat_id), "url": "", "kind": "id"}
 
     parsed = urlparse(value if "://" in value else f"https://{value}")
