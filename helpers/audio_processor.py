@@ -237,7 +237,9 @@ def build_live_mic_filter() -> str:
            "equalizer=f=1200:t=q:w=1:g=3",
            "equalizer=f=2600:t=q:w=0.9:g=8",
            "equalizer=f=3800:t=q:w=1.2:g=4",
-           f"volume={_db(9.0 + ceiling_db + 1.0)}dB",
+           # Presence exciter: upper harmonics cut through phone speakers.
+           *(["aexciter=amount=0.6:drive=4:freq=3000:ceil=10000"] if _has_filter("aexciter") else []),
+           f"volume={_db(12.0 + ceiling_db + 1.0)}dB",
           f"alimiter=limit={limit:.3f}:level=false:attack=1:release=30"]
     return ",".join(f)
 
@@ -355,8 +357,6 @@ def build_ffmpeg_filter(
         if extra_filters:
             filters.append(extra_filters)
         filters.append(f"volume={_db(min(6.0, 2.0 + final_db * 0.08))}dB")
-        if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=atan:oversample=4")
         filters.append("alimiter=level_in=1.15:level_out=1:limit=0.96:"
                        "attack=1:release=25:level=false:asc=1")
         return _sanitize_ffmpeg_filter(",".join(filters))
@@ -526,15 +526,17 @@ def build_ffmpeg_filter(
     if extra_filters:
         filters.append(extra_filters)
 
-    if not low_lat:
-        filters.append("loudnorm=I=-12:LRA=6.0:TP=-0.5:dual_mono=true:linear=false")
-    else:
-        if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=10:r=0.001:l=1:p=0.95:t=0.01")
-
-    if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=atan:oversample=4")
-    filters.append("alimiter=level_in=1.1:limit=0.96:attack=1:release=25:level=false:asc=1")
+    # ROOT FIX "audio normal play ho raha hai":
+    #   * loudnorm (I=-12, dynamic) pulled the boosted signal back DOWN ~14 dB;
+    #   * asoftclip=type=atan has no make-up gain and cut another ~10 dB.
+    # Together they undid every boost stage, so playback came out at the
+    # same level as the raw file.  Now: dense leveller -> second glue
+    # compressor -> loudness drive -> ONE brick-wall limiter (no level loss).
+    if _has_filter("speechnorm"):
+        filters.append("speechnorm=e=12:r=0.001:l=1:p=0.95:t=0.01")
+    filters.append("acompressor=threshold=0.25:ratio=8:attack=0.5:release=30:makeup=2:knee=2")
+    filters.append(f"volume={_db(min(9.0, 3.0 + extra_loud_db() * 0.33))}dB")
+    filters.append("alimiter=level_in=1:limit=0.97:attack=0.5:release=20:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
