@@ -600,6 +600,20 @@ def build_ffmpeg_filter(
     # LOUDER PLAYBACK: +6 dB more drive into the limiter than before.
     filters.append(f"volume={_db(min(15.0, 7.0 + extra_loud_db() * 0.45))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=0.5:release=20:level=false:asc=1")
+    # PLAYBACK MAX-DENSITY STAGE (same trick as the live-mic bridge):
+    # phase rotator shrinks peaks, then a +PLAY_DRIVE_DB push into a hard
+    # clip, de-alias lowpass and a final brick-wall below 0 dBFS.  Peak stays
+    # safe (no Opus crackle) while the average level - what the ear hears as
+    # "aawaz" - rises several dB.
+    if _has_filter("allpass"):
+        filters += ["allpass=f=200:t=q:w=0.7", "allpass=f=800:t=q:w=0.7",
+                    "allpass=f=2000:t=q:w=0.7"]
+    drive = _env_db("PLAY_DRIVE_DB", 6.0, high=12.0, low=0.0)
+    if drive and _has_filter("asoftclip"):
+        filters.append(f"volume={_db(drive)}dB")
+        filters.append("asoftclip=type=hard:threshold=0.95")
+        filters.append("lowpass=f=15500")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.89:attack=0.1:release=8:level=false")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
