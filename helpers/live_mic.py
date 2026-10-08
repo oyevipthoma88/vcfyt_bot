@@ -99,6 +99,11 @@ class LiveMicSession:
         self._last_pcm_at = 0.0
         self._dropped_bytes = 0
         self._ffmpeg_restarts = 0
+        # True only while a group ADMIN has confirmed the relay at 200 %
+        # volume for every listener.  Decides the output ceiling (see
+        # build_live_mic_filter): -6.5 dBFS with the x2 boost, -1 without.
+        self._admin_boost = False
+        self._pipeline_ceiling = None
         self._started = False
         self.token_secret: Optional[str] = None
         self.started_at = time.monotonic()
@@ -163,7 +168,38 @@ class LiveMicSession:
     def _build_filter(self) -> str:
         # Fixed chain — no sliders, presets or saved settings can change it.
         from helpers.audio_processor import build_live_mic_filter
-        return build_live_mic_filter()
+        self._pipeline_ceiling = self._ceiling_db()
+        return build_live_mic_filter(self._pipeline_ceiling)
+
+    def _ceiling_db(self) -> float:
+        """Loudest clip-safe output peak for the current Telegram volume.
+
+        ROOT FIX: the -6.5 dB headroom for Telegram's x2 (200 %) boost used
+        to be applied even when no admin boost reached listeners — then the
+        mic was simply 6.5 dB too quiet.  Now headroom is only kept while an
+        admin-set 200 % is confirmed.
+        """
+        def _env(name, default):
+            try:
+                return max(-12.0, min(-0.5, float(os.environ.get(name, "") or default)))
+            except (TypeError, ValueError):
+                return default
+        if self._admin_boost:
+            return _env("LIVE_MIC_CEILING_DB", -6.5)
+        return _env("LIVE_MIC_OPEN_CEILING_DB", -1.0)
+
+    async def _apply_ceiling(self) -> None:
+        """Swap FFmpeg (VC stream stays alive) when the needed ceiling changed."""
+        if self._closed or self.ffmpeg_proc is None:
+            return
+        if self._pipeline_ceiling is not None and abs(self._ceiling_db() - self._pipeline_ceiling) < 0.05:
+            return
+        saved = self._ffmpeg_restarts
+        self._ffmpeg_restarts = 0
+        try:
+            await self._restart_ffmpeg(max_attempts=1)
+        finally:
+            self._ffmpeg_restarts = saved
 
     # --- pipeline ---
 
@@ -436,6 +472,15 @@ class LiveMicSession:
             ),
         )
 
+    async def _is_admin(self, vc) -> bool:
+        """Is this account an admin (its volume edits apply for everyone)?"""
+        try:
+            from pyrogram.enums import ChatMemberStatus
+            m = await vc.client.get_chat_member(self.chat_id, "me")
+            return m.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
+        except Exception:
+            return False
+
     async def _unmute_self(self):
         """Make sure the streaming account is not muted inside the VC.
 
@@ -508,6 +553,7 @@ class LiveMicSession:
         # (spare) account is usually not admin, so its self-volume only counts
         # locally.  Ask the user's own account (often admin) to set the relay
         # to 200% too, so all fighters hear the mic at double volume.
+        admin_ok = False
         if getattr(self, "uvc", None) is not None and self.relay is not self.uvc:
             for delay in (0.0, 1.0, 3.0):
                 if delay:
@@ -515,9 +561,24 @@ class LiveMicSession:
                 try:
                     if await self.uvc.set_participant_volume(
                             self.chat_id, self.relay.account_id, 20000, quiet=True):
+                        admin_ok = True
                         break
                 except Exception:
                     continue
+        elif applied:
+            # Relay IS the user's own account: its volume edit is the admin one.
+            admin_ok = True
+        _uvc = getattr(self, "uvc", None)
+        if admin_ok and not await self._is_admin(_uvc if (_uvc is not None and self.relay is not _uvc) else self.relay):
+            admin_ok = False
+        self._admin_boost = admin_ok
+        logger.info("Live mic: admin 200%% boost %s in %s -> ceiling %.1f dBFS",
+                    "CONFIRMED" if admin_ok else "not active", self.chat_id,
+                    self._ceiling_db())
+        try:
+            await self._apply_ceiling()
+        except Exception as exc:
+            logger.debug("ceiling swap failed: %r", exc)
         try:
             self.relay.state(self.chat_id).live_volume = 20000
             self.relay._start_keeper(self.chat_id)
@@ -1689,7 +1750,7 @@ async function toggleMic() {
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            const pre = audioCtx.createGain(); pre.gain.value = 2.0;
+            const pre = audioCtx.createGain(); pre.gain.value = 4.0; // +12 dB: phone mic (AGC off) is very quiet; limiter below stops clipping
             const lim = audioCtx.createDynamicsCompressor();
             lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20;
             lim.attack.value=0.002; lim.release.value=0.06;
