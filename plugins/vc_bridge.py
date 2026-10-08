@@ -10,7 +10,7 @@ from pyrogram.types import InlineKeyboardMarkup as K
 from helpers.database import db
 from helpers.vc_manager import session_manager
 from plugins.ui import HAS_USER, cmd_text, cmd_prefix, B, edit_screen, safe_answer
-from plugins.vc_commands import get_engine, mic_notify, target_chat
+from plugins.vc_commands import get_engine, mic_notify, target_chat, is_chat_ref
 
 HELP = (
     "🎤 <b>Live Mic (VC Bridge)</b> — Telegram VC se live aawaz\n\n"
@@ -29,7 +29,9 @@ HELP = (
     "• <code>.mic leave</code> — band + spare dono VC se bahar\n"
     "• <code>.mic status</code>\n"
     "• <code>.mic loud</code> — 🔥 LOUD panel: <b>🚀 Drive</b> se awaaz badhao (0–20, 11+ par thodi phategi)\n"
-    "• <code>.mic loud fight</code> — ek command me sabse tez fight mode\n\n"
+    "• <code>.mic loud fight</code> — ek command me sabse tez fight mode\n"
+    "• <code>.mic panel</code> — buttons: ON / OFF / Status / Leave + Drive/Bass/Presence\n\n"
+    "<i>Chat ID -100 ke saath ya bina dono chalega.</i>\n"
     "<i><code>.bridge ...</code> bhi same kaam karta hai. Main ID target VC join na kare — "
     "target VC me spare ID khud join hoke aapki aawaz bolegi.</i>"
 )
@@ -77,7 +79,47 @@ def loud_kb() -> K:
          B("🔊 Loud", callback_data="brl:p:loud", style="success"),
          B("💥 MAX", callback_data="brl:p:max", style="danger"),
          B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger")],
+        [B("♻️ Reset", callback_data="brl:reset:x", style="primary"),
+         B("🔄 Refresh", callback_data="brc:loud", style="primary")],
+        [B("🟢 Mic ON", callback_data="brc:on", style="success"),
+         B("🔴 Mic OFF", callback_data="brc:off", style="danger")],
+        [B("📊 Status", callback_data="brc:status", style="primary"),
+         B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
     ])
+
+
+class _CbMsg:
+    """Callback ko Message jaisa bana deta hai, taaki panel ke buttons wahi
+    run_bridge logic chalaayein jo `.mic on/off/status` chalata hai."""
+
+    def __init__(self, cq):
+        self._client = cq._client if hasattr(cq, "_client") else cq.message._client
+        self.from_user = cq.from_user
+        self.chat = cq.message.chat
+        self.reply_to_message = None
+
+    async def reply_text(self, text, **kw):
+        return await mic_notify(self, text, **kw)
+
+    async def delete(self):
+        return None
+
+
+@Client.on_callback_query(filters.regex(r"^brc:"))
+async def cb_mic_control(bot: Client, cq):
+    action = cq.data.split(":", 1)[1]
+    if action not in {"on", "off", "status", "leave", "loud"}:
+        return await safe_answer(cq, "?")
+    await safe_answer(cq, {"on": "Mic ON ho raha hai…", "off": "Mic band…",
+                           "leave": "VC se bahar…", "status": "Status…",
+                           "loud": "Refresh"}[action])
+    if action == "loud":
+        from helpers import vc_bridge
+        c = await vc_bridge.load_loud(cq.from_user.id)
+        live = vc_bridge.get_bridge(cq.from_user.id) is not None
+        await edit_screen(cq.message, loud_text(c, live), reply_markup=loud_kb())
+        return
+    await run_bridge(_CbMsg(cq), ["mic", action])
 
 
 async def _loud_change(uid: int, key: str, val: str) -> dict:
@@ -88,9 +130,12 @@ async def _loud_change(uid: int, key: str, val: str) -> dict:
     elif key == "clip":
         c["clip"] = val if val in ("hard", "soft") else ("soft" if c["clip"] == "hard" else "hard")
     elif key in vc_bridge.LOUD_LIMITS:
-        c[key] = int(c[key]) + int(val)
-    elif key == "set" and key:
-        pass
+        try:
+            c[key] = int(c[key]) + int(val)
+        except ValueError:
+            pass
+    elif key == "reset":
+        c = dict(vc_bridge.LOUD_DEFAULT)
     return await vc_bridge.save_loud(uid, c)
 
 
@@ -149,7 +194,7 @@ async def run_bridge(msg: Message, parts):
         await mic_notify(msg, HELP)
         return
 
-    if action in {"loud", "power", "boost"}:
+    if action in {"loud", "power", "boost", "panel", "control", "ctrl"}:
         await loud_command(msg, parts[2:])
         return
 
@@ -159,7 +204,7 @@ async def run_bridge(msg: Message, parts):
             return
         cid, _ = await target_chat(msg, parts[2])
         if not cid:
-            await mic_notify(msg, "❌ Private group nahi mila. Chat ID (-100…) do.")
+            await mic_notify(msg, "❌ Private group nahi mila. Chat ID (-100 ke saath ya bina) / @username / link do.")
             return
         await db.set_app_value(f"bridge_src_{uid}", str(cid))
         await mic_notify(msg, f"✅ Private (source) group set: <code>{cid}</code>")
@@ -209,7 +254,7 @@ async def run_bridge(msg: Message, parts):
     for p in parts[2:]:
         if p.lower() in vc_bridge.PRESETS:
             preset = p.lower()
-        elif p.startswith("-100") or p.startswith("@") or "t.me/" in p:
+        elif is_chat_ref(p):
             tgt_arg = p
     src = await db.get_app_value(f"bridge_src_{uid}")
     if not src:
