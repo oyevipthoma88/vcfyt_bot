@@ -1,5 +1,5 @@
 """Auto Core: every connected account ("core") joins the must-join channels
-and drops random reactions on the newest post + the last 15 posts.
+and drops random reactions + a view on the newest post + the last 15 posts.
 
 * Normal Telegram account  -> 1 reaction per post
 * Telegram Premium account -> 3 reactions per post (Telegram's own limit)
@@ -116,9 +116,23 @@ async def _join(client, entry):
     return chat
 
 
+async def _add_views(client, chat_id: int, ids: list) -> int:
+    """Count a view on these posts (messages.GetMessagesViews increment=True)."""
+    if not ids:
+        return 0
+    from pyrogram.raw.functions.messages import GetMessagesViews
+    try:
+        peer = await client.resolve_peer(chat_id)
+        await _call(client.invoke, GetMessagesViews(peer=peer, id=list(ids), increment=True))
+        return len(ids)
+    except Exception as e:
+        logger.info("core views %s: %r", chat_id, e)
+        return 0
+
+
 # ── per account ─────────────────────────────────────────────────────────
 async def core_user(user_id: int, string_session: str | None = None) -> dict:
-    rep = {"joined": 0, "reacted": 0, "failed": 0, "premium": False, "error": ""}
+    rep = {"joined": 0, "reacted": 0, "viewed": 0, "failed": 0, "premium": False, "error": ""}
     if user_id in _running:
         rep["error"] = "already running"
         return rep
@@ -150,8 +164,6 @@ async def core_user(user_id: int, string_session: str | None = None) -> dict:
                 continue
             rep["joined"] += 1
             emojis = _allowed_emojis(chat)
-            if not emojis:
-                continue
             done_upto = int(marks.get(str(chat.id), 0))
             msgs = []
             try:
@@ -162,6 +174,12 @@ async def core_user(user_id: int, string_session: str | None = None) -> dict:
                 logger.info("core history %s: %r", chat.id, e)
                 continue
             top = done_upto
+            # VIEWS: like reactions, every core adds 1 view per post.
+            rep["viewed"] += await _add_views(client, chat.id, [m.id for m in msgs])
+            if not emojis:
+                if msgs:
+                    await _save_mark(user_id, chat.id, max(m.id for m in msgs))
+                continue
             for m in sorted(msgs, key=lambda x: x.id):
                 pick = random.sample(emojis, min(per_post, len(emojis)))
                 try:
@@ -199,7 +217,7 @@ async def core_user(user_id: int, string_session: str | None = None) -> dict:
 async def core_all(progress=None) -> dict:
     global last_report
     total = {"accounts": 0, "done": 0, "skipped": 0, "premium": 0,
-             "joined": 0, "reacted": 0, "failed": 0}
+             "joined": 0, "reacted": 0, "viewed": 0, "failed": 0}
     if not await _channels():
         return total
     users = [u for u in await db.all_users() if u.get("string_session")]
@@ -214,7 +232,7 @@ async def core_all(progress=None) -> dict:
             else:
                 total["done"] += 1
             total["premium"] += int(r["premium"])
-            for k in ("joined", "reacted", "failed"):
+            for k in ("joined", "reacted", "viewed", "failed"):
                 total[k] += r[k]
             if progress:
                 try:

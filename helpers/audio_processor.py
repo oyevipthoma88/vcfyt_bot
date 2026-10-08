@@ -208,7 +208,14 @@ def _legacy_gain_to_db(gain: int) -> float:
 # Measured on real speech: quiet (-35 dBFS) and loud (-6 dBFS) phones both
 # land at the same loud level, peak -1.0 dBFS, background hiss gated away.
 # ---------------------------------------------------------------------------
-def build_live_mic_filter(ceiling_db: float = None) -> str:
+def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int = 0) -> str:
+    # LIVE SLIDERS (mic page):
+    #   loud   0..100 -> up to +15 dB extra drive into the limiters (fight
+    #                    me awaaz tez / denser).  0 = default best chain.
+    #   crunch 0..100 -> soft-clip overdrive ("awaaz fategi") so the voice
+    #                    cuts through when the other fighter is equally loud.
+    loud = max(0, min(100, int(loud or 0)))
+    crunch = max(0, min(100, int(crunch or 0)))
     # HEADROOM FOR TELEGRAM 200 % VOLUME (record_19 analysis):
     # when an ADMIN sets the relay to 200 % participant volume (x2 = +6 dB)
     # a stream peaking at -1 dBFS reached the VC at +5/+6 dBFS and clipped.
@@ -280,6 +287,17 @@ def build_live_mic_filter(ceiling_db: float = None) -> str:
                      "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
                      "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
             f.append("volume=18dB")
+    if crunch > 0:
+        # Push the voice into a tanh soft-clipper, then pull it back: adds
+        # harmonics (gritty / "phati" awaaz) while the limiters stay in charge.
+        cdb = crunch * 0.24            # up to +24 dB into the clipper
+        f.append(f"volume={_db(cdb)}dB")
+        if _has_filter("asoftclip"):
+            f.append("asoftclip=type=tanh")
+        else:
+            f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
+        f.append(f"volume={_db(-cdb * 0.6)}dB")
+    drive += loud * 0.15               # up to +15 dB extra loudness
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",

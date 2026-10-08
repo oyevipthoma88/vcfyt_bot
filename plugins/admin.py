@@ -156,13 +156,14 @@ async def cb_admin(bot, cq):
                 last[0] = now
                 await edit_screen(msg, "⚡ <b>Auto Core chal raha hai…</b>\n\n"
                     f"Cores: {t['done']}/{t['accounts']} (skip {t['skipped']})\n"
-                    f"Joined: {t['joined']} • Reactions: {t['reacted']} • Failed: {t['failed']}")
+                    f"Joined: {t['joined']} • Reactions: {t['reacted']} • Views: {t.get('viewed', 0)} • Failed: {t['failed']}")
             t = await AC.core_all(_prog)
             await edit_screen(msg, "✅ <b>Auto Core complete</b>\n━━━━━━━━━━━━━━━━━━━━\n"
                 f"🔐 Cores: {t['done']}/{t['accounts']} (skip {t['skipped']})\n"
                 f"💎 Premium cores: {t['premium']}\n"
                 f"📥 Channel joins: {t['joined']}\n"
                 f"❤️ Reactions: {t['reacted']}\n"
+                f"👁 Views: {t.get('viewed', 0)}\n"
                 f"⚠️ Failed: {t['failed']}",
                 reply_markup=K([[B("⬅ Back", callback_data="adm_core")]]))
             return
@@ -179,6 +180,7 @@ async def cb_admin(bot, cq):
             f"2️⃣ Naya post + purane <b>{AC.OLD_POSTS}</b> post pe random reaction\n"
             "   • Normal account → <b>1</b> reaction\n"
             "   • Premium account → <b>3</b> reactions\n"
+            "   • Har account se har post pe <b>1 view</b>\n"
             "3️⃣ Bot restart pe sab cores dobara join\n"
             "4️⃣ Naya core login hote hi wo bhi yahi karega\n"
             "5️⃣ Channel me naya post aate hi sab react karenge\n\n"

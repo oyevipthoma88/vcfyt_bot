@@ -145,6 +145,8 @@ class LiveMicSession:
             "pregain": int(s.get("pregain", 80)),
             "turbo": int(s.get("turbo", 12) or 12),
             "clarity": int(s.get("clarity", 14) if s.get("clarity") is not None else 14),
+            "loud": int(s.get("loud", 0) or 0),
+            "crunch": int(s.get("crunch", 0) or 0),
         }
 
     @staticmethod
@@ -153,6 +155,7 @@ class LiveMicSession:
             "volume": (0, 1000), "bass": (0, 100), "treble": (0, 120),
             "gain": (0, 400), "boost": (0, 10), "echo_level": (0, 10),
             "pregain": (0, 200), "turbo": (0, 24), "clarity": (0, 35),
+            "loud": (0, 100), "crunch": (0, 100),
         }
         clean = {}
         for key, (low, high) in limits.items():
@@ -169,7 +172,9 @@ class LiveMicSession:
         # Fixed chain — no sliders, presets or saved settings can change it.
         from helpers.audio_processor import build_live_mic_filter
         self._pipeline_ceiling = self._ceiling_db()
-        return build_live_mic_filter(self._pipeline_ceiling)
+        return build_live_mic_filter(self._pipeline_ceiling,
+                                     loud=int(self.settings.get("loud", 0) or 0),
+                                     crunch=int(self.settings.get("crunch", 0) or 0))
 
     def _ceiling_db(self) -> float:
         """Loudest clip-safe output peak for the current Telegram volume.
@@ -826,13 +831,26 @@ class LiveMicSession:
             raise
 
     async def apply_settings(self, changes: dict) -> bool:
-        """Live mic has no controls any more: settings are ignored.
+        """Only the live LOUD / CRUNCH sliders change the chain.
 
-        Every settings change used to kill and restart FFmpeg mid-fight
-        (audible gap, sometimes a VC drop) and let sliders over-drive the
-        chain into distortion.  The chain is fixed, so nothing to apply.
+        Other keys are ignored (chain stays the fixed best one).  A change
+        swaps FFmpeg on the same processed FIFO, so the VC stream stays alive
+        (a ~0.2s blip at most).  The page only sends on slider release.
         """
-        return True
+        live = {k: v for k, v in changes.items() if k in ("loud", "crunch")}
+        if not live:
+            return True
+        if all(int(self.settings.get(k, 0) or 0) == v for k, v in live.items()):
+            return True
+        self.settings.update(live)
+        if self._closed or self.ffmpeg_proc is None:
+            return True
+        saved = self._ffmpeg_restarts
+        self._ffmpeg_restarts = 0
+        try:
+            return await self._restart_ffmpeg(max_attempts=1)
+        finally:
+            self._ffmpeg_restarts = saved
 
     async def _restart_ffmpeg(self, max_attempts: int = 3) -> bool:
         """Relaunch FFmpeg after an unexpected exit, keeping the VC stream alive."""
@@ -1362,6 +1380,14 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 <div class="save" id="saveNote"></div>
 
 
+<div class="ctl" id="liveCtl">
+  <div class="row"><span>&#128266; VOLUME BOOST</span><b id="loudV">0</b></div>
+  <input type="range" id="loudR" min="0" max="100" step="5" value="0">
+  <div class="row"><span>&#128165; FATNA (DISTORTION)</span><b id="crunchV">0</b></div>
+  <input type="range" id="crunchR" min="0" max="100" step="5" value="0">
+  <small>Default 0 = best saaf awaaz. Fight me saamne wala tez ho to <b>VOLUME BOOST</b> badhayein; aur zyada tez + phati awaaz chahiye to <b>FATNA</b> bhi badhayein. Slider chhodte hi live lagta hai.</small>
+</div>
+
 <button id="retryBtn" class="btn" style="display:none" onclick="retryMic()">Permission dene ke baad — Dobara try karein</button>
 <div id="permHelp" class="help"></div>
 
@@ -1380,7 +1406,7 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
   2. Telegram me <b>.mic on</b> bhejein aur link kholein.<br>
   3. Beech wala <b>mic button</b> dabayein aur permission <b>Allow</b> karein.<br>
   4. Telegram app ka apna mic <b>mute</b> rakhein — awaaz isi page se jaati hai.<br>
-  5. Koi setting nahi — aawaz apne aap sabse tez aur saaf jaati hai.<br>
+  5. Awaaz kam lage to neeche <b>VOLUME BOOST</b> / <b>FATNA</b> slider badhayein.<br>
   6. Mic na chale to <b>Chrome me kholein</b> dabayein.<br>
   7. Rokne ke liye mic button dobara dabayein ya <b>.mic off</b> bhejein.
   </p>
@@ -1407,6 +1433,21 @@ const badgeEl=document.getElementById('badgeTxt');
 const TOKEN=new URLSearchParams(location.search).get('token');
 try{localStorage.removeItem('vcfyt_ctl');}catch(e){}
 try{localStorage.removeItem('vcfyt_mic');}catch(e){}
+// LIVE controls: VOLUME BOOST + FATNA (distortion). Sent on release only.
+const loudR=document.getElementById('loudR'), crunchR=document.getElementById('crunchR');
+const loudV=document.getElementById('loudV'), crunchV=document.getElementById('crunchV');
+function syncCtl(st){
+  if(st && st.loud!=null){loudR.value=st.loud;loudV.textContent=st.loud;}
+  if(st && st.crunch!=null){crunchR.value=st.crunch;crunchV.textContent=st.crunch;}
+}
+function sendCtl(){
+  const p={loud:+loudR.value,crunch:+crunchR.value};
+  if(ws && ws.readyState===1 && sendReady){try{ws.send('settings:'+JSON.stringify(p));}catch(e){}}
+}
+loudR.addEventListener('input',()=>{loudV.textContent=loudR.value;});
+crunchR.addEventListener('input',()=>{crunchV.textContent=crunchR.value;});
+loudR.addEventListener('change',sendCtl);
+crunchR.addEventListener('change',sendCtl);
 
 // decoration: stars + eq bars
 (function(){const s=document.getElementById('stars');for(let i=0;i<40;i++){const d=document.createElement('i');d.className='star';
@@ -1640,7 +1681,7 @@ function connectSocket(myAttempt){
             // to create an audible gap and could make the relay look dead on
             // slower phones. Explicit preset/reset actions still send changes.
         } else if (ev.data.startsWith('settings:')) {
-            // settings are fixed server-side (best loud + clear).
+            try { const st=JSON.parse(ev.data.slice(9)); syncCtl(st); } catch(e){}
         } else if (ev.data.startsWith('settings_failed:')) {
             /* ignored */
         } else if (ev.data.startsWith('error:')) {
