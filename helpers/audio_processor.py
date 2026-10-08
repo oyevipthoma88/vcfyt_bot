@@ -554,7 +554,7 @@ def build_ffmpeg_filter(
         "aresample=48000",
         "aformat=channel_layouts=stereo",
         "pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1",
-        ("dynaudnorm=f=50:g=8:p=0.95:m=15:r=0.95:s=0" if low_lat
+        ("dynaudnorm=f=20:g=3:p=0.95:m=20:r=0.95:s=0" if low_lat
          else "dynaudnorm=f=120:g=15:p=0.96:m=20:r=0.98:s=0"),
     ]
 
@@ -583,7 +583,7 @@ def build_ffmpeg_filter(
             f"{decay:.2f}|{decay * 0.5:.2f}"
         )
 
-    filters.append(f"volume={_db(min(12.0, volume_to_db(vol) * 0.25 + _legacy_gain_to_db(gain_value) * 0.5))}dB")
+    filters.append(f"volume={_db(max(4.0, min(18.0, 6.0 + volume_to_db(vol) * 0.3 + _legacy_gain_to_db(gain_value) * 0.5)))}dB")
 
     if extra_filters:
         filters.append(extra_filters)
@@ -597,8 +597,9 @@ def build_ffmpeg_filter(
     if _has_filter("speechnorm"):
         filters.append("speechnorm=e=12:r=0.001:l=1:p=0.95:t=0.01")
     filters.append("acompressor=threshold=0.25:ratio=8:attack=0.5:release=30:makeup=2:knee=2")
-    filters.append(f"volume={_db(min(9.0, 3.0 + extra_loud_db() * 0.33))}dB")
-    filters.append("alimiter=level_in=1:limit=0.97:attack=0.5:release=20:level=false:asc=1")
+    # LOUDER PLAYBACK: +6 dB more drive into the limiter than before.
+    filters.append(f"volume={_db(min(15.0, 7.0 + extra_loud_db() * 0.45))}dB")
+    filters.append("alimiter=level_in=1:limit=0.98:attack=0.5:release=20:level=false:asc=1")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
@@ -706,6 +707,10 @@ def build_stream_command(
         cmd += ["-ss", f"{start_at:.2f}"]
     # Tiny probe window: FFmpeg starts emitting PCM straight away.
     cmd += ["-probesize", "32k", "-analyzeduration", "0"]
+    if not (start_at and start_at > 0):
+        # 0-sec start: cut the file's leading silence so sound is heard
+        # the moment .play hits the VC.
+        af = "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.05," + af
     cmd += [
         "-i", input_path, "-vn", "-sn", "-dn", "-af", af,
         "-ar", "48000", "-ac", "2", "-f", "s16le", "-flush_packets", "1",
@@ -763,7 +768,7 @@ def build_fake_screen_command(
            "-threads", "2", "-re"]
     if os.path.exists(img):
         cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
-        base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
     else:
         cmd += ["-f", "lavfi", "-i", f"color=c=0x101418:s={width}x{height}:r={fps}"]
