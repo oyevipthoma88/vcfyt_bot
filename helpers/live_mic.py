@@ -689,8 +689,36 @@ class LiveMicSession:
 
     async def _attach_stream(self):
         from pytgcalls.types import GroupCallConfig
+        stream = self._media_stream()
+        # SS FIX: starting the live mic replaced the whole call stream with a
+        # mic-only one, so an active `.ss on` screen share silently vanished.
+        # Keep the fake screen attached when it is ON for this chat.
+        screen = None
+        try:
+            st = self.relay.state(self.chat_id)
+            if getattr(st, "ss_on", False):
+                from config import Config
+                if Config.SCREEN_SHARE_ENABLED:
+                    screen = self.relay._screen_source(st)
+        except Exception as exc:
+            logger.debug("live mic: screen source unavailable: %r", exc)
+        if screen is not None:
+            from pytgcalls.types.raw import Stream
+            try:
+                await self.relay.calls.play(
+                    self.chat_id, Stream(microphone=stream.microphone, screen=screen),
+                    GroupCallConfig(auto_start=False),
+                )
+                return
+            except Exception as exc:
+                # Screen must never block the mic: retry audio-only.
+                logger.warning("live mic + screen share refused (%r); audio only", exc)
+                try:
+                    self.relay.state(self.chat_id).ss_on = False
+                except Exception:
+                    pass
         await self.relay.calls.play(
-            self.chat_id, self._media_stream(),
+            self.chat_id, stream,
             GroupCallConfig(auto_start=False),
         )
 
