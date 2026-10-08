@@ -10,10 +10,10 @@ from helpers.logger_channel import log_command, log_error
 
 def library_kb() -> K:
     return K([
-        [B(" Available Audio", callback_data="aud:my"),
-         B(" Bot Audios", callback_data="aud:bot")],
-        [B(" Save My Audio", callback_data="aud:help")],
-        [B(" Home", callback_data="menu:home")],
+        [B("🔹 Available Audio", callback_data="aud:my"),
+         B("🔹 Bot Audios", callback_data="aud:bot")],
+        [B("🔹 Save My Audio", callback_data="aud:help")],
+        [B("🔹 Home", callback_data="menu:home")],
     ])
 
 def _media(reply):
@@ -24,9 +24,9 @@ def _media(reply):
 
 def _item_kb(item: dict, can_delete: bool = False) -> K:
     audio_id = str(item["audio_id"])
-    rows = [[B(" Send Audio Here", callback_data=f"aud:send:{audio_id}")]]
+    rows = [[B("🔹 Send Audio Here", callback_data=f"aud:send:{audio_id}")]]
     if can_delete:
-        rows.append([B(" Delete", callback_data=f"aud:del:{audio_id}")])
+        rows.append([B("🔹 Delete", callback_data=f"aud:del:{audio_id}")])
     return K(rows)
 
 async def _show_items(cq, items: list, heading: str, user_id: int):
@@ -77,7 +77,7 @@ async def cmd_save_audio(bot: Client, msg: Message):
 @Client.on_message(HAS_USER & cmd_prefix(r"addaudio\b", flags=re.IGNORECASE) & filters.private)
 async def cmd_add_owner_audio(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
-        await msg.reply_text(" Ye command sirf owner ke liye hai.")
+        await msg.reply_text("ℹ️ Ye command sirf owner ke liye hai.")
         return
     parts = cmd_text(msg).split(maxsplit=1)
     title = parts[1].strip() if len(parts) > 1 else ""
@@ -101,7 +101,7 @@ async def _save_reply_audio(msg: Message, owner_id: int, title: str, mode: str):
         )
     except Exception as exc:
         await log_error("save_audio", exc)
-        await msg.reply_text(f" Audio save nahi hua: <code>{exc}</code>")
+        await msg.reply_text(f"❌ Audio save nahi hua: <code>{exc}</code>")
         return
     scope = "Bot Audios mein public" if mode == "owner" else "My Audio mein private"
     await msg.reply_text(
@@ -118,7 +118,7 @@ async def cb_audio_library(bot, cq):
     uid = cq.from_user.id
     if action == "menu":
         await edit_screen(cq.message,
-            " <b>Audio Library</b>\n\n"
+            "ℹ️ <b>Audio Library</b>\n\n"
             "Audio select karte hi bot isi chat mein bhejega. Audio ko reply karke "
             "<code>.tag myaudio</code> karein; phir kisi bhi target group VC ke liye "
             "<code>.play myaudio &lt;chat_id&gt;</code> chalayein.",
@@ -165,7 +165,7 @@ async def cb_audio_library(bot, cq):
         deleted = await db.delete_audio(uid, audio_id)
         await safe_answer(cq, "Deleted" if deleted else "Audio nahi mila", show_alert=True)
         try:
-            await edit_screen(cq.message, " Audio delete ho gaya.", reply_markup=library_kb())
+            await edit_screen(cq.message, "✅ Audio delete ho gaya.", reply_markup=library_kb())
         except Exception:
             pass
         return
@@ -185,7 +185,7 @@ async def cb_audio_library(bot, cq):
                     "Example: <code>.play myaudio -1001234567890</code>"
                 ),
             )
-            await safe_answer(cq, " Audio isi chat mein bhej diya")
+            await safe_answer(cq, "✅ Audio isi chat mein bhej diya")
         except Exception as exc:
             await log_error("send_library_audio", exc)
             await safe_answer(cq,

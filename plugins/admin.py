@@ -19,7 +19,7 @@ BANNED_USERS: set = set()
 def owner_only(func):
     async def wrapper(bot: Client, msg: Message):
         if not msg.from_user or not Config.is_owner(msg.from_user.id):
-            await msg.reply_text(" Ye command sirf owner ke liye hai.")
+            await msg.reply_text("ℹ️ Ye command sirf owner ke liye hai.")
             return
         return await func(bot, msg)
     wrapper.__name__ = func.__name__
@@ -64,7 +64,7 @@ async def cmd_owner_panel(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^adm_"))
 async def cb_admin(bot, cq):
     if not Config.is_owner(cq.from_user.id):
-        await safe_answer(cq, " Sirf owner!", show_alert=True)
+        await safe_answer(cq, "✅ Sirf owner!", show_alert=True)
         return
 
     action = cq.data.split("_", 1)[1]
@@ -93,12 +93,12 @@ async def cb_admin(bot, cq):
                     f"• <code>{cid}</code> — {uvc.account_name} — "
                     f"{'playing' if st.is_playing else 'idle'}")
         await edit_screen(cq.message,
-            " <b>Active VCs</b>\n" + ("\n".join(lines) or "— none —"),
+            "ℹ️ <b>Active VCs</b>\n" + ("\n".join(lines) or "— none —"),
             reply_markup=back)
 
     elif action == "addaudio":
         await edit_screen(cq.message,
-            " <b>Add Bot Audio</b>\n\n"
+            "ℹ️ <b>Add Bot Audio</b>\n\n"
             "Audio/video message ko reply karke:\n"
             "<code>/addaudio &lt;title&gt;</code>\n\n"
             "Save hone ke baad sab users ke <b>Bot Audios</b> section mein dikhega.",
@@ -124,15 +124,15 @@ async def cb_admin(bot, cq):
 
     elif action == "broadcast":
         await edit_screen(cq.message,
-            " <b>Broadcast</b>\n\n"
+            "ℹ️ <b>Broadcast</b>\n\n"
             "<code>/broadcast &lt;message&gt;</code> ya kisi message ko reply "
             "karke <code>/broadcast</code>.\n"
             "Message database mein registered <b>sabhi users</b> ko jayega.",
             reply_markup=back)
 
     elif action == "restart":
-        await safe_answer(cq, " Restarting…")
-        await edit_screen(cq.message, " Restarting…")
+        await safe_answer(cq, "ℹ️ Restarting…")
+        await edit_screen(cq.message, "ℹ️ Restarting…")
         await asyncio.sleep(1)
         os.execv(sys.executable, [sys.executable] + sys.argv)
         return
@@ -346,7 +346,7 @@ async def cmd_ban(bot: Client, msg: Message):
         return
     BANNED_USERS.add(uid)
     await session_manager.remove(uid)
-    await msg.reply_text(f" <code>{uid}</code> banned.")
+    await msg.reply_text(f"ℹ️ <code>{uid}</code> banned.")
 
 @Client.on_message(HAS_USER & filters.command("unban", prefixes=[".", "/"]) & filters.private)
 @owner_only
@@ -357,12 +357,12 @@ async def cmd_unban(bot: Client, msg: Message):
         return
     uid = int(parts[1])
     BANNED_USERS.discard(uid)
-    await msg.reply_text(f" <code>{uid}</code> unbanned.")
+    await msg.reply_text(f"ℹ️ <code>{uid}</code> unbanned.")
 
 @Client.on_message(HAS_USER & filters.command("restart", prefixes=[".", "/"]) & filters.private)
 @owner_only
 async def cmd_restart(bot: Client, msg: Message):
-    await msg.reply_text(" Restarting…")
+    await msg.reply_text("ℹ️ Restarting…")
     await asyncio.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 

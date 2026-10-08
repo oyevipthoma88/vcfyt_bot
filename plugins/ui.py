@@ -67,8 +67,9 @@ def source_button():
 LINE = "━━━━━━━━━━━━━━━━━━━━"
 
 class ButtonStyle(str, Enum):
-
+    PRIMARY = "primary"
     SUCCESS = "success"
+    DANGER = "danger"
 
 _STYLE_EMOJI = {
     "primary": "🔹",
@@ -104,13 +105,17 @@ async def safe_answer(cq, text: str = "", **kwargs):
 _DANGER_WORDS = ("logout", "cancel", "stop", "reset", "delete", "untag", "ban", "restart", "off")
 _SUCCESS_WORDS = ("login", "addstring", "apply", "resume", "save", "send", "start", "on", "max")
 
+def _words(text: str, callback_data: str = None) -> set:
+    # Whole-word match only: the old substring check made "Controls",
+    # "Mention", "Done" ... look like "on" and flipped colours randomly.
+    import re as _re
+    return set(_re.findall(r"[a-z]+", f"{callback_data or ''} {text}".lower()))
+
 def _is_danger(text: str, callback_data: str = None) -> bool:
-    haystack = f"{callback_data or ''} {text}".lower()
-    return any(w in haystack for w in _DANGER_WORDS)
+    return bool(_words(text, callback_data) & set(_DANGER_WORDS))
 
 def _is_success(text: str, callback_data: str = None) -> bool:
-    haystack = f"{callback_data or ''} {text}".lower()
-    return any(w in haystack for w in _SUCCESS_WORDS)
+    return bool(_words(text, callback_data) & set(_SUCCESS_WORDS))
 
 def B(text: str, callback_data: str = None, style: str = None,
       icon_custom_emoji_id=None, **kwargs):
@@ -216,13 +221,13 @@ LOGIN_INTRO = (
 
 def login_kb() -> K:
     rows = [
-        [B(" Phone se Login", callback_data="login:phone")],
-        [B(" Home", callback_data="menu:home")],
+        [B("🔹 Phone se Login", callback_data="login:phone")],
+        [B("🔹 Home", callback_data="menu:home")],
     ]
     rows.extend(source_button())
     return K(rows)
 
-CANCEL_KB = K([[B(" Cancel", callback_data="login:cancel")]])
+CANCEL_KB = K([[B("🔹 Cancel", callback_data="login:cancel")]])
 
 def settings_text(s: dict) -> str:
     bars = lambda n: "█" * n + "░" * (10 - n)
@@ -283,7 +288,7 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
 def mic_kb(mic_on: bool = False, logged_in: bool = False) -> K:
     if not logged_in:
         return K([
-            [B(" Login karein", callback_data="menu:login")],
+            [B("🔹 Login karein", callback_data="menu:login")],
             [B("⬅ Home", callback_data="menu:home")],
         ])
     rows = [

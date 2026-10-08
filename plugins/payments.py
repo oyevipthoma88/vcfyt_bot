@@ -136,7 +136,7 @@ def user_payment_kb(config: dict = None) -> K:
             price = entry.get("price", "—") if entry else "—"
         else:
             price = "—"
-        plan_rows.append([B(f" {label} — {price}", callback_data=f"pay:plan:{plan_id}")])
+        plan_rows.append([B(f"🔹 {label} — {price}", callback_data=f"pay:plan:{plan_id}")])
     rows.extend(plan_rows[:3])
     rows.extend(plan_rows[3:])
     rows.append([B("🎟️ Redeem Coupon", callback_data="pay:coupon")])

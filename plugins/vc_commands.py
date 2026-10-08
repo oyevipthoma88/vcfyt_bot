@@ -25,8 +25,8 @@ from helpers.vc_manager import AUTO_PRESET, VOL_MAX, VOL_NORMAL, session_manager
 LINE = "━" * 28
 
 LOGIN_KB = K([
-    [B(" Login karein", callback_data="menu:login")],
-    [B(" Tutorial", callback_data="menu:tutorial")],
+    [B("🔹 Login karein", callback_data="menu:login")],
+    [B("🔹 Tutorial", callback_data="menu:tutorial")],
 ])
 
 LIMIT_KB = K([
@@ -147,16 +147,19 @@ def now_playing_kb(cid: int, st=None) -> K:
     human = bool(st and (st.hand_raise or st.mic_blink))
     ss = bool(st and getattr(st, "ss_on", False))
     loop = bool(st and st.loop)
+    def onoff(v):
+        return "success" if v else "danger"
     return K([
         [B("▶ Resume" if paused else "⏸ Pause",
-           callback_data=f"vc:{'resume' if paused else 'pause'}:{cid}"),
-         B("⏭ Skip", callback_data=f"vc:skip:{cid}"),
-         B("⏹ Stop", callback_data=f"vc:stop:{cid}")],
-        [B(f"🔁 Loop: {'ON' if loop else 'OFF'}", callback_data=f"vc:loop:{cid}"),
-         B(f"🖥 Screen: {'ON' if ss else 'OFF'}", callback_data=f"vc:ss:{cid}")],
-        [B(f"🧑 Human Mode: {'ON' if human else 'OFF'}", callback_data=f"vc:human:{cid}")],
-        [B("🎚️ Audio Controls", callback_data="menu:settings"),
-         B("🔄 Refresh", callback_data=f"vc:now:{cid}")],
+           callback_data=f"vc:{'resume' if paused else 'pause'}:{cid}",
+           style="success" if paused else "primary"),
+         B("⏭ Skip", callback_data=f"vc:skip:{cid}", style="primary"),
+         B("⏹ Stop", callback_data=f"vc:stop:{cid}", style="danger")],
+        [B(f"🔁 Loop: {'ON' if loop else 'OFF'}", callback_data=f"vc:loop:{cid}", style=onoff(loop)),
+         B(f"🖥 Screen: {'ON' if ss else 'OFF'}", callback_data=f"vc:ss:{cid}", style=onoff(ss))],
+        [B(f"🧑 Human Mode: {'ON' if human else 'OFF'}", callback_data=f"vc:human:{cid}", style=onoff(human))],
+        [B("🎚️ Audio Controls", callback_data="menu:settings", style="primary"),
+         B("🔄 Refresh", callback_data=f"vc:now:{cid}", style="primary")],
     ])
 
 async def get_engine(msg: Message):
@@ -166,7 +169,7 @@ async def get_engine(msg: Message):
         # allowed to post, and that must not swallow the command silently.
         await mic_notify(
             msg,
-            " <b>Pehle login karein.</b>\n\n"
+            "❌ <b>Pehle login karein.</b>\n\n"
             "Bot ke DM mein jaakar  Login   Phone se Login, "
             "ya apna string session add karein.",
             reply_markup=LOGIN_KB,
@@ -251,7 +254,7 @@ async def need_chat(msg: Message, arg: str = None) -> int:
     if not cid:
         await mic_notify(
             msg,
-            " Voice chat sirf <b>groups</b> mein hota hai.\n"
+            "ℹ️ Voice chat sirf <b>groups</b> mein hota hai.\n"
             "Group mein command chalayein, ya group ka chat ID / username / invite link dein:\n"
             "<code>.play &lt;source&gt; -1001234567890</code>\n"
             "<code>.play &lt;source&gt; @groupusername</code>\n"
@@ -284,12 +287,12 @@ async def cmd_tag(bot: Client, msg: Message):
         media = (reply.audio or reply.voice or reply.video or reply.document
                  or reply.video_note)
     if not media:
-        await msg.reply_text(" Kisi audio/video message ko reply karke <code>.tag</code> likhein.")
+        await msg.reply_text("ℹ️ Kisi audio/video message ko reply karke <code>.tag</code> likhein.")
         return
     name = parts[1].strip().lower()
     ftype = "audio" if (reply.audio or reply.voice) else "video"
     await db.tag_file(msg.from_user.id, name, media.file_id, ftype, reply.caption or "")
-    await msg.reply_text(f" Saved as <code>{name}</code> — ab <code>.play {name}</code>")
+    await msg.reply_text(f"✅ Saved as <code>{name}</code> — ab <code>.play {name}</code>")
 
 @Client.on_message(HAS_USER & cmd_prefix(r"untag\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_untag(bot: Client, msg: Message):
@@ -299,19 +302,19 @@ async def cmd_untag(bot: Client, msg: Message):
         return
     name = parts[1].strip().lower()
     if not await db.get_tag(msg.from_user.id, name):
-        await msg.reply_text(f" Tag <code>{name}</code> nahi mila.")
+        await msg.reply_text(f"❌ Tag <code>{name}</code> nahi mila.")
         return
     await db.delete_tag(msg.from_user.id, name)
-    await msg.reply_text(f" <code>{name}</code> delete ho gaya.")
+    await msg.reply_text(f"✅ <code>{name}</code> delete ho gaya.")
 
 @Client.on_message(HAS_USER & cmd_prefix(r"tags\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_tags(bot: Client, msg: Message):
     tags = await db.list_tags(msg.from_user.id)
     if not tags:
-        await msg.reply_text(" Koi tag nahi. <code>.tag &lt;name&gt;</code> se save karein.")
+        await msg.reply_text("❌ Koi tag nahi. <code>.tag &lt;name&gt;</code> se save karein.")
         return
     lines = [f"• <code>{t['tag_name']}</code> — {t['file_type']}" for t in tags]
-    await msg.reply_text(" <b>Your Tags</b>\n" + "\n".join(lines))
+    await msg.reply_text("ℹ️ <b>Your Tags</b>\n" + "\n".join(lines))
 
 async def resolve_source(bot: Client, msg: Message, arg: str):
     reply = msg.reply_to_message
@@ -325,7 +328,7 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
                 archived = await db.get_archived_audio(source_file_id)
                 path = await bot.download_media(archived["archive_file_id"] if archived else source_file_id)
             except Exception as e:
-                await stat.edit_text(f" Download fail: <code>{e}</code>")
+                await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
                 await log_error("resolve_source_reply", e)
                 return None, None, None
             await stat.delete()
@@ -341,7 +344,7 @@ async def resolve_source(bot: Client, msg: Message, arg: str):
                 archived = await db.get_archived_audio(source_file_id)
                 path = await bot.download_media(archived["archive_file_id"] if archived else source_file_id)
             except Exception as e:
-                await stat.edit_text(f" Download fail: <code>{e}</code>")
+                await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
                 return None, None, None
             await stat.delete()
             return path, arg, source_file_id
@@ -409,7 +412,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
 
     await db.register_broadcast_chat(cid, title)
     st = await load_state_settings(msg.from_user.id, uvc, cid)
-    stat = await msg.reply_text(" Audio process ho raha hai…")
+    stat = await msg.reply_text("ℹ️ Audio process ho raha hai…")
     try:
         status = await uvc.play(cid, path, name, title, enqueue=enqueue, join_ref=join_ref)
     except Exception as e:
@@ -476,7 +479,7 @@ async def cmd_playforce(bot: Client, msg: Message):
         title = str(cid)
 
     st = await load_state_settings(msg.from_user.id, uvc, cid)
-    stat = await msg.reply_text(" <b>FORCE PLAY</b> — process ho raha hai…")
+    stat = await msg.reply_text("ℹ️ <b>FORCE PLAY</b> — process ho raha hai…")
     try:
         await uvc.force_play(cid, path, name, title, join_ref=join_ref)
     except Exception as e:
@@ -517,7 +520,7 @@ async def cmd_loop(bot: Client, msg: Message):
         return
     if arg in ("off", "0", "no", "band", "stop"):
         uvc.set_loop(cid, False)
-        await msg.reply_text(" <b>Loop OFF</b>")
+        await msg.reply_text("ℹ️ <b>Loop OFF</b>")
         return
     count = -1
     if arg.isdigit():
@@ -582,7 +585,7 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
     try:
         path = await bot.download_media(media.file_id)
     except Exception as e:
-        await stat.edit_text(f" Download fail: <code>{e}</code>")
+        await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
         return
     await stat.delete()
     try:
@@ -632,11 +635,11 @@ async def cmd_handraise(bot: Client, msg: Message):
         uvc.save_mute_prefs(cid)
     elif arg == "now":
         ok = await uvc.raise_hand(cid, True)
-        await msg.reply_text(" Hand raise ho gaya." if ok else
+        await msg.reply_text("❌ Hand raise ho gaya." if ok else
                              " Hand raise nahi hua (VC me nahi ya permission nahi).")
         return
     elif arg:
-        await msg.reply_text(" Use: <code>.handraise on|off|now</code>")
+        await msg.reply_text("✅ Use: <code>.handraise on|off|now</code>")
         return
     await msg.reply_text(
         f"✋ <b>Hand raise:</b> <code>{'ON' if st.hand_raise else 'OFF'}</code>\n"
@@ -664,7 +667,7 @@ async def cmd_micblink(bot: Client, msg: Message):
         st.mic_blink = True
         uvc.save_mute_prefs(cid)
     elif arg:
-        await msg.reply_text(" Use: <code>.micblink on|off|&lt;seconds&gt;</code>")
+        await msg.reply_text("✅ Use: <code>.micblink on|off|&lt;seconds&gt;</code>")
         return
     await msg.reply_text(
         f" <b>Mic blink:</b> <code>{'ON' if st.mic_blink else 'OFF'}</code> — "
@@ -695,7 +698,7 @@ async def cmd_loud(bot: Client, msg: Message):
             except Exception:
                 pass
     elif arg:
-        await msg.reply_text(" Use: <code>.loud 0-18</code>")
+        await msg.reply_text("ℹ️ Use: <code>.loud 0-18</code>")
         return
     await msg.reply_text(
         f" <b>Extra loud:</b> <code>+{st.loud_db} dB</code> "
@@ -716,7 +719,7 @@ async def cmd_ss(bot: Client, msg: Message):
         return
     st = uvc.state(cid)
     if arg not in ("on", "off", ""):
-        await msg.reply_text(" Use: <code>.ss on|off</code> (image ke liye kisi "
+        await msg.reply_text("✅ Use: <code>.ss on|off</code> (image ke liye kisi "
                              "photo ko reply karein)")
         return
     if not arg:
@@ -773,13 +776,13 @@ async def _transport(msg: Message, action: str):
         await msg.reply_text("⏭ Skipped." if ok else " Active VC nahi.")
     elif action == "stop":
         if cid not in uvc.chats:
-            await msg.reply_text(" Is VC mein bot ka active session nahi hai.")
+            await msg.reply_text("❌ Is VC mein bot ka active session nahi hai.")
             return
         try:
             await uvc.leave(cid, reason="Manual stop")
         except Exception as exc:
             await log_error("transport_stop", exc)
-            await msg.reply_text(f" Stop fail hua: <code>{exc}</code>")
+            await msg.reply_text(f"❌ Stop fail hua: <code>{exc}</code>")
             return
         await msg.reply_text("⏹ <b>Stopped</b> — bot ne VC playback session chhod diya.")
 
@@ -810,7 +813,7 @@ async def cmd_queue(bot: Client, msg: Message):
         return
     st = uvc.chats.get(cid)
     if not st:
-        await msg.reply_text(" Is chat mein koi active VC session nahi.")
+        await msg.reply_text("❌ Is chat mein koi active VC session nahi.")
         return
     items = uvc.queue_list(cid)
     lines = [f"{i+1}. {n}" for n, i in items] or ["— empty —"]
@@ -827,7 +830,7 @@ async def cmd_qclear(bot: Client, msg: Message):
     if not cid:
         return
     count = uvc.queue_clear(cid)
-    await msg.reply_text(f" <b>Queue cleared</b> — {count} track(s) hata diye." if count
+    await msg.reply_text(f"✅ <b>Queue cleared</b> — {count} track(s) hata diye." if count
                         else " Queue pehle hi khaali tha.")
 
 @Client.on_message(HAS_USER & cmd_prefix(r"qremove\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -842,13 +845,13 @@ async def cmd_qremove(bot: Client, msg: Message):
     try:
         idx = int(parts[1]) - 1
     except ValueError:
-        await msg.reply_text(" Number dein, jaise <code>.qremove 2</code>")
+        await msg.reply_text("ℹ️ Number dein, jaise <code>.qremove 2</code>")
         return
     cid = await need_chat(msg, parts[2] if len(parts) > 2 else None)
     if not cid:
         return
     ok = uvc.queue_remove(cid, idx)
-    await msg.reply_text(f" Track {idx+1} hata diya." if ok
+    await msg.reply_text(f"❌ Track {idx+1} hata diya." if ok
                         else " Track nahi mila — queue position check karein (.queue)")
 
 @Client.on_message(HAS_USER & cmd_prefix(r"qshuffle\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -861,7 +864,7 @@ async def cmd_qshuffle(bot: Client, msg: Message):
     if not cid:
         return
     ok = uvc.queue_shuffle(cid)
-    await msg.reply_text(" Queue shuffle ho gayi!" if ok
+    await msg.reply_text("ℹ️ Queue shuffle ho gayi!" if ok
                         else " Queue mein 2+ tracks nahi hai.")
 
 @Client.on_message(HAS_USER & cmd_prefix(r"vcinfo\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -875,7 +878,7 @@ async def cmd_vcinfo(bot: Client, msg: Message):
         return
     st = uvc.chats.get(cid)
     if not st:
-        await msg.reply_text(" Koi active VC session nahi.")
+        await msg.reply_text("❌ Koi active VC session nahi.")
         return
     state = "⏸ Paused" if st.is_paused else "▶ Playing"
     await msg.reply_text(
@@ -903,7 +906,7 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
         f"<code>{'On' if s['echo'] else 'Off'} {s['echo_level']}/10</code>\n"
         + (f" {applied} live VC par apply hua." if applied else
            " Saved — agli play par lagega."),
-        reply_markup=K([[B(" Settings Panel", callback_data="menu:settings")]]),
+        reply_markup=K([[B("🔹 Settings Panel", callback_data="menu:settings")]]),
     )
 
 def _num_arg(msg: Message):
@@ -1048,12 +1051,12 @@ async def cb_vc(bot, cq):
         )
         await safe_answer(cq, "Now Playing updated")
     elif action == "reset":
-        await safe_answer(cq, " Reset apply ho raha hai…")
+        await safe_answer(cq, "✅ Reset apply ho raha hai…")
         from plugins.start import DEFAULT_SETTINGS, apply_settings_live
         await db.save_settings(cq.from_user.id, **DEFAULT_SETTINGS)
         await apply_settings_live(cq.from_user.id)
     elif action == "auto":
-        await safe_answer(cq, " Auto apply ho raha hai…")
+        await safe_answer(cq, "✅ Auto apply ho raha hai…")
         from plugins.start import apply_settings_live
         s = await db.get_settings(cq.from_user.id)
         on = not bool(s.get("auto"))
@@ -1100,9 +1103,9 @@ async def cb_vc(bot, cq):
         elif action == "mb":
             st.mic_blink = not st.mic_blink
             uvc.save_mute_prefs(cid)
-            await safe_answer(cq, f" Mic blink {'ON' if st.mic_blink else 'OFF'} ({st.mic_blink_secs}s)")
+            await safe_answer(cq, f"✅ Mic blink {'ON' if st.mic_blink else 'OFF'} ({st.mic_blink_secs}s)")
         elif action == "mbnow":
-            await safe_answer(cq, f" Blinking {st.mic_blink_secs}s…")
+            await safe_answer(cq, f"ℹ️ Blinking {st.mic_blink_secs}s…")
             asyncio.create_task(uvc._mic_blink(cid, st.mic_blink_secs))
         elif action == "pm":
             await safe_answer(cq, "PlayMute set hai ✅" if st.unmute_audio else
@@ -1110,10 +1113,10 @@ async def cb_vc(bot, cq):
         elif action == "pmclr":
             st.unmute_audio = None
             uvc.save_mute_prefs(cid)
-            await safe_answer(cq, " PlayMute cleared")
+            await safe_answer(cq, "✅ PlayMute cleared")
         elif action == "pmtest":
             ok = await uvc.play_unmute_audio(cid)
-            await safe_answer(cq, " PlayMute chal raha" if ok else "PlayMute audio set nahi hai", show_alert=not ok)
+            await safe_answer(cq, "❌ PlayMute chal raha" if ok else "PlayMute audio set nahi hai", show_alert=not ok)
         try:
             await cq.message.edit_reply_markup(now_playing_kb(cid, uvc.chats.get(cid)))
         except Exception:
@@ -1131,9 +1134,9 @@ async def cb_vc(bot, cq):
         on = not (cur.loop if cur else getattr(uvc, "loop_pref", {}).get(cid, False))
         st = uvc.set_loop(cid, on)
         if True:
-            await safe_answer(cq, " Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
+            await safe_answer(cq, "✅ Loop " + ("ON" if st.loop else "OFF"), show_alert=True)
 
-AUTO_KB = K([[B(" Settings Panel", callback_data="menu:settings")]])
+AUTO_KB = K([[B("🔹 Settings Panel", callback_data="menu:settings")]])
 
 @Client.on_callback_query(filters.regex(r"^mic:"))
 async def cb_mic(bot: Client, cq):
@@ -1142,7 +1145,7 @@ async def cb_mic(bot: Client, cq):
     uid = cq.from_user.id
     uvc = session_manager.users.get(uid)
     if not uvc:
-        await safe_answer(cq, " Pehle login karein.", show_alert=True)
+        await safe_answer(cq, "❌ Pehle login karein.", show_alert=True)
         return
 
     _, action, *rest = cq.data.split(":")
@@ -1367,7 +1370,7 @@ async def cmd_auto(bot: Client, msg: Message):
     applied = await apply_settings_live(msg.from_user.id)
 
     if not on:
-        await msg.reply_text(" <b>AUTO MODE OFF</b> — manual control wapas.",
+        await msg.reply_text("ℹ️ <b>AUTO MODE OFF</b> — manual control wapas.",
                              reply_markup=AUTO_KB)
         return
 
@@ -1395,7 +1398,7 @@ async def cmd_logtest(bot: Client, msg: Message):
         return
     problem = await verify_log_channel()
     if problem:
-        await msg.reply_text(f" <b>Log channel kaam nahi kar raha</b>\n\n{problem}")
+        await msg.reply_text(f"❌ <b>Log channel kaam nahi kar raha</b>\n\n{problem}")
     else:
         await msg.reply_text(
             f" <b>Log channel OK</b> — test message bhej diya.\n"
@@ -1416,7 +1419,7 @@ async def cmd_setlog(bot: Client, msg: Message):
     try:
         set_channel(int(parts[1]))
     except ValueError:
-        await msg.reply_text(" Channel ID number honi chahiye (<code>-100…</code>).")
+        await msg.reply_text("ℹ️ Channel ID number honi chahiye (<code>-100…</code>).")
         return
     problem = await verify_log_channel()
     await msg.reply_text(
@@ -1879,7 +1882,7 @@ async def cmd_setgc(bot: Client, msg: Message):
     if name == "unsetgc":
         DEFAULT_GC.pop(uid, None)
         _save_gc()
-        await msg.reply_text(" Default group hata diya.")
+        await msg.reply_text("✅ Default group hata diya.")
         return
     if name == "gc" or (name == "setgc" and len(parts) == 1 and not (msg.chat and msg.chat.id < 0)):
         cur = DEFAULT_GC.get(uid)
@@ -1891,7 +1894,7 @@ async def cmd_setgc(bot: Client, msg: Message):
     DEFAULT_GC.pop(uid, None)  # so target_chat resolves the given/current chat
     cid, _ = await target_chat(msg, arg)
     if not cid:
-        await msg.reply_text(" Group resolve nahi hua. Chat ID / @username / invite link dein.")
+        await msg.reply_text("❌ Group resolve nahi hua. Chat ID / @username / invite link dein.")
         return
     DEFAULT_GC[uid] = cid
     _save_gc()

@@ -30,6 +30,13 @@ def _button_payload(button: Any) -> dict:
         data["url"] = button.url
     elif getattr(button, "web_app", None):
         data["web_app"] = {"url": button.web_app.url}
+    elif getattr(button, "switch_inline_query", None) is not None:
+        data["switch_inline_query"] = button.switch_inline_query
+    elif getattr(button, "switch_inline_query_current_chat", None) is not None:
+        data["switch_inline_query_current_chat"] = button.switch_inline_query_current_chat
+    elif getattr(button, "copy_text", None):
+        ct = button.copy_text
+        data["copy_text"] = {"text": getattr(ct, "text", ct)}
     elif getattr(button, "user_id", None) is not None:
         data["user_id"] = button.user_id
     style = getattr(button, "_bot_api_style", None)
@@ -60,6 +67,9 @@ async def apply_native_styles(message: Any, markup: Any) -> bool:
             async with session.post(url, json=body) as response:
                 result = await response.json(content_type=None)
                 if response.status == 200 and result.get("ok"):
+                    return True
+                # Same keyboard already there = colours already correct.
+                if "not modified" in str(result.get("description", "")).lower():
                     return True
                 logger.debug("Bot API style patch skipped: %s", result)
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:

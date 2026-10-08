@@ -22,35 +22,41 @@ HELP = (
     "5. <code>.mic chat -100TARGET</code> — target group set\n\n"
     "<b>Use:</b>\n"
     "• Main ID se PRIVATE VC join karo, mic ON\n"
-    "• <code>.mic on</code> — full preset (gain + bass + echo)\n"
-    "• <code>.mic on clean</code> / <code>bass</code> / <code>echo</code> / <code>full</code>\n"
+    "• <code>.mic on</code> — clean preset (sabse tez + saaf, default)\n"
+    "• <code>.mic on bass</code> / <code>echo</code> / <code>full</code> — extra effect (echo awaaz thodi door karta hai)\n"
     "• <code>.mic on -100TARGET</code> — kisi aur target ke liye\n"
     "• <code>.mic off</code> — band (spare target VC me baithi rahegi)\n"
     "• <code>.mic leave</code> — band + spare dono VC se bahar\n"
     "• <code>.mic status</code>\n"
-    "• <code>.mic loud</code> — 🔥 LOUD control panel (drive / bass / presence / clip)\n\n"
+    "• <code>.mic loud</code> — 🔥 LOUD panel: <b>🚀 Drive</b> se awaaz badhao (0–20, 11+ par thodi phategi)\n"
+    "• <code>.mic loud fight</code> — ek command me sabse tez fight mode\n\n"
     "<i><code>.bridge ...</code> bhi same kaam karta hai. Main ID target VC join na kare — "
     "target VC me spare ID khud join hoke aapki aawaz bolegi.</i>"
 )
 
 
-def _bar(n: int) -> str:
-    return "█" * n + "░" * (10 - n)
+def _bar(n: int, top: int = 10) -> str:
+    k = max(0, min(10, round(n * 10 / top)))
+    return "█" * k + "░" * (10 - k)
 
 
 def loud_text(c: dict, live: bool) -> str:
     from helpers.vc_bridge import drive_db
+    zone = "🔥 FIGHT zone (tez + thodi phati)" if c["drive"] > 10 else "✅ saaf + tez"
     return (
         "🔥 <b>Live Mic LOUD Control</b>\n\n"
         f"Status: {'🟢 LIVE — turant lagega' if live else '⚪ Bridge OFF — agle .mic on par lagega'}\n\n"
-        f"🚀 <b>Drive:</b> <code>{_bar(c['drive'])} {c['drive']}/10</code> (+{drive_db(c['drive'])} dB)\n"
+        f"🚀 <b>Drive (VOLUME):</b> <code>{_bar(c['drive'], 20)} {c['drive']}/20</code> (+{drive_db(c['drive'])} dB) — {zone}\n"
         f"🎵 <b>Bass punch:</b> <code>{_bar(c['bass'])} {c['bass']}/10</code>\n"
         f"📢 <b>Presence:</b> <code>{_bar(c['presence'])} {c['presence']}/10</code> (kaan me tez lagne wali range)\n"
         f"✂️ <b>Clip:</b> <b>{'HARD (max tez, phategi)' if c['clip'] == 'hard' else 'SOFT (thodi smooth)'}</b>\n\n"
-        "<i>Default (Drive 6, HARD) saamne wale fighter jitni ya usse tez aawaz deta hai. "
-        "Drive 10 / 💥 MAX = sabse tez. Bass jitna kam, shabd utne tez aur saaf — bass "
-        "0 rakho. Phate to Drive kam karo ya Clip SOFT.</i>\n\n"
-        "Text se bhi: <code>.mic loud 0-10</code> • <code>.mic loud max|loud|safe</code> • "
+        "<b>Awaaz badhane ka control = 🚀 Drive.</b>\n"
+        "• 0–6: saaf awaaz (default 6)\n"
+        "• 7–10: bohot tez\n"
+        "• 11–20: FIGHT — sabse tez, awaaz thodi phategi (saamne wala barabar ho tab)\n"
+        "Ek tap me: <b>💥 MAX</b> (14) ya <b>⚔️ FIGHT</b> (20). Zyada phate to Drive kam karo ya Clip SOFT. "
+        "Bass 0 rakho — shabd zyada tez aate hain.\n\n"
+        "Text se: <code>.mic loud 0-20</code> • <code>.mic loud safe|loud|max|fight</code> • "
         "<code>.mic loud bass 0-10</code> • <code>.mic loud presence 0-10</code> • "
         "<code>.mic loud clip hard|soft</code>"
     )
@@ -58,12 +64,19 @@ def loud_text(c: dict, live: bool) -> str:
 
 def loud_kb() -> K:
     return K([
-        [B("🚀 Drive −1", callback_data="brl:drive:-1"), B("Drive +1 🚀", callback_data="brl:drive:1")],
-        [B("🎵 Bass −1", callback_data="brl:bass:-1"), B("Bass +1 🎵", callback_data="brl:bass:1")],
-        [B("📢 Presence −1", callback_data="brl:presence:-1"), B("Presence +1 📢", callback_data="brl:presence:1")],
-        [B("✂️ Clip HARD/SOFT", callback_data="brl:clip:x")],
-        [B("🛡 Safe", callback_data="brl:p:safe"), B("🔊 Loud", callback_data="brl:p:loud"),
-         B("💥 MAX", callback_data="brl:p:max")],
+        [B("🚀 Drive −1", callback_data="brl:drive:-1", style="primary"),
+         B("Drive +1 🚀", callback_data="brl:drive:1", style="success")],
+        [B("⏬ Drive −3", callback_data="brl:drive:-3", style="primary"),
+         B("Drive +3 ⏫", callback_data="brl:drive:3", style="success")],
+        [B("🎵 Bass −1", callback_data="brl:bass:-1", style="primary"),
+         B("Bass +1 🎵", callback_data="brl:bass:1", style="primary")],
+        [B("📢 Presence −1", callback_data="brl:presence:-1", style="primary"),
+         B("Presence +1 📢", callback_data="brl:presence:1", style="primary")],
+        [B("✂️ Clip HARD/SOFT", callback_data="brl:clip:x", style="primary")],
+        [B("🛡 Safe", callback_data="brl:p:safe", style="primary"),
+         B("🔊 Loud", callback_data="brl:p:loud", style="success"),
+         B("💥 MAX", callback_data="brl:p:max", style="danger"),
+         B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger")],
     ])
 
 
@@ -165,7 +178,7 @@ async def run_bridge(msg: Message, parts):
             f"🎤 Live Mic (Bridge) {'🟢 LIVE' if s['live'] else '🟡 starting'}\n"
             f"Source: <code>{s['source']}</code>\nTarget: <code>{s['target']}</code>\n"
             f"Preset: <b>{s['preset']}</b>\nAudio: {s['received_kb']} KB · {s['uptime_s']}s\n"
-            f"🔥 Loud: drive {s['loud']['drive']}/10 · bass {s['loud']['bass']} · "
+            f"🔥 Loud: drive {s['loud']['drive']}/20 · bass {s['loud']['bass']} · "
             f"presence {s['loud']['presence']} · {s['loud']['clip']}"))
         return
 

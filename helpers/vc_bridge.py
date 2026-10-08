@@ -51,9 +51,11 @@ LOUD_DEFAULT = {"drive": 6, "bass": 0, "presence": 6, "clip": "hard"}
 LOUD_PRESETS = {
     "safe": {"drive": 2, "bass": 0, "presence": 5, "clip": "soft"},
     "loud": dict(LOUD_DEFAULT),
-    "max":  {"drive": 10, "bass": 0, "presence": 8, "clip": "hard"},
+    "max":  {"drive": 14, "bass": 0, "presence": 8, "clip": "hard"},
+    # FIGHT: saamne wala bhi max par ho tab — sabse tez + thodi phati awaaz.
+    "fight": {"drive": 20, "bass": 0, "presence": 10, "clip": "hard"},
 }
-LOUD_LIMITS = {"drive": (0, 10), "bass": (0, 10), "presence": (0, 10)}
+LOUD_LIMITS = {"drive": (0, 20), "bass": (0, 10), "presence": (0, 10)}
 # v3 key: purane saved settings (drive 20 / bass 15) wapas bass-heavy chain na laayein.
 _LOUD_KEY = "bridge_loud3_{}"
 
@@ -71,8 +73,9 @@ def clean_loud(cfg: Optional[dict]) -> dict:
 
 
 def drive_db(level: int) -> int:
-    """Final clip push in dB (0-10 -> 0-10 dB above the limiter ceiling)."""
-    return max(0, min(10, int(level)))
+    """Final clip push in dB (0-20 -> 0-20 dB above the limiter ceiling).
+    11-20 = FIGHT zone: zyada tez + awaaz thodi phatne lagti hai (by design)."""
+    return max(0, min(20, int(level)))
 
 
 # Soft gate: sirf bolne ke beech ki hiss dabata hai (-18 dB), shabd nahi kaatta.
