@@ -47,11 +47,11 @@ DEFAULT_PRESET = "clean"
 # Sim (Opus 48k round-trip): drive 4 ≈ -3.0 LUFS (saamne wale jitna),
 # drive 6 ≈ -2.1 LUFS, drive 10 ≈ -1.2 LUFS.
 # ---------------------------------------------------------------------------
-LOUD_DEFAULT = {"drive": 6, "bass": 0, "presence": 6, "clip": "hard"}
+LOUD_DEFAULT = {"drive": 9, "bass": 0, "presence": 7, "clip": "hard"}
 LOUD_PRESETS = {
-    "safe": {"drive": 2, "bass": 0, "presence": 5, "clip": "soft"},
+    "safe": {"drive": 4, "bass": 0, "presence": 5, "clip": "soft"},
     "loud": dict(LOUD_DEFAULT),
-    "max":  {"drive": 14, "bass": 0, "presence": 8, "clip": "hard"},
+    "max":  {"drive": 15, "bass": 0, "presence": 9, "clip": "hard"},
     # FIGHT: saamne wala bhi max par ho tab — sabse tez + thodi phati awaaz.
     "fight": {"drive": 20, "bass": 0, "presence": 10, "clip": "hard"},
 }
@@ -92,7 +92,7 @@ class PcmAgc:
     expander, isliye bolne ke beech hiss full volume par nahi jaati.
     """
 
-    TARGET = 0.25 * 32767        # ~ -12 dBFS RMS
+    TARGET = 0.35 * 32767        # ~ -9 dBFS RMS (louder input into FFmpeg)
     MAX_GAIN = 300.0             # +50 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
     FLOOR = 0.00012 * 32767      # ~ -78 dBFS: neeche = digital khamoshi
