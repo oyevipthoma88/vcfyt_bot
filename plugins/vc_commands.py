@@ -176,6 +176,20 @@ async def get_engine(msg: Message):
         )
     return uvc
 
+_CHAT_ID_RE = re.compile(r"-?\d{7,}")
+
+
+def is_chat_id_token(p) -> bool:
+    """Chat ID with OR without the -100 prefix (1234567890, -1234567890,
+    -1001234567890).  7+ digits so volume/numbers (<=5 digits) never match."""
+    return bool(p) and bool(_CHAT_ID_RE.fullmatch(str(p).strip()))
+
+
+def is_chat_ref(p) -> bool:
+    p = str(p or "")
+    return is_chat_id_token(p) or p.startswith("@") or "t.me/" in p or p.startswith("http")
+
+
 async def target_chat(msg: Message, arg: str = None) -> tuple:
     """Return (chat_id, join_reference) where join_reference is a username or
     invite link the logged-in account can use to join the group if needed."""
@@ -316,17 +330,58 @@ async def cmd_tags(bot: Client, msg: Message):
     lines = [f"• <code>{t['tag_name']}</code> — {t['file_type']}" for t in tags]
     await msg.reply_text("ℹ️ <b>Your Tags</b>\n" + "\n".join(lines))
 
-async def resolve_source(bot: Client, msg: Message, arg: str):
+def _media_of(m):
+    if not m:
+        return None
+    return (getattr(m, "audio", None) or getattr(m, "voice", None)
+            or getattr(m, "video", None) or getattr(m, "video_note", None)
+            or getattr(m, "animation", None) or getattr(m, "document", None))
+
+
+async def _find_reply_media(bot: Client, msg: Message):
+    """ROOT FIX for '.play' randomly showing Usage:
+    * reply object missing (forum topics / old msg / not cached) -> fetch by id
+    * audio sent WITH '.play' as caption (no reply)
+    * reply is to a text that itself replies to the audio
+    Returns (media, downloader_client)."""
+    if _media_of(msg):
+        return _media_of(msg), bot
     reply = msg.reply_to_message
-    if reply:
-        media = (reply.audio or reply.voice or reply.video or reply.document
-                 or reply.video_note)
+    rid = getattr(msg, "reply_to_message_id", None) or getattr(reply, "id", None)
+    if (reply is None or not _media_of(reply)) and rid:
+        try:
+            reply = await bot.get_messages(msg.chat.id, rid) or reply
+        except Exception:
+            pass
+    if _media_of(reply):
+        return _media_of(reply), bot
+    inner = getattr(reply, "reply_to_message", None) if reply else None
+    if _media_of(inner):
+        return _media_of(inner), bot
+    # Last resort: the user's own logged-in account can see the message
+    # even when the bot can't (bot privacy / not admin).
+    if rid and msg.from_user:
+        try:
+            uvc = await session_manager.get(msg.from_user.id)
+            uc = getattr(uvc, "client", None) if uvc else None
+            if uc:
+                m = await uc.get_messages(msg.chat.id, rid)
+                if _media_of(m):
+                    return _media_of(m), uc
+        except Exception:
+            pass
+    return None, bot
+
+
+async def resolve_source(bot: Client, msg: Message, arg: str):
+    media, dl = await _find_reply_media(bot, msg)
+    if media:
         if media:
             source_file_id = media.file_id
             stat = await msg.reply_text("⬇ Media download ho raha hai…")
             try:
-                archived = await db.get_archived_audio(source_file_id)
-                path = await bot.download_media(archived["archive_file_id"] if archived else source_file_id)
+                archived = await db.get_archived_audio(source_file_id) if dl is bot else None
+                path = await dl.download_media(archived["archive_file_id"] if archived else source_file_id)
             except Exception as e:
                 await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
                 await log_error("resolve_source_reply", e)
@@ -367,13 +422,10 @@ def _split_args(msg: Message):
     parts = cmd_text(msg).split()
     words, cid = [], None
     for p in parts[1:]:
-        try:
-            if int(p) < 0:
-                cid = p
-                continue
-        except ValueError:
-            pass
-        if p.startswith("@") or "t.me/+" in p or "t.me/joinchat/" in p:
+        if is_chat_id_token(p):
+            cid = p
+            continue
+        if p.startswith("@") or "t.me/" in p:
             cid = p
             continue
         words.append(p)
@@ -509,8 +561,7 @@ async def cmd_loop(bot: Client, msg: Message):
     words = []
     for p in parts[1:]:
         # A chat id / @username / invite link is a target, not the on/off word.
-        if (p.startswith("-") and p[1:].isdigit()) or p.startswith("@") \
-                or p.startswith("http"):
+        if is_chat_ref(p):
             cid_arg = p
         else:
             words.append(p)
@@ -998,7 +1049,7 @@ async def cmd_myboost(bot: Client, msg: Message):
             v = int(p)
         except ValueError:
             continue
-        if v < 0:
+        if is_chat_id_token(p):
             cid_arg = p
         else:
             vol = max(VOL_NORMAL, min(VOL_MAX, v))
@@ -1417,9 +1468,10 @@ async def cmd_setlog(bot: Client, msg: Message):
         )
         return
     try:
-        set_channel(int(parts[1]))
-    except ValueError:
-        await msg.reply_text("ℹ️ Channel ID number honi chahiye (<code>-100…</code>).")
+        from helpers.peer_guard import chat_id_variants
+        set_channel(chat_id_variants(parts[1])[0])
+    except (ValueError, IndexError):
+        await msg.reply_text("ℹ️ Channel ID number honi chahiye (-100 ke saath ya bina).")
         return
     problem = await verify_log_channel()
     await msg.reply_text(
@@ -1868,6 +1920,8 @@ async def cmd_mic(bot: Client, msg: Message):
              "vcleave": "leave", "devices": "help", "list": "help",
              "source": "src", "power": "loud", "boost": "loud"}
     action = alias.get(action, action)
+    alias.update({"panel": "loud", "control": "loud", "ctrl": "loud"})
+    action = alias.get(action, action)
     if action not in {"on", "off", "leave", "status", "src", "help", "loud"}:
         action = "help"
     await run_bridge(msg, ["bridge", action, *parts[2:]])
@@ -1914,8 +1968,7 @@ _VC_REACT_MAX = 10
 
 def _split_chat_arg(parts):
     """Last token may be a chat id / @username / invite link."""
-    if parts and (parts[-1].lstrip("-").isdigit() and parts[-1].startswith("-")
-                  or parts[-1].startswith("@") or "t.me/" in parts[-1]):
+    if parts and is_chat_ref(parts[-1]):
         return parts[:-1], parts[-1]
     return parts, None
 
