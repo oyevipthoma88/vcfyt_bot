@@ -163,7 +163,21 @@ class PcmAgc:
 
 
 def loud_stage(cfg: dict) -> str:
-    """EQ (bass cut, body + presence) -> density -> limiter -> drive clip."""
+    """EQ -> 5 broadcast-style loudness stages -> limiter -> clip+filter.
+
+    v4 (5 naye stages, FM/radio processors (Orban/Stereo Tool) wali technique):
+      1. speechnorm   — har shabd/syllable ko turant same level par (dheeme
+                        akshar bhi full), zero latency.
+      2. phase rotator — 4x allpass: insaani aawaz ka waveform asymmetric hota
+                        hai (ek taraf bade peaks). Rotate karne se peaks ~3-5 dB
+                        chhote -> utni hi jagah aur gain ke liye (bina distortion).
+      3. 3-band multiband compressor — low/mid/high alag-alag dense, isliye
+                        bass shabdon ko nahi dabata aur pura band tez lagta hai.
+      4. aexciter     — 3 kHz+ par harmonics: phone speaker par aawaz cut-through.
+      5. clip + filter — final clip ke BAAD 7.4 kHz lowpass + brick-wall: clip ki
+                        kharkhar (aliasing) hat jaati hai jo Opus ke bits khaata
+                        tha, aur loudness clip wali hi rehti hai.
+    """
     from helpers.audio_processor import _has_filter
     c = clean_loud(cfg)
     hp = 200 - c["bass"] * 8            # bass 0 -> 200 Hz, bass 10 -> 120 Hz
@@ -175,14 +189,34 @@ def loud_stage(cfg: dict) -> str:
     if c["presence"]:
         f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 0.8:.1f}")
     f.append("lowpass=f=7500")
+    # [1] word leveller
+    if _has_filter("speechnorm"):
+        f.append("speechnorm=e=25:r=0.0008:l=1:p=0.9")
+    # [2] phase rotator (peak-to-RMS kam)
+    if _has_filter("allpass"):
+        f += ["allpass=f=180:t=q:w=0.7", "allpass=f=350:t=q:w=0.7",
+              "allpass=f=700:t=q:w=0.7", "allpass=f=1400:t=q:w=0.7"]
     # Density: har shabd lagbhag peak par (RMS up = kaan ko tez).
     f.append("acompressor=threshold=0.05:ratio=20:attack=1:release=40:makeup=10:knee=2")
-    f.append("volume=10dB")
+    # [3] multiband
+    if _has_filter("mcompand"):
+        f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
+                 "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
+                 "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
+        f.append("volume=24dB")
+    else:
+        f.append("volume=10dB")
+    # [4] presence harmonics
+    if _has_filter("aexciter"):
+        f.append("aexciter=amount=0.8:drive=6:freq=3000:ceil=9999")
     f.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
     d = drive_db(c["drive"])
     if c["clip"] == "hard" and d and _has_filter("asoftclip"):
         f.append(f"volume={d}dB")
         f.append("asoftclip=type=hard:threshold=0.95")
+        # [5] clip ke baad filter: aliasing hatao, phir peak dobara lock
+        f.append("lowpass=f=7400:p=2")
+        f.append("alimiter=level_in=1:level_out=1:limit=0.89:attack=0.1:release=5:level=false")
     elif d:
         # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
         f.append(f"volume={min(d, 6)}dB")
