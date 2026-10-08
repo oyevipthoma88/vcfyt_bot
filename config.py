@@ -90,8 +90,8 @@ class Config:
 
     # --- fake screen share (Bug 3b) ---
     SCREEN_SHARE_ENABLED: bool = _bool("SCREEN_SHARE_ENABLED", True)
-    SS_WIDTH: int = _int("SS_WIDTH", 854)
-    SS_HEIGHT: int = _int("SS_HEIGHT", 480)
+    SS_WIDTH: int = _int("SS_WIDTH", 1280)
+    SS_HEIGHT: int = _int("SS_HEIGHT", 720)
     SS_FPS: int = _int("SS_FPS", 15)
 
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)
