@@ -255,6 +255,23 @@ def build_live_mic_filter(ceiling_db: float = None) -> str:
     if _has_filter("aexciter"):
         # Presence harmonics: cut through phone speakers.
         f.append("aexciter=amount=0.6:drive=4:freq=3000:ceil=10000")
+    # NON-ADMIN GC ROOT FIX: without admin nobody can push the relay to
+    # 200 %, so the only loudness left is DENSITY.  Open mode (no admin
+    # boost) adds a 3-band compressor (every band pushed up evenly ->
+    # voice stays clear, no muddy bass pumping), a ceiling of -0.3 dBFS and
+    # +4 dB extra drive into the limiters.  Mean level ends ~3 dB under the
+    # peak: the loudest a clean voice can be inside Telegram's Opus.
+    open_mode = ceiling_db > -3.0
+    if open_mode:
+        ceiling_db = max(ceiling_db, -0.3)
+        limit = 10 ** (ceiling_db / 20.0)
+        pre_limit = min(0.995, limit * 10 ** (2.0 / 20.0))
+        drive += _env_db("LIVE_MIC_OPEN_EXTRA_DB", 4.0, high=10.0, low=0.0)
+        if _has_filter("mcompand"):
+            f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
+                     "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
+                     "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
+            f.append("volume=18dB")
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",
