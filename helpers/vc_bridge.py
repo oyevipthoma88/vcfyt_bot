@@ -47,7 +47,7 @@ DEFAULT_PRESET = "clean"
 # Sim (Opus 48k round-trip): drive 4 ≈ -3.0 LUFS (saamne wale jitna),
 # drive 6 ≈ -2.1 LUFS, drive 10 ≈ -1.2 LUFS.
 # ---------------------------------------------------------------------------
-LOUD_DEFAULT = {"drive": 14, "bass": 0, "presence": 7, "clip": "hard"}
+LOUD_DEFAULT = {"drive": 18, "bass": 0, "presence": 8, "clip": "hard"}
 LOUD_PRESETS = {
     "safe": {"drive": 6, "bass": 0, "presence": 5, "clip": "soft"},
     "loud": dict(LOUD_DEFAULT),
@@ -94,7 +94,7 @@ class PcmAgc:
     expander, isliye bolne ke beech hiss full volume par nahi jaati.
     """
 
-    TARGET = 0.5 * 32767         # ~ -6 dBFS RMS (louder input into FFmpeg)
+    TARGET = 0.63 * 32767        # ~ -4 dBFS RMS (louder input into FFmpeg)
     MAX_GAIN = 1000.0            # +60 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
     FLOOR = 0.00012 * 32767      # ~ -78 dBFS: neeche = digital khamoshi
@@ -215,7 +215,7 @@ def loud_stage(cfg: dict) -> str:
     # [4] presence harmonics
     if _has_filter("aexciter"):
         f.append("aexciter=amount=0.8:drive=6:freq=3000:ceil=9999")
-    f.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
+    f.append("alimiter=level_in=1.3:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
     d = drive_db(c["drive"])
     if c["clip"] == "hard" and d and _has_filter("asoftclip"):
         # v5 MULTI-STAGE CLIP (broadcast "final clipper" technique):
@@ -233,7 +233,7 @@ def loud_stage(cfg: dict) -> str:
             f.append("asoftclip=type=hard:threshold=0.95")
             f.append("lowpass=f=7200:p=2")
         # 3rd (fixed) density clip: hamesha thoda push -> loud & dense.
-        f.append("volume=3dB")
+        f.append("volume=5dB")
         f.append("asoftclip=type=tanh:threshold=0.95")
         f.append("lowpass=f=7000:p=2")
         # 4th density stage (ULTRA zone 21+): aur dense, peak same.
