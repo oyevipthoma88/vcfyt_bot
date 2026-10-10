@@ -12,6 +12,7 @@ Pipeline:
   → py-tgcalls reads proc FIFO as MediaStream → plays into VC
 """
 
+import array
 import asyncio
 import json
 import logging
@@ -88,6 +89,13 @@ class LiveMicSession:
         self.created_vc = False
         self._received_bytes = 0
         self._last_audio_log = 0.0
+        # VC HEALTH (record_20): last time real voice (not silence) arrived
+        # from the phone, and the background checker that tells the user WHY
+        # nobody hears them (phone mic silenced, muted by admin, kicked out).
+        self._in_voice_at = time.monotonic()
+        self._in_peak = 0
+        self._health_task = None
+        self._health_warned = set()
         self._first_pcm = asyncio.Event()
         self._pipeline_ready = asyncio.Event()
         self._proc_keeper_fd: Optional[int] = None
@@ -526,8 +534,7 @@ class LiveMicSession:
                     self.relay.account_id)
                 await self.relay.client.invoke(
                     EditGroupCallParticipant(
-                        call=call_input, participant=peer,
-                        muted=False, volume=20000,
+                        call=call_input, participant=peer, muted=False,
                     )
                 )
                 unmuted = True
@@ -802,7 +809,139 @@ class LiveMicSession:
             logger.debug("mic volume 200%% not applied: %r", exc)
         return True
 
+    async def _notify(self, key: str, text: str):
+        """Show a problem on the mic page AND as a Telegram DM (once per issue)."""
+        if key in self._health_warned:
+            return
+        self._health_warned.add(key)
+        logger.warning("Live mic health [%s] user=%s chat=%s: %s",
+                       key, self.user_id, self.chat_id, text)
+        try:
+            if self.ws is not None and not self.ws.closed:
+                await self.ws.send_str("warn:" + text)
+        except Exception:
+            pass
+        try:
+            from helpers.logger_channel import get_bot
+            bot = get_bot()
+            if bot is not None:
+                await bot.send_message(self.user_id, "⚠️ LIVE MIC: " + text)
+        except Exception as exc:
+            logger.debug("health DM failed: %r", exc)
+        self._chan_log("LIVE_MIC_HEALTH", {"Issue": key})
+
+    async def _clear_issue(self, key: str):
+        if key in self._health_warned:
+            self._health_warned.discard(key)
+            try:
+                if self.ws is not None and not self.ws.closed:
+                    await self.ws.send_str("ok:Mic chalu — awaaz VC me ja rahi hai")
+            except Exception:
+                pass
+
+    async def _relay_participant(self):
+        """The relay account's own row in the VC (None = not in the VC)."""
+        from pyrogram.raw.functions.phone import GetGroupParticipants
+        call = await self.relay._call_input(self.chat_id)
+        if not call:
+            return "no_call"
+        peer = await self.relay.client.resolve_peer(self.relay.account_id)
+        res = await self.relay.client.invoke(GetGroupParticipants(
+            call=call, ids=[peer], sources=[], offset="", limit=20))
+        for p in getattr(res, "participants", []) or []:
+            if getattr(getattr(p, "peer", None), "user_id", None) == self.relay.account_id:
+                return p
+        return None
+
+    async def _vc_health_loop(self):
+        """record_20 ROOT FIX: the stream "ran" but the VC heard 0 %.
+
+        The server could not see it: every stage looked healthy while the
+        voice was lost BEFORE (phone gave the browser silence because the
+        Telegram app held the mic) or AFTER (relay muted by an admin / not
+        allowed to speak in a non-admin GC, or kicked out because the same
+        ID re-joined from the phone).  Every 5 s this checks all three,
+        fixes what can be fixed (re-unmute, raise hand) and tells the user
+        exactly what to do.
+        """
+        from pyrogram.raw.functions.phone import EditGroupCallParticipant
+        try:
+            await asyncio.sleep(4)
+            if self.shared_account:
+                await self._notify("shared", (
+                    "Mic usi ID se chal raha hai jisse aap phone par VC me ho. "
+                    "Telegram ek ID ko ek hi jagah VC me rakhta hai — phone se VC "
+                    "join/rejoin karte hi bot ki awaaz kat jaati hai. Spare Mic "
+                    "Account lagayein (Live Mic panel → Spare Mic Account)."))
+            not_in = 0
+            while not self._closed:
+                now = time.monotonic()
+                # 1. Phone mic gives silence.
+                if self._received_bytes > 0 and now - self._in_voice_at > 8:
+                    await self._notify("mic_silent", (
+                        "Phone ke mic se awaaz hi nahi aa rahi (sirf silence). "
+                        "Usi phone par Telegram VC me apna mic MUTE rakhein ya "
+                        "VC leave karein, screen-recorder ka mic audio band "
+                        "karein, phir mic page par dobara tap karein."))
+                elif now - self._in_voice_at < 2:
+                    await self._clear_issue("mic_silent")
+                # 2. Relay state inside the VC.
+                try:
+                    p = await self._relay_participant()
+                except Exception as exc:
+                    logger.debug("health participant check failed: %r", exc)
+                    p = "error"
+                if p is None:
+                    not_in += 1
+                    if not_in >= 2:
+                        await self._notify("not_in_vc", (
+                            "Mic wali ID VC me dikh hi nahi rahi (bahar ho gayi). "
+                            + ("Aapne phone se usi ID se VC join kiya — isse bot "
+                               "kick ho jata hai. Spare ID lagayein ya phone se VC "
+                               "leave karke .mic on karein."
+                               if self.shared_account else
+                               "Telegram me .mic off → .mic on karein.")))
+                elif p not in ("error", "no_call"):
+                    not_in = 0
+                    await self._clear_issue("not_in_vc")
+                    if getattr(p, "muted", False):
+                        if getattr(p, "can_self_unmute", False):
+                            try:
+                                await self.relay.client.invoke(EditGroupCallParticipant(
+                                    call=await self.relay._call_input(self.chat_id),
+                                    participant=await self.relay.client.resolve_peer(
+                                        self.relay.account_id),
+                                    muted=False))
+                                logger.info("Live mic health: re-unmuted relay in %s",
+                                            self.chat_id)
+                            except Exception as exc:
+                                logger.debug("health re-unmute failed: %r", exc)
+                        else:
+                            try:
+                                await self.relay.client.invoke(EditGroupCallParticipant(
+                                    call=await self.relay._call_input(self.chat_id),
+                                    participant=await self.relay.client.resolve_peer(
+                                        self.relay.account_id),
+                                    raise_hand=True))
+                            except Exception:
+                                pass
+                            await self._notify("admin_muted", (
+                                "Is GC me admin ne mic wali ID ko MUTE kiya hai / "
+                                "VC 'sirf admin bol sakte' mode me hai — Telegram "
+                                "awaaz kisi ko nahi bhejta. Hand raise kar diya hai; "
+                                "admin unmute kare, ya aisi spare ID lagayein jo "
+                                "is VC me bol sakti ho."))
+                    else:
+                        await self._clear_issue("admin_muted")
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning("Live mic health loop stopped: %r", exc)
+
     def _mark_started(self):
+        if self._health_task is None or self._health_task.done():
+            self._health_task = asyncio.create_task(self._vc_health_loop())
         st = self.uvc.state(self.chat_id)
         st.is_playing = True
         st.is_paused = False
@@ -938,6 +1077,15 @@ class LiveMicSession:
                         self._first_pcm.set()
                         self._received_bytes += len(data)
                         now = time.monotonic()
+                        try:
+                            _a = array.array('h')
+                            _a.frombytes(data[:len(data) & ~1])
+                            if _a:
+                                self._in_peak = max(max(_a), -min(_a))
+                                if self._in_peak > 60:   # > -55 dBFS = real sound
+                                    self._in_voice_at = now
+                        except Exception:
+                            pass
                         if (self._received_bytes == len(data)
                                 or now - self._last_audio_log >= 10):
                             self._last_audio_log = now
@@ -1052,6 +1200,9 @@ class LiveMicSession:
 
     async def _cleanup_resources(self):
         """Close only the live source; keep the userbot in the group VC."""
+        if self._health_task:
+            self._health_task.cancel()
+            self._health_task = None
         if self._pacer_task:
             self._pacer_task.cancel()
             try:
@@ -1685,6 +1836,10 @@ function connectSocket(myAttempt){
             try { const st=JSON.parse(ev.data.slice(9)); syncCtl(st); } catch(e){}
         } else if (ev.data.startsWith('settings_failed:')) {
             /* ignored */
+        } else if (ev.data.startsWith('warn:')) {
+            setStatus(ev.data.slice(5), 'err');      // keep streaming
+        } else if (ev.data.startsWith('ok:')) {
+            setStatus(ev.data.slice(3), 'on');
         } else if (ev.data.startsWith('error:')) {
             socket._fatal = true;
             resetAudioState(ev.data.slice(6), 'err');
