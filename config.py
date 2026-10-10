@@ -76,7 +76,7 @@ class Config:
 
     EXTRA_GAIN_DB: int = _int("EXTRA_GAIN_DB", 60)
     # Final make-up gain (dB) applied on top of every chain, 0-24.
-    LOUD_EXTRA_DB: int = _int("LOUD_EXTRA_DB", 24)
+    LOUD_EXTRA_DB: int = _int("LOUD_EXTRA_DB", 30)
 
     # --- instant playback (Bug 3) ---
     # Stream straight through FFmpeg instead of pre-rendering a WAV first:
