@@ -156,7 +156,8 @@ def now_playing_kb(cid: int, st=None) -> K:
          B("⏭ Skip", callback_data=f"vc:skip:{cid}", style="primary"),
          B("⏹ Stop", callback_data=f"vc:stop:{cid}", style="danger")],
         [B(f"🔁 Loop: {'ON' if loop else 'OFF'}", callback_data=f"vc:loop:{cid}", style=onoff(loop)),
-         B(f"🖥 Screen: {'ON' if ss else 'OFF'}", callback_data=f"vc:ss:{cid}", style=onoff(ss))],
+         B(f"🖥 Live Screen: {'ON' if ss else 'OFF'}", callback_data=f"vc:ss:{cid}", style=onoff(ss))],
+        [B("💬 VC Chat + Reactions", callback_data=f"vct:panel:{cid}", style="success")],
         [B(f"🧑 Human Mode: {'ON' if human else 'OFF'}", callback_data=f"vc:human:{cid}", style=onoff(human))],
         [B("🎚️ Audio Controls", callback_data="menu:settings", style="primary"),
          B("🔄 Refresh", callback_data=f"vc:now:{cid}", style="primary")],
@@ -769,17 +770,23 @@ async def cmd_ss(bot: Client, msg: Message):
     if not cid:
         return
     st = uvc.state(cid)
-    if arg not in ("on", "off", ""):
-        await msg.reply_text("✅ Use: <code>.ss on|off</code> (image ke liye kisi "
-                             "photo ko reply karein)")
+    if arg not in ("on", "off", "", "live", "mixer"):
+        await msg.reply_text("✅ Use: <code>.ss on</code> (LIVE VC screen) | "
+                             "<code>.ss mixer</code> | <code>.ss off</code>\n"
+                             "Photo ko reply karke <code>.ss on</code> = wahi photo share.")
         return
+    if arg in ("live", "mixer"):
+        st.ss_mode = arg
+        arg = "on"
+        if st.ss_on:
+            await uvc.set_screen_share(cid, False)
     if not arg:
         await msg.reply_text(
             f"️ <b>Screen share:</b> <code>{'ON' if st.ss_on else 'OFF'}</code> — "
             f"{Config.SS_WIDTH}x{Config.SS_HEIGHT}@{Config.SS_FPS}fps"
         )
         return
-    image = None
+    image = "" if arg == "on" else None
     reply = msg.reply_to_message
     if arg == "on" and reply:
         media = reply.photo
@@ -790,7 +797,7 @@ async def cmd_ss(bot: Client, msg: Message):
             try:
                 image = await bot.download_media(media.file_id)
             except Exception:
-                image = None
+                image = ""
     stat = await msg.reply_text("️ Screen share set ho raha hai…")
     ok = await uvc.set_screen_share(cid, arg == "on", image_path=image)
     if not ok:
@@ -802,8 +809,11 @@ async def cmd_ss(bot: Client, msg: Message):
         )
         return
     await stat.edit_text(
-        "️ <b>Screen share ON</b> — bot VC me ek fake mic/mixer setup panel "
-        "share kar raha hai (PC-style video)."
+        ("🖥 <b>Screen share ON</b> — " + (
+            "aapki photo share ho rahi hai." if image else
+            "mixer panel share ho raha hai." if st.ss_mode == "mixer" else
+            "<b>LIVE VC screen</b>: VC me jitne log hain sab dikhenge (bolne wale "
+            "green), side me Now Playing, Volume, Mic, Loop controls. Full HD 1080p."))
         if arg == "on" else "️ <b>Screen share OFF.</b>"
     )
 
@@ -1129,7 +1139,7 @@ async def cb_vc(bot, cq):
     elif action == "ss":
         st = uvc.state(cid)
         want = not bool(getattr(st, "ss_on", False))
-        ok = await uvc.set_screen_share(cid, want)
+        ok = await uvc.set_screen_share(cid, want, image_path="" if want else None)
         await safe_answer(cq, ("🖥 Screen share " + ("ON" if want else "OFF")) if ok
                           else "Screen share nahi chal paya (VC me hai?)", show_alert=not ok)
     elif action == "pause":

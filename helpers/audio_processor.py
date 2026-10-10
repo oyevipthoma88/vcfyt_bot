@@ -598,7 +598,7 @@ def build_ffmpeg_filter(
         filters.append("speechnorm=e=12:r=0.001:l=1:p=0.95:t=0.01")
     filters.append("acompressor=threshold=0.25:ratio=8:attack=0.5:release=30:makeup=2:knee=2")
     # LOUDER PLAYBACK: +6 dB more drive into the limiter than before.
-    filters.append(f"volume={_db(min(22.0, 12.0 + extra_loud_db() * 0.45))}dB")
+    filters.append(f"volume={_db(min(24.0, 14.0 + extra_loud_db() * 0.45))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=0.5:release=20:level=false:asc=1")
     # PLAYBACK MAX-DENSITY STAGE (same trick as the live-mic bridge):
     # phase rotator shrinks peaks, then a +PLAY_DRIVE_DB push into a hard
@@ -608,7 +608,7 @@ def build_ffmpeg_filter(
     if _has_filter("allpass"):
         filters += ["allpass=f=200:t=q:w=0.7", "allpass=f=800:t=q:w=0.7",
                     "allpass=f=2000:t=q:w=0.7"]
-    drive = _env_db("PLAY_DRIVE_DB", 24.0, high=24.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 27.0, high=30.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         # v5: 2-stage clip (har stage ke baad de-alias) -> zyada dense/tez.
         first = min(drive, 8.0)
@@ -619,7 +619,7 @@ def build_ffmpeg_filter(
             filters.append(f"volume={_db(drive - first)}dB")
             filters.append("asoftclip=type=tanh:threshold=0.95")
             filters.append("lowpass=f=15000")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.1:release=8:level=false")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=0.1:release=8:level=false")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
@@ -789,7 +789,8 @@ def build_fake_screen_command(
     if os.path.exists(img):
         cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
         base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+                "unsharp=5:5:0.8:3:3:0.0")
     else:
         cmd += ["-f", "lavfi", "-i", f"color=c=0x101418:s={width}x{height}:r={fps}"]
         base = "setsar=1"

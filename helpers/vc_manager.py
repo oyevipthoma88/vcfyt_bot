@@ -219,6 +219,10 @@ class ChatState:
         self.ss_on: bool = False
         self.ss_image: Optional[str] = None
         self.ss_title: str = "Audio Setup — Live"
+        # "live" = real VC participants grid (default), "image" = replied
+        # photo, "mixer" = old PC mixer picture.
+        self.ss_mode: str = os.environ.get("SS_MODE", "live")
+        self.ss_task = None
 
     def apply_settings(self, s: dict):
         self.volume = int(s.get("volume", Config.DEFAULT_VOLUME))
@@ -443,6 +447,12 @@ class UserVC:
                     return
                 for participant in getattr(update, "participants", None) or []:
                     peer = getattr(participant, "peer", None)
+                    try:
+                        if not getattr(participant, "muted", False):
+                            self.__dict__.setdefault("_speak_ts", {})[
+                                (chat_id, getattr(peer, "user_id", None))] = time.time()
+                    except Exception:
+                        pass
                     if getattr(peer, "user_id", None) != self.account_id:
                         continue
                     by_admin = bool(getattr(participant, "muted", False)) and \
@@ -1212,10 +1222,108 @@ class UserVC:
         )
         return AudioStream(MediaSource.SHELL, cmd, AudioParameters(48000, 2))
 
+    async def vc_participants(self, chat_id: int) -> list:
+        """Real participant list of the VC, straight from Telegram."""
+        from pyrogram.raw.functions.phone import GetGroupParticipants
+        call = await self._call_input(chat_id)
+        if not call:
+            return []
+        res = await self.client.invoke(GetGroupParticipants(
+            call=call, ids=[], sources=[], offset="", limit=200))
+        users = {u.id: u for u in getattr(res, "users", []) or []}
+        chats = {c.id: c for c in getattr(res, "chats", []) or []}
+        speak = self.__dict__.get("_speak_ts", {})
+        now = time.time()
+        out = []
+        for p in getattr(res, "participants", []) or []:
+            peer = getattr(p, "peer", None)
+            uid = getattr(peer, "user_id", None)
+            if uid is not None:
+                u = users.get(uid)
+                name = " ".join(x for x in [getattr(u, "first_name", "") or "",
+                                            getattr(u, "last_name", "") or ""] if x) or "User"
+            else:
+                cid = getattr(peer, "channel_id", None) or getattr(peer, "chat_id", None)
+                name = getattr(chats.get(cid), "title", "") or "Channel"
+            muted = bool(getattr(p, "muted", False))
+            act = getattr(p, "active_date", None) or 0
+            last = max(float(act), speak.get((chat_id, uid), 0))
+            out.append({
+                "name": name[:40], "muted": muted,
+                "speaking": (not muted) and (now - last) < 2.5,
+                "hand": bool(getattr(p, "raise_hand_rating", None)),
+                "volume": int((getattr(p, "volume", None) or 10000) / 100),
+                "is_me": uid == self.account_id,
+            })
+        return out
+
+    def _ss_state_path(self, chat_id: int) -> str:
+        return os.path.join("/tmp", f"ss_live_{self.owner_id}_{abs(chat_id)}.json")
+
+    async def _ss_live_loop(self, chat_id: int):
+        """Keep the live screen's state file fresh while screen share is ON."""
+        import json
+        path = self._ss_state_path(chat_id)
+        started = time.time()
+        title = ""
+        try:
+            chat = await self.client.get_chat(chat_id)
+            title = getattr(chat, "title", "") or ""
+        except Exception:
+            pass
+        parts, last_fetch = [], 0.0
+        while True:
+            st = self.chats.get(chat_id)
+            if not st or not st.ss_on:
+                break
+            if time.time() - last_fetch > 1.5:
+                try:
+                    parts = await self.vc_participants(chat_id)
+                except Exception as exc:
+                    logger.debug("ss participants failed: %r", exc)
+                last_fetch = time.time()
+            data = {
+                "group": title, "started": started, "participants": parts,
+                "now_playing": st.source_name if st.is_playing else "",
+                "paused": bool(st.is_paused), "loop": bool(st.loop),
+                "volume": int(getattr(st, "relay_volume", 0) or 0),
+                "boost": int(getattr(st, "boost", 0) or 0),
+                "mic_on": bool(getattr(st, "mic_enabled", False)),
+            }
+            try:
+                tmp = path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+                os.replace(tmp, path)
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
     def _screen_source(self, st):
-        """Looping fake "mic setup" screen, shared as a presentation."""
+        """Screen share: live VC grid (default), a replied photo, or mixer."""
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
+        import shlex
+        import sys as _sys
+        mode = getattr(st, "ss_mode", "live")
+        if getattr(st, "ss_image", ""):
+            mode = "image"
+        chat_id = next((c for c, v in self.chats.items() if v is st), None)
+        if mode == "live" and chat_id is not None:
+            task = getattr(st, "ss_task", None)
+            if not task or task.done():
+                st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_screen.py")
+            cmd = " ".join(shlex.quote(x) for x in [
+                _sys.executable or "python3", script,
+                "--state", self._ss_state_path(chat_id),
+                "--w", str(Config.SS_WIDTH), "--h", str(Config.SS_HEIGHT),
+                "--fps", str(Config.SS_FPS)])
+            return VideoStream(
+                MediaSource.SHELL, cmd,
+                VideoParameters(Config.SS_WIDTH, Config.SS_HEIGHT, Config.SS_FPS,
+                                adjust_by_height=False),
+            )
         cmd = build_fake_screen_command(
             width=Config.SS_WIDTH, height=Config.SS_HEIGHT, fps=Config.SS_FPS,
             image_path=getattr(st, "ss_image", "") or "",

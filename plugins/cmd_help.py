@@ -70,6 +70,8 @@ HELP = {
     "setgc": (["unsetgc", "gc"], ".setgc <chat_id>  |  .unsetgc  |  .gc",
               "Default group set karta hai, taki DM se bina ID ke commands chalein.", ".setgc -1001234567890"),
     "vcchat": (["vcmsg", "vcm"], ".vcchat <text>", "VC wale group me message bhejta hai.", ".vcm hello"),
+    "loopmsg": (["lmsg"], ".loopmsg 30 <text>  |  .loopmsg off", "Har N sec VC chat me wahi message bhejta hai.", ".loopmsg 30 Hello sab"),
+    "schedule": (["smsg"], ".schedule 10m <text>  |  .schedule 21:30 <text>  |  .schedule list/off", "Time pe VC chat me message bhejta hai (IST).", ".schedule 10m Fight shuru"),
     "vcreact": (["vcr", "vcemoji"], ".vcreact <emoji>", "VC me emoji reaction.", ".vcr 🔥"),
     "audio": (["audios", "myaudio"], ".audio", "Audio library (My Audio / Bot Audios).", ".audio"),
     "saveaudio": ([], ".saveaudio <name>  (audio reply karke)", "Library me audio save.", ".saveaudio My Intro"),

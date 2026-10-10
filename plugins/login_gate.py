@@ -12,7 +12,7 @@ from pyrogram.types import InlineKeyboardMarkup as K
 from config import Config
 from plugins.ui import B, LINE, edit_screen, safe_answer
 
-_GATED = re.compile(r"^(vc:|mic:|set:|aud:|brc:|brl:|menu:settings$|menu:status$)")
+_GATED = re.compile(r"^(vc:|vct:|mic:|set:|aud:|brc:|brl:|menu:settings$|menu:status$)")
 
 
 def _gated(_, __, cq):
