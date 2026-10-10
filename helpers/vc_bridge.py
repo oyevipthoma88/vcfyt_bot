@@ -192,7 +192,8 @@ def loud_stage(cfg: dict) -> str:
         f.append(f"equalizer=f={hp + 40}:t=q:w=1:g={c['bass'] * 0.6:.1f}")
     f.append("equalizer=f=750:t=q:w=0.9:g=8")
     if c["presence"]:
-        f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 0.8:.1f}")
+        f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 1.1:.1f}")
+        f.append(f"equalizer=f=4200:t=q:w=1.2:g={c['presence'] * 0.5:.1f}")
     f.append("lowpass=f=7500")
     # [1] word leveller
     if _has_filter("speechnorm"):
@@ -235,14 +236,19 @@ def loud_stage(cfg: dict) -> str:
         f.append("volume=3dB")
         f.append("asoftclip=type=tanh:threshold=0.95")
         f.append("lowpass=f=7000:p=2")
+        # 4th density stage (ULTRA zone 21+): aur dense, peak same.
+        if d > 20:
+            f.append(f"volume={min(6, d - 20)}dB")
+            f.append("asoftclip=type=hard:threshold=0.95")
+            f.append("lowpass=f=7000:p=2")
         # Final ceiling: Opus decoder ~1 dB overshoot karta hai -> 0.89 par
         # lock taaki VC me clip/auto-attenuate na ho.
-        f.append("alimiter=level_in=1:level_out=1:limit=0.93:attack=0.1:release=4:level=false")
+        f.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=4:level=false")
     elif d:
         # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
         f.append(f"volume={min(d, 9)}dB")
         f.append("asoftclip=type=tanh:threshold=0.97")
-        f.append("alimiter=level_in=1:level_out=1:limit=0.92:attack=0.3:release=6:level=false")
+        f.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.3:release=6:level=false")
     return ",".join(f)
 
 

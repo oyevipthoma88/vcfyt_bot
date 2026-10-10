@@ -45,7 +45,7 @@ def _bar(n: int, top: int = 10) -> str:
 def loud_text(c: dict, live: bool) -> str:
     from helpers.vc_bridge import drive_db
     d = c["drive"]
-    zone = ("☢️ ULTRA (sabse tez, phategi)" if d > 25 else
+    zone = ("☢️ ULTRA (4-stage clip, sabse tez, phategi)" if d > 20 else
             "🔥 FIGHT zone (bohot tez + thodi phati)" if d > 15 else
             "✅ saaf + tez")
     return (

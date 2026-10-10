@@ -608,12 +608,18 @@ def build_ffmpeg_filter(
     if _has_filter("allpass"):
         filters += ["allpass=f=200:t=q:w=0.7", "allpass=f=800:t=q:w=0.7",
                     "allpass=f=2000:t=q:w=0.7"]
-    drive = _env_db("PLAY_DRIVE_DB", 6.0, high=12.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 10.0, high=18.0, low=0.0)
     if drive and _has_filter("asoftclip"):
-        filters.append(f"volume={_db(drive)}dB")
+        # v5: 2-stage clip (har stage ke baad de-alias) -> zyada dense/tez.
+        first = min(drive, 8.0)
+        filters.append(f"volume={_db(first)}dB")
         filters.append("asoftclip=type=hard:threshold=0.95")
         filters.append("lowpass=f=15500")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.89:attack=0.1:release=8:level=false")
+        if drive > first:
+            filters.append(f"volume={_db(drive - first)}dB")
+            filters.append("asoftclip=type=tanh:threshold=0.95")
+            filters.append("lowpass=f=15000")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.1:release=8:level=false")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
