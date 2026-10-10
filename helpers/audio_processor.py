@@ -172,9 +172,9 @@ def volume_to_db(vol: int) -> float:
 def extra_loud_db() -> float:
     """User/owner tunable final make-up gain in dB (env LOUD_EXTRA_DB)."""
     try:
-        return max(0.0, min(30.0, float(os.environ.get("LOUD_EXTRA_DB", "") or 18.0)))
+        return max(0.0, min(30.0, float(os.environ.get("LOUD_EXTRA_DB", "") or 24.0)))
     except (TypeError, ValueError):
-        return 18.0
+        return 24.0
 
 def gain_to_db(gain: int) -> float:
     # GAIN is real dB now: slider value / 10  (400 -> 40 dB).

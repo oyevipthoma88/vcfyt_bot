@@ -47,17 +47,19 @@ DEFAULT_PRESET = "clean"
 # Sim (Opus 48k round-trip): drive 4 ≈ -3.0 LUFS (saamne wale jitna),
 # drive 6 ≈ -2.1 LUFS, drive 10 ≈ -1.2 LUFS.
 # ---------------------------------------------------------------------------
-LOUD_DEFAULT = {"drive": 9, "bass": 0, "presence": 7, "clip": "hard"}
+LOUD_DEFAULT = {"drive": 14, "bass": 0, "presence": 7, "clip": "hard"}
 LOUD_PRESETS = {
-    "safe": {"drive": 4, "bass": 0, "presence": 5, "clip": "soft"},
+    "safe": {"drive": 6, "bass": 0, "presence": 5, "clip": "soft"},
     "loud": dict(LOUD_DEFAULT),
-    "max":  {"drive": 15, "bass": 0, "presence": 9, "clip": "hard"},
+    "max":  {"drive": 20, "bass": 0, "presence": 9, "clip": "hard"},
     # FIGHT: saamne wala bhi max par ho tab — sabse tez + thodi phati awaaz.
-    "fight": {"drive": 20, "bass": 0, "presence": 10, "clip": "hard"},
+    "fight": {"drive": 26, "bass": 0, "presence": 10, "clip": "hard"},
+    # ULTRA: sabse zyada — aawaz phategi, par sabse tez.
+    "ultra": {"drive": 30, "bass": 0, "presence": 10, "clip": "hard"},
 }
-LOUD_LIMITS = {"drive": (0, 20), "bass": (0, 10), "presence": (0, 10)}
+LOUD_LIMITS = {"drive": (0, 30), "bass": (0, 10), "presence": (0, 10)}
 # v3 key: purane saved settings (drive 20 / bass 15) wapas bass-heavy chain na laayein.
-_LOUD_KEY = "bridge_loud3_{}"
+_LOUD_KEY = "bridge_loud5_{}"
 
 
 def clean_loud(cfg: Optional[dict]) -> dict:
@@ -73,9 +75,9 @@ def clean_loud(cfg: Optional[dict]) -> dict:
 
 
 def drive_db(level: int) -> int:
-    """Final clip push in dB (0-20 -> 0-20 dB above the limiter ceiling).
-    11-20 = FIGHT zone: zyada tez + awaaz thodi phatne lagti hai (by design)."""
-    return max(0, min(20, int(level)))
+    """Final clip push in dB (0-30 -> 0-30 dB above the limiter ceiling).
+    16-30 = FIGHT zone: zyada tez + awaaz thodi phatne lagti hai (by design)."""
+    return max(0, min(30, int(level)))
 
 
 # Soft gate: sirf bolne ke beech ki hiss dabata hai (-18 dB), shabd nahi kaatta.
@@ -92,8 +94,8 @@ class PcmAgc:
     expander, isliye bolne ke beech hiss full volume par nahi jaati.
     """
 
-    TARGET = 0.35 * 32767        # ~ -9 dBFS RMS (louder input into FFmpeg)
-    MAX_GAIN = 300.0             # +50 dB (bohot dheemi VC input bhi)
+    TARGET = 0.5 * 32767         # ~ -6 dBFS RMS (louder input into FFmpeg)
+    MAX_GAIN = 1000.0            # +60 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
     FLOOR = 0.00012 * 32767      # ~ -78 dBFS: neeche = digital khamoshi
     ATTACK = 0.6                 # gain ghatane ki speed (per frame)
@@ -194,7 +196,7 @@ def loud_stage(cfg: dict) -> str:
     f.append("lowpass=f=7500")
     # [1] word leveller
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=25:r=0.0008:l=1:p=0.9")
+        f.append("speechnorm=e=50:r=0.001:l=1:p=0.95")
     # [2] phase rotator (peak-to-RMS kam)
     if _has_filter("allpass"):
         f += ["allpass=f=180:t=q:w=0.7", "allpass=f=350:t=q:w=0.7",
@@ -215,15 +217,32 @@ def loud_stage(cfg: dict) -> str:
     f.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
     d = drive_db(c["drive"])
     if c["clip"] == "hard" and d and _has_filter("asoftclip"):
-        f.append(f"volume={d}dB")
+        # v5 MULTI-STAGE CLIP (broadcast "final clipper" technique):
+        # ek bada clip (phat-phat) ki jagah 2-3 chhote clip + har clip ke
+        # baad lowpass.  Har stage RMS ko peak ke aur paas laata hai, isliye
+        # same 0 dBFS peak par aawaz kaafi zyada dense/tez (+2..4 LU),
+        # aur aliasing kam rehta hai (Opus bits bachte hain).
+        first = min(d, 12)
+        f.append(f"volume={first}dB")
         f.append("asoftclip=type=hard:threshold=0.95")
-        # [5] clip ke baad filter: aliasing hatao, phir peak dobara lock
         f.append("lowpass=f=7400:p=2")
-        f.append("alimiter=level_in=1:level_out=1:limit=0.89:attack=0.1:release=5:level=false")
+        rest = d - first
+        if rest > 0:
+            f.append(f"volume={rest}dB")
+            f.append("asoftclip=type=hard:threshold=0.95")
+            f.append("lowpass=f=7200:p=2")
+        # 3rd (fixed) density clip: hamesha thoda push -> loud & dense.
+        f.append("volume=3dB")
+        f.append("asoftclip=type=tanh:threshold=0.95")
+        f.append("lowpass=f=7000:p=2")
+        # Final ceiling: Opus decoder ~1 dB overshoot karta hai -> 0.89 par
+        # lock taaki VC me clip/auto-attenuate na ho.
+        f.append("alimiter=level_in=1:level_out=1:limit=0.93:attack=0.1:release=4:level=false")
     elif d:
         # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
-        f.append(f"volume={min(d, 6)}dB")
-        f.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=0.3:release=6:level=false")
+        f.append(f"volume={min(d, 9)}dB")
+        f.append("asoftclip=type=tanh:threshold=0.97")
+        f.append("alimiter=level_in=1:level_out=1:limit=0.92:attack=0.3:release=6:level=false")
     return ",".join(f)
 
 
