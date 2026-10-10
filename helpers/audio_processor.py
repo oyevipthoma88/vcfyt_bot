@@ -172,7 +172,7 @@ def volume_to_db(vol: int) -> float:
 def extra_loud_db() -> float:
     """User/owner tunable final make-up gain in dB (env LOUD_EXTRA_DB)."""
     try:
-        return max(0.0, min(30.0, float(os.environ.get("LOUD_EXTRA_DB", "") or 24.0)))
+        return max(0.0, min(30.0, float(os.environ.get("LOUD_EXTRA_DB", "") or 26.0)))
     except (TypeError, ValueError):
         return 24.0
 
@@ -242,7 +242,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -1.0)
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 6.0, high=12.0, low=0.0)
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 8.0, high=14.0, low=0.0)
     f = ["aresample=48000:async=1:first_pts=0",
          "highpass=f=140", "highpass=f=140",
          "lowpass=f=8000", "lowpass=f=8000"]
@@ -281,7 +281,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -0.3)
         limit = 10 ** (ceiling_db / 20.0)
         pre_limit = min(0.995, limit * 10 ** (2.0 / 20.0))
-        drive += _env_db("LIVE_MIC_OPEN_EXTRA_DB", 4.0, high=10.0, low=0.0)
+        drive += _env_db("LIVE_MIC_OPEN_EXTRA_DB", 6.0, high=12.0, low=0.0)
         if _has_filter("mcompand"):
             f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
                      "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
@@ -297,7 +297,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         else:
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
         f.append(f"volume={_db(-cdb * 0.6)}dB")
-    drive += loud * 0.15               # up to +15 dB extra loudness
+    drive += loud * 0.20               # up to +20 dB extra loudness
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",
@@ -598,7 +598,7 @@ def build_ffmpeg_filter(
         filters.append("speechnorm=e=12:r=0.001:l=1:p=0.95:t=0.01")
     filters.append("acompressor=threshold=0.25:ratio=8:attack=0.5:release=30:makeup=2:knee=2")
     # LOUDER PLAYBACK: +6 dB more drive into the limiter than before.
-    filters.append(f"volume={_db(min(15.0, 7.0 + extra_loud_db() * 0.45))}dB")
+    filters.append(f"volume={_db(min(18.0, 9.0 + extra_loud_db() * 0.45))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=0.5:release=20:level=false:asc=1")
     # PLAYBACK MAX-DENSITY STAGE (same trick as the live-mic bridge):
     # phase rotator shrinks peaks, then a +PLAY_DRIVE_DB push into a hard
@@ -608,7 +608,7 @@ def build_ffmpeg_filter(
     if _has_filter("allpass"):
         filters += ["allpass=f=200:t=q:w=0.7", "allpass=f=800:t=q:w=0.7",
                     "allpass=f=2000:t=q:w=0.7"]
-    drive = _env_db("PLAY_DRIVE_DB", 10.0, high=18.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 14.0, high=24.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         # v5: 2-stage clip (har stage ke baad de-alias) -> zyada dense/tez.
         first = min(drive, 8.0)
