@@ -248,12 +248,12 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -1.0)
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 10.0, high=14.0, low=0.0)
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 12.0, high=14.0, low=0.0)
     f = ["aresample=48000:async=1:first_pts=0",
          "highpass=f=140", "highpass=f=140",
          "lowpass=f=8000", "lowpass=f=8000"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=20:nf=-42:tn=1")
+        f.append("afftdn=nr=12:nf=-50:tn=1")
     # Phone mics arrive at -40..-55 dBFS (browser auto-gain is OFF for
     # clarity).  speechnorm alone could lift only ~28 dB, so quiet phones
     # stayed quiet and the noise gate then chopped words.  Fixed +12 dB
@@ -268,10 +268,10 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f.append("speechnorm=e=40:r=0.0005:l=1:p=0.95")
     f.append("acompressor=threshold=0.05:ratio=10:attack=2:release=80:makeup=4:knee=4")
     if _has_filter("agate"):
-        f.append("agate=threshold=0.025:range=0.05:ratio=6:attack=2:release=180:detection=rms")
+        f.append("agate=threshold=0.012:range=0.1:ratio=4:attack=1:release=220:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",
           "equalizer=f=1200:t=q:w=1:g=3",
-          "equalizer=f=2600:t=q:w=0.9:g=9",
+          "equalizer=f=2600:t=q:w=0.9:g=10",
           "equalizer=f=3800:t=q:w=1.2:g=4"]
     if _has_filter("aexciter"):
         # Presence harmonics: cut through phone speakers.
@@ -287,7 +287,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -0.3)
         limit = 10 ** (ceiling_db / 20.0)
         pre_limit = min(0.995, limit * 10 ** (2.0 / 20.0))
-        drive += _env_db("LIVE_MIC_OPEN_EXTRA_DB", 8.0, high=12.0, low=0.0)
+        drive += _env_db("LIVE_MIC_OPEN_EXTRA_DB", 10.0, high=12.0, low=0.0)
         if _has_filter("mcompand"):
             f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
                      "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "

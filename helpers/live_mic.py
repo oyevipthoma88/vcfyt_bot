@@ -1628,6 +1628,7 @@ function push(buf, myAttempt){
     if (attemptId!==myAttempt) return;
     firstFrameSeen = true;
     lastFrameAt = Date.now();
+    trackMicLevel(buf);
     if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer=null; }
     if (!ws || ws.readyState!==1 || !sendReady) {
         // Buffer ~1s while the socket (re)connects, then drop the oldest.
@@ -1711,6 +1712,30 @@ function connectSocket(myAttempt){
         retryTimer = setTimeout(()=>connectSocket(myAttempt),
                                 Math.min(3000, 250 + 250*retries));
     };
+}
+
+const USE_AEC = new URLSearchParams(location.search).get("aec") === "1";
+// SILENT-MIC DETECTOR: Android gives the browser pure silence while another
+// app (Telegram in the VC, a call) holds the microphone.  Warn the user
+// instead of streaming silence for the whole fight.
+let micPeak = 0, silentSince = 0, silentWarned = false;
+function trackMicLevel(buf){
+    try{
+        const v = new Int16Array(buf); let pk = 0;
+        for (let i=0;i<v.length;i+=8){ const a = v[i]<0?-v[i]:v[i]; if(a>pk) pk=a; }
+        micPeak = pk;
+        const now = Date.now();
+        if (pk < 40) {                    // < -58 dBFS = no mic signal at all
+            if (!silentSince) silentSince = now;
+            if (!silentWarned && now - silentSince > 6000) {
+                silentWarned = true;
+                setStatus('Mic se awaaz nahi aa rahi! Telegram app me VC se mic MUTE/leave karein (Telegram mic pakad leta hai), phir yahan dobara tap karein','err');
+            }
+        } else {
+            if (silentWarned) setStatus('Mic chalu — awaaz ja rahi hai','on');
+            silentSince = 0; silentWarned = false;
+        }
+    }catch(e){}
 }
 
 async function requestWakeLock(){
@@ -1800,7 +1825,13 @@ async function toggleMic() {
                 // back into the mic).  Phone noise-suppression and auto-gain
                 // OFF: they muffle the voice and pump the level up and down;
                 // the server does clean denoise + levelling instead.
-                audio: { echoCancellation: true, noiseSuppression: false,
+                // record_20 ROOT FIX: echo-cancel is now OFF by default.
+                // In a fight the VC never stops talking; phone AEC treats
+                // that as permanent "double talk" and ducks/cancels YOUR
+                // voice (others came through, our voice ~0%).  The server
+                // gate + limiter handle feedback.  Add ?aec=1 to the link
+                // only if you use the phone speaker and hear echo.
+                audio: { echoCancellation: USE_AEC, noiseSuppression: false,
                          autoGainControl: false, channelCount: 1 },
             });
         } catch (firstErr) {
@@ -1819,7 +1850,7 @@ async function toggleMic() {
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            const pre = audioCtx.createGain(); pre.gain.value = 4.0; // +12 dB: phone mic (AGC off) is very quiet; limiter below stops clipping
+            const pre = audioCtx.createGain(); pre.gain.value = 8.0; // +18 dB: phone mic (AGC off) is very quiet; limiter below stops clipping
             const lim = audioCtx.createDynamicsCompressor();
             lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20;
             lim.attack.value=0.002; lim.release.value=0.06;
