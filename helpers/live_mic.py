@@ -152,10 +152,10 @@ class LiveMicSession:
     @staticmethod
     def sanitize_settings(data: dict) -> dict:
         limits = {
-            "volume": (0, 1000), "bass": (0, 100), "treble": (0, 120),
+            "volume": (0, 2000), "bass": (0, 100), "treble": (0, 120),
             "gain": (0, 400), "boost": (0, 10), "echo_level": (0, 10),
             "pregain": (0, 200), "turbo": (0, 24), "clarity": (0, 35),
-            "loud": (0, 100), "crunch": (0, 100),
+            "loud": (0, 200), "crunch": (0, 200),
         }
         clean = {}
         for key, (low, high) in limits.items():
@@ -1382,10 +1382,10 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 
 <div class="ctl" id="liveCtl">
   <div class="row"><span>&#128266; VOLUME BOOST</span><b id="loudV">0</b></div>
-  <input type="range" id="loudR" min="0" max="100" step="5" value="0">
+  <input type="range" id="loudR" min="0" max="200" step="5" value="0">
   <div class="row"><span>&#128165; FATNA (DISTORTION)</span><b id="crunchV">0</b></div>
-  <input type="range" id="crunchR" min="0" max="100" step="5" value="0">
-  <small>Default 0 = best saaf awaaz. Fight me saamne wala tez ho to <b>VOLUME BOOST</b> badhayein; aur zyada tez + phati awaaz chahiye to <b>FATNA</b> bhi badhayein. Slider chhodte hi live lagta hai.</small>
+  <input type="range" id="crunchR" min="0" max="200" step="5" value="0">
+  <small>Default 0 = best saaf awaaz. Fight me saamne wala tez ho to <b>VOLUME BOOST</b> badhayein; aur zyada tez + phati awaaz chahiye to <b>FATNA</b> bhi badhayein. <b>100 se upar = OVERDRIVE</b>: sabse zyada tez, awaaz fat sakti hai. Slider chhodte hi live lagta hai.</small>
 </div>
 
 <button id="retryBtn" class="btn" style="display:none" onclick="retryMic()">Permission dene ke baad — Dobara try karein</button>

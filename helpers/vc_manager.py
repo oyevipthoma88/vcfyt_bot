@@ -221,7 +221,8 @@ class ChatState:
         self.ss_title: str = "Audio Setup — Live"
         # "live" = real VC participants grid (default), "image" = replied
         # photo, "mixer" = old PC mixer picture.
-        self.ss_mode: str = os.environ.get("SS_MODE", "live")
+        # Live participants grid removed (user request): old PC mixer SS is default.
+        self.ss_mode: str = "mixer"
         self.ss_task = None
 
     def apply_settings(self, s: dict):
@@ -1305,9 +1306,8 @@ class UserVC:
         from pytgcalls.types.raw import VideoParameters, VideoStream
         import shlex
         import sys as _sys
-        mode = getattr(st, "ss_mode", "live")
-        if getattr(st, "ss_image", ""):
-            mode = "image"
+        # Live participants screen removed — always the old mixer SS / photo.
+        mode = "image" if getattr(st, "ss_image", "") else "mixer"
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
         if mode == "live" and chat_id is not None:
             task = getattr(st, "ss_task", None)
@@ -1324,14 +1324,20 @@ class UserVC:
                 VideoParameters(Config.SS_WIDTH, Config.SS_HEIGHT, Config.SS_FPS,
                                 adjust_by_height=False),
             )
+        # NO BLUR: the mixer picture is 1280x720.  Upscaling it to 1080p at
+        # 15 fps made Telegram's encoder starve (big frames, low bitrate) and
+        # viewers saw a blurry / "loading" screen.  Send it at native 720p
+        # and 24+ fps so the encoder reaches full quality within a second.
+        ss_w, ss_h = min(Config.SS_WIDTH, 1280), min(Config.SS_HEIGHT, 720)
+        ss_fps = max(24, min(30, Config.SS_FPS))
         cmd = build_fake_screen_command(
-            width=Config.SS_WIDTH, height=Config.SS_HEIGHT, fps=Config.SS_FPS,
+            width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",
             title=getattr(st, "ss_title", "") or "Audio Setup — Live",
         )
         return VideoStream(
             MediaSource.SHELL, cmd,
-            VideoParameters(Config.SS_WIDTH, Config.SS_HEIGHT, Config.SS_FPS,
+            VideoParameters(ss_w, ss_h, ss_fps,
                             adjust_by_height=False),
         )
 

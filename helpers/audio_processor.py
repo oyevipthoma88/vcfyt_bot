@@ -6,7 +6,10 @@ from typing import Optional
 
 from config import Config
 
-VOLUME_MIN, VOLUME_MAX = 0, 1000
+VOLUME_MIN, VOLUME_MAX = 0, 2000
+# 1000 = old max (clean).  1001-2000 = OVERDRIVE: extra drive into a hard
+# clipper, limiter removed -> louder, awaaz fat sakti hai (by choice).
+VOLUME_CLEAN_MAX = 1000
 BASS_MIN, BASS_MAX = 0, 100
 LEVEL_MIN, LEVEL_MAX = 0, 10
 GAIN_MAX = 400
@@ -161,7 +164,7 @@ def _sanitize_ffmpeg_filter(value: str) -> str:
     return value
 
 def volume_to_db(vol: int) -> float:
-    vol = clamp(vol, VOLUME_MIN, VOLUME_MAX)
+    vol = clamp(vol, VOLUME_MIN, VOLUME_CLEAN_MAX)
     if vol <= 500:
         return -30.0 + (30.0 * vol / 500.0)
     # LOUDNESS UPGRADE: the top half of the slider now reaches +48 dB
@@ -214,8 +217,11 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     #                    me awaaz tez / denser).  0 = default best chain.
     #   crunch 0..100 -> soft-clip overdrive ("awaaz fategi") so the voice
     #                    cuts through when the other fighter is equally loud.
-    loud = max(0, min(100, int(loud or 0)))
-    crunch = max(0, min(100, int(crunch or 0)))
+    # 0..100 = clean (limiter safe).  101..200 = OVERDRIVE: ceiling 0 dBFS,
+    # last brick-wall replaced by a hard clip -> max loudness, may distort.
+    loud = max(0, min(200, int(loud or 0)))
+    crunch = max(0, min(200, int(crunch or 0)))
+    overdrive = loud > 100 or crunch > 100
     # HEADROOM FOR TELEGRAM 200 % VOLUME (record_19 analysis):
     # when an ADMIN sets the relay to 200 % participant volume (x2 = +6 dB)
     # a stream peaking at -1 dBFS reached the VC at +5/+6 dBFS and clipped.
@@ -290,14 +296,27 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     if crunch > 0:
         # Push the voice into a tanh soft-clipper, then pull it back: adds
         # harmonics (gritty / "phati" awaaz) while the limiters stay in charge.
-        cdb = crunch * 0.24            # up to +24 dB into the clipper
+        cdb = crunch * 0.24            # up to +48 dB into the clipper
         f.append(f"volume={_db(cdb)}dB")
         if _has_filter("asoftclip"):
             f.append("asoftclip=type=tanh")
         else:
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
-        f.append(f"volume={_db(-cdb * 0.6)}dB")
-    drive += loud * 0.20               # up to +20 dB extra loudness
+        # Above 100 less is pulled back -> the distortion stays loud.
+        f.append(f"volume={_db(-cdb * (0.6 if crunch <= 100 else 0.3))}dB")
+    drive += loud * 0.20               # up to +40 dB extra loudness
+    if overdrive:
+        # FATNE DE: full-scale ceiling, levelling limiter then a hard clip
+        # at 0 dBFS instead of the clean brick-wall.  Peaks get chopped
+        # (distortion) but the average level is the highest possible.
+        f += [f"volume={_db(12.0 + 1.0 + drive)}dB",
+              "alimiter=limit=0.999:level=false:attack=5:release=80",
+              f"volume={_db(min(12.0, (max(loud, crunch) - 100) * 0.12))}dB"]
+        if _has_filter("asoftclip"):
+            f.append("asoftclip=type=hard:threshold=1")
+        else:
+            f.append("alimiter=limit=1:level=false:attack=0.1:release=2")
+        return ",".join(f)
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",
@@ -620,6 +639,15 @@ def build_ffmpeg_filter(
             filters.append("asoftclip=type=tanh:threshold=0.95")
             filters.append("lowpass=f=15000")
     filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=0.1:release=8:level=false")
+    if vol > VOLUME_CLEAN_MAX:
+        # PLAYBACK OVERDRIVE (.vol 1001-2000): up to +18 dB more into a hard
+        # clip at 0 dBFS.  Louder than 1000; awaaz fat sakti hai (by choice).
+        over = (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)
+        filters.append(f"volume={_db(18.0 * over)}dB")
+        if _has_filter("asoftclip"):
+            filters.append("asoftclip=type=hard:threshold=1")
+        else:
+            filters.append("alimiter=limit=1:attack=0.1:release=2:level=false")
     return _sanitize_ffmpeg_filter(",".join(filters))
 
 async def process_audio_to_file(
@@ -788,9 +816,11 @@ def build_fake_screen_command(
            "-threads", "2", "-re"]
     if os.path.exists(img):
         cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
+        # Mild sharpen only (strong unsharp added ringing that Telegram's
+        # encoder turned into blur at low bitrate).
         base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
-                "unsharp=5:5:0.8:3:3:0.0")
+                "unsharp=3:3:0.4:3:3:0.0")
     else:
         cmd += ["-f", "lavfi", "-i", f"color=c=0x101418:s={width}x{height}:r={fps}"]
         base = "setsar=1"

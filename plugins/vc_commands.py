@@ -491,7 +491,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         f" <b>Chat:</b> {title}\n"
         + (f" <b>Queue position:</b> {len(uvc.chats[cid].queue) if uvc.chats.get(cid) else 0}\n" if status == 'queued' else '')
         + f" <b>Account:</b> {uvc.account_name}\n"
-        f" <b>Volume:</b> {st.relay_volume}/1000 |  <b>Bass:</b> +{st.bass} dB\n"
+        f" <b>Volume:</b> {st.relay_volume}/2000 |  <b>Bass:</b> +{st.bass} dB\n"
         f" <b>Boost:</b> {st.boost}/10 |  <b>Echo:</b> "
         f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
         reply_markup=now_playing_kb(cid, uvc.chats.get(cid)),
@@ -545,7 +545,7 @@ async def cmd_playforce(bot: Client, msg: Message):
         f" <b>Force playing!</b>\n\n"
         f" <b>Source:</b> {name}\n"
         f" <b>Chat:</b> {title}\n"
-        f" <b>Volume:</b> {st.relay_volume}/1000 |  <b>Bass:</b> +{st.bass} dB\n"
+        f" <b>Volume:</b> {st.relay_volume}/2000 |  <b>Bass:</b> +{st.bass} dB\n"
         f" <b>Boost:</b> {st.boost}/10 |  <b>Echo:</b> "
         f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
         reply_markup=now_playing_kb(cid, uvc.chats.get(cid)),
@@ -771,19 +771,19 @@ async def cmd_ss(bot: Client, msg: Message):
         return
     st = uvc.state(cid)
     if arg not in ("on", "off", "", "live", "mixer"):
-        await msg.reply_text("✅ Use: <code>.ss on</code> (LIVE VC screen) | "
-                             "<code>.ss mixer</code> | <code>.ss off</code>\n"
+        await msg.reply_text("✅ Use: <code>.ss on</code> | <code>.ss off</code>\n"
                              "Photo ko reply karke <code>.ss on</code> = wahi photo share.")
         return
     if arg in ("live", "mixer"):
-        st.ss_mode = arg
+        # Live participants screen removed — both map to the mixer SS.
+        st.ss_mode = "mixer"
         arg = "on"
         if st.ss_on:
             await uvc.set_screen_share(cid, False)
     if not arg:
         await msg.reply_text(
             f"️ <b>Screen share:</b> <code>{'ON' if st.ss_on else 'OFF'}</code> — "
-            f"{Config.SS_WIDTH}x{Config.SS_HEIGHT}@{Config.SS_FPS}fps"
+            "1280x720 HD"
         )
         return
     image = "" if arg == "on" else None
@@ -811,9 +811,7 @@ async def cmd_ss(bot: Client, msg: Message):
     await stat.edit_text(
         ("🖥 <b>Screen share ON</b> — " + (
             "aapki photo share ho rahi hai." if image else
-            "mixer panel share ho raha hai." if st.ss_mode == "mixer" else
-            "<b>LIVE VC screen</b>: VC me jitne log hain sab dikhenge (bolne wale "
-            "green), side me Now Playing, Volume, Mic, Loop controls. Full HD 1080p."))
+            "PC mixer screen share ho raha hai (HD, bina blur)."))
         if arg == "on" else "️ <b>Screen share OFF.</b>"
     )
 
@@ -983,10 +981,10 @@ def _num_arg(msg: Message):
 async def cmd_vol(bot, msg: Message):
     n = _num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>.vol &lt;0-1000&gt;</code>")
+        await msg.reply_text("Usage: <code>.vol &lt;0-2000&gt;</code>\n1000 = clean max, 1001-2000 = OVERDRIVE (aur tez, fat sakti hai)")
         return
     n = clamp(n, VOLUME_MIN, VOLUME_MAX)
-    await _apply_and_reply(msg, f" Volume set: <b>{n}/1000</b>", volume=n, relay_volume=n)
+    await _apply_and_reply(msg, f" Volume set: <b>{n}/2000</b>" + (" — OVERDRIVE" if n > 1000 else ""), volume=n, relay_volume=n)
 
 @Client.on_message(HAS_USER & cmd_prefix(r"bass\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_bass(bot, msg: Message):
@@ -1105,7 +1103,7 @@ async def cb_vc(bot, cq):
             f"🎧 <b>NOW PLAYING</b>\n\n"
             f"🎵 {st.source_name}\n"
             f"{'⏸ Paused' if st.is_paused else '▶ Playing'} · "
-            f"🔊 {st.relay_volume}/1000 · 💥 {st.boost}/10\n\n"
+            f"🔊 {st.relay_volume}/2000 · 💥 {st.boost}/10\n\n"
             "<i>Human Mode = hand raise + mic on/off blink, taaki account "
             "asli insaan jaisa lage.</i>",
             reply_markup=now_playing_kb(cid, st),
