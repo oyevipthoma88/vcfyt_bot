@@ -56,7 +56,7 @@ def loud_text(c: dict, live: bool) -> str:
         f"📢 <b>Presence:</b> <code>{_bar(c['presence'])} {c['presence']}/10</code>\n"
         f"🎵 <b>Bass:</b> <code>{_bar(c['bass'])} {c['bass']}/10</code>\n"
         f"✂️ <b>Clip:</b> {'HARD (max tez)' if c['clip'] == 'hard' else 'SOFT (smooth)'}\n\n"
-        "<b>Ek tap presets:</b> 🛡 Safe 6 • 🔊 Loud 14 • 💥 MAX 20 • ⚔️ FIGHT 26 • ☢️ ULTRA 30\n"
+        "<b>Ek tap presets:</b> 🛡 Safe 6 • 🔊 Loud 18 • 💥 MAX 20 • ⚔️ FIGHT 26 • ☢️ ULTRA 30\n"
         "Aawaz zyada phate to Volume kam karo ya Clip SOFT. Bass 0 = shabd sabse tez.\n\n"
         "Text: <code>.mic loud 0-30</code> • <code>.mic loud safe|loud|max|fight|ultra</code>"
     )
@@ -282,15 +282,21 @@ async def run_bridge(msg: Message, parts):
         await vc_bridge.start_bridge(uid, uvc, relay, src_id, tgt, settings, preset)
     except Exception as exc:
         text = f"❌ Bridge start nahi hua:\n<code>{str(exc)[:400]}</code>"
-    else:
-        text = (f"🟢 <b>Bridge LIVE</b>\nPrivate <code>{src_id}</code> → Target <code>{tgt}</code>\n"
-                f"Preset: <b>{preset}</b> · Spare volume 200\n"
-                "🔥 Aawaz control: <code>.mic loud</code>\n"
-                "Band: <code>.mic off</code>")
+        try:
+            if note:
+                await note.edit_text(text)
+                return
+        except Exception:
+            pass
+        await mic_notify(msg, text)
+        return
+    # Mic ON hote hi control panel auto-show: LIVE status + saare buttons.
+    c = await vc_bridge.load_loud(uid)
+    panel = loud_text(c, True)
     try:
         if note:
-            await note.edit_text(text)
+            await note.edit_text(panel, reply_markup=loud_kb())
             return
     except Exception:
         pass
-    await mic_notify(msg, text)
+    await mic_notify(msg, panel, reply_markup=loud_kb())
