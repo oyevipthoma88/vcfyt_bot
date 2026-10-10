@@ -248,7 +248,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -1.0)
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 14.0, high=16.0, low=0.0)
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 16.0, high=18.0, low=0.0)
     # BANDWIDTH FIX (root cause of "aawaj bohot kam lagti hai"):
     #   old chain had DOUBLE highpass at 140 Hz + DOUBLE lowpass at 8 kHz.
     #   8 kHz cutoff removes all consonant/air energy (5-15 kHz) -> voice
@@ -262,10 +262,10 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f.append("afftdn=nr=10:nf=-50:tn=1")
     if _has_filter("agate"):
         f.append("agate=threshold=0.0004:range=0.002:ratio=20:attack=1:release=250:detection=peak")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 28.0, high=36.0, low=0.0))}dB")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 32.0, high=38.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=42:r=0.0005:l=1:p=0.95")
-    f.append("acompressor=threshold=0.04:ratio=10:attack=2:release=80:makeup=5:knee=4")
+        f.append("speechnorm=e=48:r=0.0005:l=1:p=0.95")
+    f.append("acompressor=threshold=0.035:ratio=12:attack=2:release=80:makeup=6:knee=4")
     if _has_filter("agate"):
         f.append("agate=threshold=0.008:range=0.08:ratio=4:attack=1:release=220:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",

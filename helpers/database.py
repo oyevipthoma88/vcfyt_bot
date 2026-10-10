@@ -152,7 +152,12 @@ class Database:
                 gain       INTEGER,
                 treble     INTEGER,
                 voice      TEXT DEFAULT 'normal',
-                live_volume INTEGER
+                live_volume INTEGER,
+                loud INTEGER DEFAULT 120,
+                crunch INTEGER DEFAULT 0,
+                pregain INTEGER DEFAULT 80,
+                turbo INTEGER DEFAULT 12,
+                clarity INTEGER DEFAULT 14
             )
         """)
 
@@ -163,6 +168,11 @@ class Database:
             "ALTER TABLE settings ADD COLUMN treble INTEGER",
             "ALTER TABLE settings ADD COLUMN voice TEXT DEFAULT 'normal'",
             "ALTER TABLE settings ADD COLUMN live_volume INTEGER",
+            "ALTER TABLE settings ADD COLUMN loud INTEGER DEFAULT 120",
+            "ALTER TABLE settings ADD COLUMN crunch INTEGER DEFAULT 0",
+            "ALTER TABLE settings ADD COLUMN pregain INTEGER DEFAULT 80",
+            "ALTER TABLE settings ADD COLUMN turbo INTEGER DEFAULT 12",
+            "ALTER TABLE settings ADD COLUMN clarity INTEGER DEFAULT 14",
         ):
             try:
                 c.execute(statement)
@@ -429,7 +439,8 @@ class Database:
             "treble": Config.RELAY_DEFAULT_TREBLE,
             "voice": "normal",
             "live_volume": Config.LIVE_BOOST_DEFAULT,
-
+            "loud": 120, "crunch": 0,
+            "pregain": 80, "turbo": 12, "clarity": 14,
         }
         if self._use_mongo:
             doc = await self._mongo.settings.find_one({"user_id": user_id})
@@ -457,13 +468,17 @@ class Database:
             self._sql("INSERT OR IGNORE INTO settings (user_id) VALUES (?)", (user_id,))
             self._sql(
                 "UPDATE settings SET volume=?, bass=?, echo=?, echo_level=?, "
-                "boost=?, auto=?, relay_volume=?, gain=?, treble=?, voice=?, live_volume=? "
+                "boost=?, auto=?, relay_volume=?, gain=?, treble=?, voice=?, live_volume=?, "
+                "loud=?, crunch=?, pregain=?, turbo=?, clarity=? "
                 "WHERE user_id=?",
                 (current["volume"], current["bass"], int(current["echo"]),
                  current["echo_level"], current["boost"],
                  int(current.get("auto") or 0), current["relay_volume"],
                  current["gain"], current["treble"], current["voice"],
-                 current["live_volume"], user_id),
+                 current["live_volume"],
+                 int(current.get("loud") or 120), int(current.get("crunch") or 0),
+                 int(current.get("pregain") or 80), int(current.get("turbo") or 12),
+                 int(current.get("clarity") or 14), user_id),
             )
 
     # ── Linked accounts (same string session) ────────────────
