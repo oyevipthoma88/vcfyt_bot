@@ -62,6 +62,10 @@ def main() -> int:
         raise AssertionError("live mic must use exactly one compressor (clarity)")
     if "volume=30dB" in live_filter or "speechnorm=e=50" in live_filter:
         raise AssertionError("brutal over-gain stages are back in the live chain")
+    # 8 kHz lowpass was the root cause of "aawaj kam lagti hai" — it kills
+    # all consonant/air energy.  Must be at least 12 kHz now.
+    if "lowpass=f=8000" in live_filter:
+        raise AssertionError("8 kHz lowpass is back — voice sounds muffled")
 
     baseline_peak = measure("anull")[1]
     for input_peak_db in (-6.0, -20.0, -30.0):
@@ -70,7 +74,7 @@ def main() -> int:
         print(f"input peak {input_peak_db:5.1f} dBFS -> mean {mean_db:5.1f}, peak {peak_db:5.1f}")
         if peak_db > -0.2:
             raise AssertionError(f"live voice clipping: peak {peak_db:.1f} dBFS")
-        if mean_db > -2.5:
+        if mean_db > -1.0:
             raise AssertionError(f"live voice over-compressed: mean {mean_db:.1f} dBFS")
         if mean_db < -32.0:
             raise AssertionError(f"live voice too quiet: mean {mean_db:.1f} dBFS")

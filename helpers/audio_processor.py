@@ -248,34 +248,33 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -1.0)
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 12.0, high=14.0, low=0.0)
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 14.0, high=16.0, low=0.0)
+    # BANDWIDTH FIX (root cause of "aawaj bohot kam lagti hai"):
+    #   old chain had DOUBLE highpass at 140 Hz + DOUBLE lowpass at 8 kHz.
+    #   8 kHz cutoff removes all consonant/air energy (5-15 kHz) -> voice
+    #   sounds muffled AND perceptually quieter.  Double 140 Hz highpass
+    #   kills male voice warmth.  Now: single 85 Hz HP + single 14 kHz LP
+    #   = full telephony-grade speech band, much louder and clearer.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=140", "highpass=f=140",
-         "lowpass=f=8000", "lowpass=f=8000"]
+         "highpass=f=85",
+         "lowpass=f=14000"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=12:nf=-50:tn=1")
-    # Phone mics arrive at -40..-55 dBFS (browser auto-gain is OFF for
-    # clarity).  speechnorm alone could lift only ~28 dB, so quiet phones
-    # stayed quiet and the noise gate then chopped words.  Fixed +12 dB
-    # pre-amp (float, cannot clip) + stronger expansion fixes that.
+        f.append("afftdn=nr=10:nf=-50:tn=1")
     if _has_filter("agate"):
-        # Pre-gate on the RAW mic (before any gain): room hiss below
-        # ~-64 dBFS is muted so the huge boost below lifts only the voice.
-        f.append("agate=threshold=0.0006:range=0.003:ratio=20:attack=1:release=250:detection=peak")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 26.0, high=30.0, low=0.0))}dB")
+        f.append("agate=threshold=0.0004:range=0.002:ratio=20:attack=1:release=250:detection=peak")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 28.0, high=36.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # Lift quiet syllables hard (whisper -> normal level).
-        f.append("speechnorm=e=40:r=0.0005:l=1:p=0.95")
-    f.append("acompressor=threshold=0.05:ratio=10:attack=2:release=80:makeup=4:knee=4")
+        f.append("speechnorm=e=42:r=0.0005:l=1:p=0.95")
+    f.append("acompressor=threshold=0.04:ratio=10:attack=2:release=80:makeup=5:knee=4")
     if _has_filter("agate"):
-        f.append("agate=threshold=0.012:range=0.1:ratio=4:attack=1:release=220:detection=rms")
+        f.append("agate=threshold=0.008:range=0.08:ratio=4:attack=1:release=220:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",
           "equalizer=f=1200:t=q:w=1:g=3",
-          "equalizer=f=2600:t=q:w=0.9:g=10",
-          "equalizer=f=3800:t=q:w=1.2:g=4"]
+          "equalizer=f=2600:t=q:w=0.9:g=11",
+          "equalizer=f=3800:t=q:w=1.2:g=5",
+          "equalizer=f=5500:t=q:w=1.5:g=3"]
     if _has_filter("aexciter"):
-        # Presence harmonics: cut through phone speakers.
-        f.append("aexciter=amount=0.8:drive=5:freq=3000:ceil=10000")
+        f.append("aexciter=amount=0.9:drive=5.5:freq=3000:ceil=10000")
     # NON-ADMIN GC ROOT FIX: without admin nobody can push the relay to
     # 200 %, so the only loudness left is DENSITY.  Open mode (no admin
     # boost) adds a 3-band compressor (every band pushed up evenly ->

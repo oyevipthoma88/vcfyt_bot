@@ -153,7 +153,7 @@ class LiveMicSession:
             "pregain": int(s.get("pregain", 80)),
             "turbo": int(s.get("turbo", 12) or 12),
             "clarity": int(s.get("clarity", 14) if s.get("clarity") is not None else 14),
-            "loud": int(s.get("loud", 0) or 0),
+            "loud": int(s.get("loud") or 80),
             "crunch": int(s.get("crunch", 0) or 0),
         }
 
@@ -181,7 +181,7 @@ class LiveMicSession:
         from helpers.audio_processor import build_live_mic_filter
         self._pipeline_ceiling = self._ceiling_db()
         return build_live_mic_filter(self._pipeline_ceiling,
-                                     loud=int(self.settings.get("loud", 0) or 0),
+                                     loud=int(self.settings.get("loud") or 80),
                                      crunch=int(self.settings.get("crunch", 0) or 0))
 
     def _ceiling_db(self) -> float:
@@ -1533,7 +1533,7 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 
 <div class="ctl" id="liveCtl">
   <div class="row"><span>&#128266; VOLUME BOOST</span><b id="loudV">0</b></div>
-  <input type="range" id="loudR" min="0" max="200" step="5" value="0">
+  <input type="range" id="loudR" min="0" max="200" step="5" value="80">
   <div class="row"><span>&#128165; FATNA (DISTORTION)</span><b id="crunchV">0</b></div>
   <input type="range" id="crunchR" min="0" max="200" step="5" value="0">
   <small>Default 0 = best saaf awaaz. Fight me saamne wala tez ho to <b>VOLUME BOOST</b> badhayein; aur zyada tez + phati awaaz chahiye to <b>FATNA</b> bhi badhayein. <b>100 se upar = OVERDRIVE</b>: sabse zyada tez, awaaz fat sakti hai. Slider chhodte hi live lagta hai.</small>
@@ -2005,7 +2005,7 @@ async function toggleMic() {
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            const pre = audioCtx.createGain(); pre.gain.value = 8.0; // +18 dB: phone mic (AGC off) is very quiet; limiter below stops clipping
+            const pre = audioCtx.createGain(); pre.gain.value = 12.0; // +22 dB: phone mic (AGC off) is very quiet; limiter below stops clipping
             const lim = audioCtx.createDynamicsCompressor();
             lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20;
             lim.attack.value=0.002; lim.release.value=0.06;
