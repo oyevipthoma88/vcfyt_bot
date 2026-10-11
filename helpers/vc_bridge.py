@@ -364,6 +364,9 @@ class VCBridge:
         self.started_at = time.monotonic()
         self.loud = dict(LOUD_DEFAULT)
         self.agc = PcmAgc()
+        # True = spare ID target group me VC-admin hai -> uska 200 % volume
+        # SAB listeners ke liye lagta hai (asli +6 dB, bina distortion).
+        self.boost_all = False
 
     def feed(self, frames) -> None:
         s = self.session
@@ -400,6 +403,10 @@ class VCBridge:
         await session.ensure_pipeline(48000)
 
         _ensure_handler(self.relay)
+        # 0) spare ID dono groups ki member ho (main ID / bot invite karte hain)
+        from helpers import mic_tools
+        for cid in (self.source_chat, self.target_chat):
+            await mic_tools.ensure_member(self.uvc, self.relay, cid)
         # 1) spare ID PRIVATE VC me listener ban ke join (kuch nahi bolti)
         await self.relay._peer(self.source_chat)
         await self.relay.calls.record(
@@ -430,6 +437,13 @@ class VCBridge:
             await self.relay.calls.change_volume_call(self.target_chat, 200)
         except Exception:
             pass
+        # ASLI BOOST: spare ID ko target me VC-admin banao (sirf "manage
+        # video chats" right) -> uska 200 % volume sabke liye lagega.
+        try:
+            self.boost_all = await mic_tools.ensure_relay_admin(
+                self.uvc, self.relay, self.target_chat)
+        except Exception:
+            self.boost_all = False
         # Self-volume sirf spare ID ke liye lagta hai; MAIN ID (group admin)
         # se spare ID ka volume 200% set karo -> sab listeners ke liye tez.
         self._vol_task = asyncio.create_task(self._admin_volume_keeper())
@@ -523,6 +537,7 @@ class VCBridge:
             "received_kb": (s._received_bytes // 1024) if s else 0,
             "uptime_s": int(time.monotonic() - self.started_at),
             "live": bool(s and not s._closed and s._started),
+            "boost_all": self.boost_all,
         }
 
 

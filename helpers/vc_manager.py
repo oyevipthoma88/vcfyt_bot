@@ -1328,8 +1328,15 @@ class UserVC:
         # 15 fps made Telegram's encoder starve (big frames, low bitrate) and
         # viewers saw a blurry / "loading" screen.  Send it at native 720p
         # and 24+ fps so the encoder reaches full quality within a second.
+        # v2 BLUR FIX: static picture ke liye 15 fps — utne hi bitrate me har
+        # frame ko ~2x bits milte hain aur CPU kam lagta hai, isliye Telegram
+        # ka encoder resolution neeche nahi girata.  SS_MIXER_FPS se badlo.
         ss_w, ss_h = min(Config.SS_WIDTH, 1280), min(Config.SS_HEIGHT, 720)
-        ss_fps = max(24, min(30, Config.SS_FPS))
+        try:
+            ss_fps = int(os.environ.get("SS_MIXER_FPS", "15"))
+        except ValueError:
+            ss_fps = 15
+        ss_fps = max(10, min(30, ss_fps))
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",
@@ -1797,13 +1804,65 @@ class SessionManager:
         import hashlib
         return hashlib.sha256(string_session.encode()).hexdigest()[:16]
 
-    async def assistant_string(self, user_id: int) -> str:
-        """Per-user spare account, falling back to the global one."""
+    @staticmethod
+    def assistant_pool() -> list:
+        """Owner ki spare IDs: ASSISTANT_SESSIONS (+ ASSISTANT_SESSION)."""
+        import re as _re
+        raw = f"{getattr(Config, 'ASSISTANT_SESSIONS', '') or ''} {Config.ASSISTANT_SESSION or ''}"
+        out = []
+        for tok in _re.split(r"[\s,;]+", raw):
+            tok = tok.strip()
+            if len(tok) > 20 and tok not in out:
+                out.append(tok)
+        return out
+
+    def _pool_busy(self, session: str, user_id: int) -> int:
+        """Kitne DOOSRE users abhi is pool spare se live bridge chala rahe hain."""
+        try:
+            from helpers.vc_bridge import _bridges
+        except Exception:
+            _bridges = {}
+        leases = getattr(self, "_leases", {})
+        return sum(1 for uid, sess in leases.items()
+                   if sess == session and uid != user_id and uid in _bridges)
+
+    def lease_pool(self, user_id: int) -> str:
+        """Sticky lease: user ko wahi spare milti hai (groups me pehle se member),
+        busy ho to sabse khaali pool spare."""
+        pool = self.assistant_pool()
+        if not pool:
+            return ""
+        leases = self.__dict__.setdefault("_leases", {})
+        cur = leases.get(user_id)
+        if cur in pool and self._pool_busy(cur, user_id) == 0:
+            return cur
+        start = abs(int(user_id)) % len(pool)
+        order = pool[start:] + pool[:start]
+        best = min(order, key=lambda s: self._pool_busy(s, user_id))
+        if cur in pool and self._pool_busy(cur, user_id) <= self._pool_busy(best, user_id):
+            best = cur
+        leases[user_id] = best
+        return best
+
+    async def assistant_source(self, user_id: int) -> str:
+        """'own' (user ki apni spare), 'pool' (owner ki), ya '' (koi nahi)."""
         try:
             stored = await _db().get_app_value(f"assistant_session_{user_id}")
         except Exception:
             stored = None
-        return (stored or Config.ASSISTANT_SESSION or "").strip()
+        if (stored or "").strip():
+            return "own"
+        return "pool" if self.assistant_pool() else ""
+
+    async def assistant_string(self, user_id: int) -> str:
+        """Per-user spare account, warna owner ka spare pool."""
+        try:
+            stored = await _db().get_app_value(f"assistant_session_{user_id}")
+        except Exception:
+            stored = None
+        if (stored or "").strip():
+            return stored.strip()
+        return self.lease_pool(user_id)
 
     async def get_relay(self, user_id: int) -> Optional[UserVC]:
         """UserVC of the spare account that streams live mic audio.
@@ -1842,6 +1901,11 @@ class SessionManager:
     async def drop_relay(self, user_id: int):
         string_session = await self.assistant_string(user_id)
         if not string_session:
+            return
+        if string_session in self.assistant_pool():
+            # Shared pool spare: doosre users bhi use kar rahe ho sakte hain —
+            # client band mat karo, sirf lease chhodo.
+            getattr(self, "_leases", {}).pop(user_id, None)
             return
         uvc = self.assistants.pop(self._assistant_key(string_session), None)
         if uvc:
