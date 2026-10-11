@@ -1930,7 +1930,9 @@ async def cmd_mic(bot: Client, msg: Message):
     action = alias.get(action, action)
     alias.update({"panel": "loud", "control": "loud", "ctrl": "loud"})
     action = alias.get(action, action)
-    if action not in {"on", "off", "leave", "status", "src", "help", "loud"}:
+    alias.update({"room": "setup", "auto": "setup", "fix": "boost", "admin": "boost"})
+    action = alias.get(action, action)
+    if action not in {"on", "off", "leave", "status", "src", "help", "loud", "setup", "boost"}:
         action = "help"
     await run_bridge(msg, ["bridge", action, *parts[2:]])
 

@@ -245,3 +245,24 @@ profile uses browser loud 2000%, clarity 35, zero added bass, server gain 400,
 24 turbo, and 18 dB pre-amp. It is intentionally loudness-first and can sound
 flat/harsh; it exists to establish the maximum practical level before tuning
 back toward clean dynamics.
+
+## v6 — one login, real 200 % boost, sharp SS
+
+* **Spare pool (`ASSISTANT_SESSIONS`)** — owner lists several spare session
+  strings. A user without their own `.micaccount` gets a sticky lease; a spare
+  already live for another user is skipped. Shared pool clients are never
+  stopped by one user's `drop_relay`.
+* **`.mic setup`** — the main ID creates a private "Mic Room" supergroup,
+  adds the spare (invite-link fallback) and starts the VC. `.mic on` does this
+  automatically when no source group is saved.
+* **Real loudness: `ensure_relay_admin`** — the digital chain is already at
+  the clip ceiling, so the only clean gain left is Telegram's participant
+  volume. 200 % set by a VC-admin applies to every listener (+6 dB). The spare
+  gets only `can_manage_video_chats` via the main ID or the bot. Disable with
+  `LIVE_MIC_AUTO_ADMIN=0`. `.mic boost` retries; `.mic status` shows it.
+* **SS blur** — the photo is rendered once (PIL lanczos + light unsharp) to a
+  cached PNG, so FFmpeg no longer scales/sharpens every frame; I420 conversion
+  uses `accurate_rnd+full_chroma_int`; mixer fps defaults to 15
+  (`SS_MIXER_FPS`). Less CPU → the WebRTC encoder stops dropping resolution.
+
+Covered by `tests/test_mic_pool_boost_ss.py`.

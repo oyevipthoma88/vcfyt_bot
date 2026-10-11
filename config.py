@@ -60,6 +60,9 @@ class Config:
     # Telegram allows one group-call join per account, so relaying with the
     # same account the user listens with kicks them out of the voice chat.
     ASSISTANT_SESSION: str = os.environ.get("ASSISTANT_SESSION", "")
+    # SPARE POOL: owner ki kai spare IDs (comma / space / newline se alag).
+    # Users ko khud spare login nahi karna padta — free spare apne aap milti hai.
+    ASSISTANT_SESSIONS: str = os.environ.get("ASSISTANT_SESSIONS", "")
     SESSION_BOT_USERNAME: str = os.environ.get("SESSION_BOT_USERNAME", "Session_generator_1bot")
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 

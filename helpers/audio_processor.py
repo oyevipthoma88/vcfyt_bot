@@ -787,6 +787,34 @@ def _find_font() -> str:
     return ""
 
 
+def prerender_screen_image(path: str, width: int, height: int) -> str:
+    """Photo ko screen size par ek baar sharp render karke PNG cache path do."""
+    try:
+        import hashlib
+        import tempfile
+        from PIL import Image, ImageFilter
+        st = os.stat(path)
+        key = hashlib.sha1(f"{path}|{st.st_mtime}|{st.st_size}|{width}x{height}".encode()).hexdigest()[:16]
+        out = os.path.join(tempfile.gettempdir(), f"ss_pre_{key}.png")
+        if os.path.exists(out):
+            return out
+        im = Image.open(path).convert("RGB")
+        # JPEG 8x8 blocks halke smooth (encoder un blocks par bits waste karta tha)
+        im = im.filter(ImageFilter.SMOOTH) if min(im.size) < 400 else im
+        if im.width > width or im.height > height:
+            im.thumbnail((width, height), Image.LANCZOS)
+        if im.width < width and im.height < height:
+            r = min(width / im.width, height / im.height)
+            im = im.resize((max(2, int(im.width * r)), max(2, int(im.height * r))), Image.LANCZOS)
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=2))
+        canvas = Image.new("RGB", (width, height), (0, 0, 0))
+        canvas.paste(im, ((width - im.width) // 2, (height - im.height) // 2))
+        canvas.save(out, "PNG", optimize=False)
+        return out
+    except Exception:
+        return ""
+
+
 def build_fake_screen_command(
     width: int = 1280,
     height: int = 720,
@@ -814,12 +842,15 @@ def build_fake_screen_command(
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-threads", "2", "-re"]
     if os.path.exists(img):
-        cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
-        # Mild sharpen only (strong unsharp added ringing that Telegram's
-        # encoder turned into blur at low bitrate).
-        base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
-                "unsharp=3:3:0.4:3:3:0.0")
+        # BLUR FIX: scale + sharpen ab har frame par nahi hota.  Photo EK BAAR
+        # PIL se exact size par render (lanczos + halka unsharp + JPEG-block
+        # smoothing) hoke PNG cache me jaati hai.  FFmpeg ka CPU kam -> frames
+        # time par -> WebRTC encoder resolution nahi girata (wahi "blur" tha).
+        pre = prerender_screen_image(img, width, height)
+        cmd += ["-loop", "1", "-framerate", str(fps), "-i", pre or img]
+        base = ("setsar=1" if pre else
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
     else:
         cmd += ["-f", "lavfi", "-i", f"color=c=0x101418:s={width}x{height}:r={fps}"]
         base = "setsar=1"
@@ -887,6 +918,8 @@ def build_fake_screen_command(
         parts.append("drawtext="+ff+"text='LIVE %{pts\\:hms}':"
                      f"x={W - bh * 4 + 8}:y={8 + (bh - 6 - fs2) // 2}:fontsize={fs2}:fontcolor=white")
     parts += [f"fps={fps}", "format=yuv420p"]
-    cmd += ["-vf", ",".join(parts), "-f", "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"]
+    # accurate_rnd + full_chroma_int: RGB->I420 me rang/akshar ke kinare saaf.
+    cmd += ["-sws_flags", "lanczos+accurate_rnd+full_chroma_int",
+            "-vf", ",".join(parts), "-f", "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"]
     tz = os.environ.get("SS_TZ", "IST-5:30")
     return shlex.join(["env", f"TZ={tz}"] + cmd)

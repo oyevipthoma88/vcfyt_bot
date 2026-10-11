@@ -53,11 +53,12 @@ HELP = {
     "ss": ([], ".ss on  |  .ss off  |  photo reply karke .ss on",
            "VC me fake PC mixer screen share — live clock, LIVE timer aur chalte meters. "
            "Kitni bhi baar on/off kar sakte ho.", ".ss on"),
-    "mic": ([], ".mic on [full|clean|bass|echo] [chat_id]\n.mic off  |  .mic leave  |  .mic status\n"
-                ".mic src <private_chat_id>  |  .mic chat <target_chat_id>",
+    "mic": ([], ".mic setup  |  .mic chat <target_chat_id>  |  .mic on [clean|bass|echo|full] [chat_id]\n"
+                ".mic off  |  .mic leave  |  .mic status  |  .mic loud [0-30|fight|ultra]  |  .mic boost",
             "Live mic: aapki aawaz spare ID ke through target VC me loud + clear. "
-            "Pehle .mic src aur .mic chat set karein.",
-            ".mic chat -1001234567890\n.mic on"),
+            ".mic setup private Mic Room khud banata hai; .mic boost spare ko VC-admin banake "
+            "200% volume sabke liye lagata hai.",
+            ".mic setup\n.mic chat -1001234567890\n.mic on"),
     "chat": ([], ".mic chat <target_chat_id>",
              "Live mic ka target group set karta hai (jahan aapki aawaz jayegi). "
              "ID -100 se shuru honi chahiye.", ".mic chat -1001234567890"),
