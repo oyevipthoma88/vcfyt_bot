@@ -1256,6 +1256,29 @@ async def cb_mic(bot: Client, cq):
             await _spare_cancel(uid)
             await _spare_remove(uid)
             await safe_answer(cq, "Spare account hata diya")
+        elif sub == "add":
+            from helpers.access_control import can_multi_spare
+            if not await session_manager.assistant_string(uid):
+                await safe_answer(cq, "Pehle main Spare ID lagao", show_alert=True)
+            elif not await can_multi_spare(uid):
+                await safe_answer(cq, "🔒 Multi Spare sirf Premium users ke liye hai. "
+                                  "Premium lo ya owner se baat karo.", show_alert=True)
+            else:
+                used = set(await session_manager.spare_slots(uid))
+                free = next((n for n in range(2, session_manager.MAX_SPARES + 1)
+                             if n not in used), None)
+                if free is None:
+                    await safe_answer(cq, f"Max {session_manager.MAX_SPARES} spare ID ho gayi",
+                                      show_alert=True)
+                else:
+                    await _spare_cancel(uid)
+                    _mic_login[uid] = {"stage": "phone", "slot": free}
+                    await safe_answer(cq, f"Spare #{free}: number ya session string bhejo")
+        elif sub == "rm" and len(rest) > 1 and rest[1].isdigit() and int(rest[1]) > 1:
+            slot = int(rest[1])
+            await session_manager.drop_relay(uid, slot)
+            await db.delete_app_value(session_manager.spare_key(uid, slot))
+            await safe_answer(cq, f"Spare #{slot} hata diya")
         else:
             await safe_answer(cq)
         text, kb = await spare_screen(uid)
@@ -1581,12 +1604,36 @@ def spare_setup_kb(pending: bool = False) -> K:
     ])
 
 
-def spare_ready_kb() -> K:
-    return K([
-        [B("♻ Dusra account lagayein", callback_data="mic:acct:phone")],
-        [B("🗑 Spare account hatayein", callback_data="mic:acct:remove")],
+def spare_ready_kb(extra_slots=()) -> K:
+    rows = [[B("➕ Extra Spare ID (Multi)", callback_data="mic:acct:add", style="success")]]
+    for slot in extra_slots:
+        rows.append([B(f"🗑 Spare #{slot} hatao", callback_data=f"mic:acct:rm:{slot}",
+                       style="danger")])
+    rows += [
+        [B("♻ Main spare badlo", callback_data="mic:acct:phone")],
+        [B("🗑 Main spare hatao", callback_data="mic:acct:remove", style="danger")],
         [B("⬅ Back", callback_data="mic:panel")],
-    ])
+    ]
+    return K(rows)
+
+
+async def _multi_spare_lines(uid: int):
+    """(text, extra_slots) — extra spare IDs ki list for the spare screen."""
+    from helpers.access_control import can_multi_spare, multi_spare_premium_only
+    slots = [x for x in await session_manager.spare_slots(uid) if x > 1]
+    lines = []
+    for slot in slots:
+        r = await session_manager.get_relay(uid, slot)
+        lines.append(f"├ #{slot}: <code>{r.account_name}</code> (<code>{r.account_id}</code>)"
+                     if r else f"├ #{slot}: ⚠️ login fail — hata ke dobara lagao")
+    allowed = await can_multi_spare(uid)
+    lock = ("🔓 Free" if not await multi_spare_premium_only()
+            else ("💎 Premium ✅" if allowed else "🔒 Sirf Premium"))
+    text = (f"\n\n👥 <b>Multi Spare</b> ({lock}) — {1 + len(slots)}/"
+            f"{session_manager.MAX_SPARES} ID ek saath bolengi\n"
+            + ("\n".join(lines) if lines else "├ koi extra spare nahi") +
+            "\n└ Sab spare ID target group me add honi chahiye.")
+    return text, slots
 
 
 async def spare_screen(uid: int):
@@ -1631,13 +1678,14 @@ async def spare_screen(uid: int):
                 "⚠️ Spare account set hai par uska login fail ho raha hai. "
                 "Phone se dobara login karein ya hata dein.",
                 spare_ready_kb())
+    multi_text, extra_slots = await _multi_spare_lines(uid)
     return (
         "🎤 <b>Spare Mic Account</b> — ✅ ready\n\n"
         f"├ Name: <code>{relay.account_name}</code>\n"
         f"└ ID: <code>{relay.account_id}</code>\n\n"
         "Live mic isi account se VC me jayega aur aap VC me hi rahenge.\n"
-        "<i>Dhyan: is spare account ko us group me add karein.</i>",
-        spare_ready_kb())
+        "<i>Dhyan: is spare account ko us group me add karein.</i>" + multi_text,
+        spare_ready_kb(extra_slots))
 
 
 async def _spare_cancel(uid: int):
@@ -1655,9 +1703,12 @@ async def _spare_remove(uid: int):
     await session_manager.drop_relay(uid)
 
 
-async def _spare_save(uid: int, session_str: str, account_id: int = None):
+async def _spare_save(uid: int, session_str: str, account_id: int = None,
+                      slot: int = 1):
     """Validate + save a spare session. Returns (ok, message)."""
     session_str = (session_str or "").strip()
+    if slot > 1:
+        return await _spare_save_extra(uid, session_str, account_id, slot)
     if account_id is not None and account_id == uid:
         return False, ("❌ Ye aapka hi account hai. Spare mic account <b>alag</b> hona "
                        "chahiye, warna wahi purani problem rahegi.")
@@ -1682,9 +1733,44 @@ async def _spare_save(uid: int, session_str: str, account_id: int = None):
                   "<i>Zaroori: is spare account ko us group me add karein.</i>")
 
 
+async def _spare_save_extra(uid: int, session_str: str, account_id, slot: int):
+    """Multi-spare slot (2..MAX) save — main ID / dusre spare se alag ho."""
+    if account_id is not None and account_id == uid:
+        return False, "❌ Ye aapka hi account hai. Extra spare alag account ka ho."
+    own = await db.get_user(uid)
+    if own and (own.get("string_session") or "").strip() == session_str:
+        return False, "❌ Ye wahi account hai jisse aap login hain."
+    for other in await session_manager.spare_slots(uid):
+        if other != slot and await session_manager.assistant_string(uid, other) == session_str:
+            return False, f"❌ Ye account pehle se Spare #{other} me laga hai."
+    key = session_manager.spare_key(uid, slot)
+    await db.set_app_value(key, session_str)
+    relay = await session_manager.get_relay(uid, slot)
+    if not relay:
+        await db.delete_app_value(key)
+        return False, "❌ Account connect nahi ho paya. Dobara try karein."
+    used = set()
+    for other in await session_manager.spare_slots(uid):
+        if other != slot:
+            r = await session_manager.get_relay(uid, other)
+            if r:
+                used.add(r.account_id)
+    if relay.account_id == uid or relay.account_id in used:
+        await session_manager.drop_relay(uid, slot)
+        await db.delete_app_value(key)
+        return False, "❌ Ye account aapka ya pehle se laga spare hai — alag ID lagao."
+    return True, (f"✅ <b>Extra Spare #{slot} set!</b>\n\n"
+                  f"├ Name: <code>{relay.account_name}</code>\n"
+                  f"└ ID: <code>{relay.account_id}</code>\n\n"
+                  "Agli baar 🟢 <b>Mic ON</b> par ye ID bhi main spare ke saath "
+                  "<b>ek saath</b> target VC me bolegi.\n"
+                  "<i>Is ID ko target group me add karna zaroori hai.</i>")
+
+
 async def _spare_send_code(uid: int, phone: str):
     if not Config.API_ID or not Config.API_HASH:
         return False, "❌ Bot me API_ID/API_HASH set nahi hai — owner se bolein."
+    slot = int((_mic_login.get(uid) or {}).get("slot", 1))
     await _spare_cancel(uid)
     client = Client(name=f"miclogin_{uid}", api_id=Config.API_ID,
                     api_hash=Config.API_HASH, in_memory=True, no_updates=True)
@@ -1699,7 +1785,7 @@ async def _spare_send_code(uid: int, phone: str):
         return False, (f"❌ OTP bhejna fail: <code>{e}</code>\n"
                        "Number country code ke saath bhejein, jaise "
                        "<code>+919876543210</code>.")
-    _mic_login[uid] = {"client": client, "phone": phone,
+    _mic_login[uid] = {"client": client, "phone": phone, "slot": slot,
                        "hash": sent.phone_code_hash, "stage": "code"}
     return True, ("📩 <b>OTP bhej diya</b> us number ke Telegram par.\n\n"
                   "Ab OTP yahin bhej dein, jaise <code>12345</code>.\n"
@@ -1715,7 +1801,7 @@ async def _spare_handle_text(uid: int, text: str):
     # A pasted session string works at any "what do I send?" stage.
     if stage in {"phone", "string"}:
         if len(text) > 60 and " " not in text:
-            ok, message = await _spare_save(uid, text)
+            ok, message = await _spare_save(uid, text, slot=int((st or {}).get("slot", 1)))
             if ok:
                 await _spare_cancel(uid)
             return message, ok
@@ -1757,8 +1843,9 @@ async def _spare_handle_text(uid: int, text: str):
     except Exception as e:
         await _spare_cancel(uid)
         return f"❌ Session banane me error: <code>{e}</code>", False
+    slot = int(st.get("slot", 1))
     await _spare_cancel(uid)
-    return await _spare_save(uid, session_str, account_id=me.id)
+    return await _spare_save(uid, session_str, account_id=me.id, slot=slot)
 
 
 @Client.on_message(HAS_USER & filters.private & filters.text

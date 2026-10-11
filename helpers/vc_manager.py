@@ -1797,21 +1797,37 @@ class SessionManager:
         import hashlib
         return hashlib.sha256(string_session.encode()).hexdigest()[:16]
 
-    async def assistant_string(self, user_id: int) -> str:
-        """Per-user spare account, falling back to the global one."""
+    MAX_SPARES = 5  # slot 1 = main spare, 2..5 = multi-spare extras
+
+    @staticmethod
+    def spare_key(user_id: int, slot: int = 1) -> str:
+        return f"assistant_session_{user_id}" + ("" if slot <= 1 else f"_{slot}")
+
+    async def assistant_string(self, user_id: int, slot: int = 1) -> str:
+        """Per-user spare account (slot 1 falls back to the global one)."""
         try:
-            stored = await _db().get_app_value(f"assistant_session_{user_id}")
+            stored = await _db().get_app_value(self.spare_key(user_id, slot))
         except Exception:
             stored = None
+        if slot > 1:
+            return (stored or "").strip()
         return (stored or Config.ASSISTANT_SESSION or "").strip()
 
-    async def get_relay(self, user_id: int) -> Optional[UserVC]:
+    async def spare_slots(self, user_id: int) -> list:
+        """Slots (1..MAX_SPARES) that have a saved session."""
+        out = []
+        for slot in range(1, self.MAX_SPARES + 1):
+            if await self.assistant_string(user_id, slot):
+                out.append(slot)
+        return out
+
+    async def get_relay(self, user_id: int, slot: int = 1) -> Optional[UserVC]:
         """UserVC of the spare account that streams live mic audio.
 
         Returns None when no spare account is configured; callers then fall
         back to the user's own account (which kicks them out of the VC).
         """
-        string_session = await self.assistant_string(user_id)
+        string_session = await self.assistant_string(user_id, slot)
         if not string_session:
             return None
         key = self._assistant_key(string_session)
@@ -1826,7 +1842,7 @@ class SessionManager:
                 except Exception:
                     pass
                 self.assistants.pop(key, None)
-            uvc = UserVC(user_id, string_session, label="relay")
+            uvc = UserVC(user_id, string_session, label="relay" if slot <= 1 else f"relay{slot}")
             try:
                 await uvc.start()
             except Exception as exc:
@@ -1834,13 +1850,28 @@ class SessionManager:
                     await uvc.stop()
                 except Exception:
                     pass
-                await log_error(f"assistant_start_{user_id}", exc)
+                await log_error(f"assistant_start_{user_id}_{slot}", exc)
                 return None
             self.assistants[key] = uvc
             return uvc
 
-    async def drop_relay(self, user_id: int):
-        string_session = await self.assistant_string(user_id)
+    async def extra_relays(self, user_id: int, exclude_ids=()) -> list:
+        """Connected extra spares (slots 2..MAX) — unique accounts only."""
+        seen = {i for i in exclude_ids if i}
+        out = []
+        for slot in range(2, self.MAX_SPARES + 1):
+            if not await self.assistant_string(user_id, slot):
+                continue
+            relay = await self.get_relay(user_id, slot)
+            aid = getattr(relay, "account_id", 0) if relay else 0
+            if relay is None or not aid or aid in seen or aid == user_id:
+                continue
+            seen.add(aid)
+            out.append(relay)
+        return out
+
+    async def drop_relay(self, user_id: int, slot: int = 1):
+        string_session = await self.assistant_string(user_id, slot)
         if not string_session:
             return
         uvc = self.assistants.pop(self._assistant_key(string_session), None)

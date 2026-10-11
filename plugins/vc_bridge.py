@@ -397,7 +397,14 @@ async def run_bridge(msg: Message, parts):
         "Ab main ID se PRIVATE VC me mic ON karke bolo (30 sec ke andar)."))
     try:
         settings = await db.get_settings(uid)
-        await vc_bridge.start_bridge(uid, uvc, relay, src_id, tgt, settings, preset)
+        extras = []
+        from helpers.access_control import can_multi_spare
+        if await can_multi_spare(uid):
+            extras = await session_manager.extra_relays(
+                uid, exclude_ids=(getattr(relay, "account_id", 0),
+                                  getattr(uvc, "account_id", 0)))
+        await vc_bridge.start_bridge(uid, uvc, relay, src_id, tgt, settings, preset,
+                                     extra_relays=extras)
     except Exception as exc:
         text = f"❌ Bridge start nahi hua:\n<code>{str(exc)[:400]}</code>"
         try:

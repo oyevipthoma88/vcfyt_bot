@@ -36,6 +36,7 @@ def panel_kb() -> K:
          B("🌱 Grow", callback_data="adm_grow", style="success")],
         [B("🎵 Add Audio", callback_data="adm_addaudio", style="primary"),
          B("💳 Payments", callback_data="adm_payment", style="primary")],
+        [B("👥 Multi Spare (Free / Premium)", callback_data="adm_mspare", style="success")],
         [B("🔗 Source URL", callback_data="adm_source", style="primary"),
          B("♻️ Restart", callback_data="adm_restart", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
@@ -95,6 +96,28 @@ async def cb_admin(bot, cq):
         await edit_screen(cq.message,
             "ℹ️ <b>Active VCs</b>\n" + ("\n".join(lines) or "— none —"),
             reply_markup=back)
+
+    elif action in ("mspare", "mspare_on", "mspare_off"):
+        from helpers.access_control import (multi_spare_premium_only,
+                                            set_multi_spare_premium_only)
+        if action != "mspare":
+            await set_multi_spare_premium_only(action == "mspare_on")
+            await safe_answer(cq, "💎 Ab sirf Premium" if action == "mspare_on"
+                              else "🔓 Ab sabke liye Free")
+        on = await multi_spare_premium_only()
+        await edit_screen(cq.message,
+            "👥 <b>Multi Spare (ek saath kai spare ID)</b>\n\n"
+            f"Abhi: <b>{'💎 Sirf Premium users' if on else '🔓 Sabke liye FREE'}</b>\n\n"
+            "Users Live Mic → 👥 Spare ID → ➕ Extra Spare se 5 tak ID laga sakte hain; "
+            "Mic ON par sab ID ek saath target VC me bolti hain.\n"
+            "Premium ON karne par non-premium users sirf 1 spare use karenge.",
+            reply_markup=K([
+                [B("🔓 Free (sabke liye)" + (" ✅" if not on else ""),
+                   callback_data="adm_mspare_off", style="success"),
+                 B("💎 Premium only" + (" ✅" if on else ""),
+                   callback_data="adm_mspare_on", style="primary")],
+                [B("⬅ Back", callback_data="adm_back")],
+            ]))
 
     elif action == "addaudio":
         await edit_screen(cq.message,

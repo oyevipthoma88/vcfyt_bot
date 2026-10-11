@@ -1195,7 +1195,10 @@ class LiveMicSession:
             else:
                 await unpark_relay(self.relay, self.chat_id)
 
-        _sessions.pop(self.user_id, None)
+        # Multi-spare: extra spare sessions are not registered here — never
+        # pop the user's main session when an extra one stops.
+        if _sessions.get(self.user_id) is self:
+            _sessions.pop(self.user_id, None)
         logger.info("Live mic session stopped for user %s", self.user_id)
 
     async def _cleanup_resources(self):

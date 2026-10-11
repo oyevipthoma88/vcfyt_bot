@@ -391,6 +391,11 @@ class VCBridge:
         self.loud = dict(LOUD_DEFAULT)
         self.agc = PcmAgc()
         self._stable_since = time.monotonic()
+        # MULTI-SPARE: extra spare IDs jo SAME awaaz ek saath target VC me
+        # bolti hain (har ek ka apna FFmpeg + stream).
+        self.extra_relays: list = []
+        self.extras: list = []
+        self._extra_task: Optional[asyncio.Task] = None
 
     def feed(self, frames) -> None:
         s = self.session
@@ -401,10 +406,13 @@ class VCBridge:
             data = self.agc.process(data)
         if not data or s._raw_fd is None or s._restarting:
             return
-        s._last_pcm_at = time.monotonic()
-        s.queue_pcm(data)
-        s._received_bytes += len(data)
-        s._first_pcm.set()
+        for x in [s] + self.extras:
+            if x._closed or x._raw_fd is None or x._restarting:
+                continue
+            x._last_pcm_at = time.monotonic()
+            x.queue_pcm(data)
+            x._received_bytes += len(data)
+            x._first_pcm.set()
 
     async def start(self, settings: dict) -> None:
         from helpers import live_mic
@@ -462,6 +470,45 @@ class VCBridge:
         # se spare ID ka volume 200% set karo -> sab listeners ke liye tez.
         self._vol_task = asyncio.create_task(self._admin_volume_keeper())
         self._watch = asyncio.create_task(self._watchdog())
+        if self.extra_relays:
+            self._extra_task = asyncio.create_task(self._start_extras(settings))
+
+    async def _start_extras(self, settings: dict) -> None:
+        """Har extra spare ID ko target VC me same awaaz ke saath attach karo."""
+        from helpers import live_mic
+        bridge = self
+
+        def _build_with_loud():
+            return build_bridge_filter(bridge.loud, bridge.preset)
+
+        for relay in list(self.extra_relays):
+            if self._closed:
+                return
+            sess = live_mic.LiveMicSession(self.user_id, self.uvc, self.target_chat,
+                                           settings, relay=relay)
+            sess.keep_chats = set()
+            sess.live_overrides = dict(PRESETS[self.preset])
+            sess.input_rate = 48000
+            sess._build_filter = _build_with_loud
+            try:
+                await sess.ensure_pipeline(48000)
+                self.extras.append(sess)
+                await sess._play_stream()
+                try:
+                    await relay.calls.change_volume_call(self.target_chat, 200)
+                except Exception:
+                    pass
+                logger.info("Multi-spare %s joined target %s", relay.account_id,
+                            self.target_chat)
+            except Exception as exc:
+                logger.warning("Multi-spare %s fail: %r",
+                               getattr(relay, "account_id", "?"), exc)
+                if sess in self.extras:
+                    self.extras.remove(sess)
+                try:
+                    await sess.stop()
+                except Exception:
+                    pass
 
     async def _admin_volume_keeper(self) -> None:
         """Main ID (admin) se spare ID ka participant volume 200% pe lock rakho."""
@@ -483,6 +530,13 @@ class VCBridge:
                         await relay_setter(self.target_chat, rid, 20000, quiet=True)
                     except Exception:
                         pass
+                for x in list(self.extras):
+                    xid = getattr(x.relay, "account_id", 0)
+                    if xid:
+                        try:
+                            await setter(self.target_chat, xid, 20000, quiet=True)
+                        except Exception:
+                            pass
                 # Telegram kabhi-kabhi volume 100% pe reset karta hai -> 12 s me wapas 200%.
                 await asyncio.sleep(delays.pop(0) if delays else 12)
         except asyncio.CancelledError:
@@ -500,7 +554,15 @@ class VCBridge:
                     if not await s._restart_ffmpeg():
                         break
                     self._stable_since = time.monotonic()
-                elif s._ffmpeg_restarts and time.monotonic() - self._stable_since > 120:
+                for x in list(self.extras):
+                    if x._closed:
+                        self.extras.remove(x)
+                    elif x.ffmpeg_proc and x.ffmpeg_proc.returncode is not None \
+                            and not x._restarting:
+                        if not await x._restart_ffmpeg():
+                            self.extras.remove(x)
+                            await x.stop()
+                if s._ffmpeg_restarts and time.monotonic() - self._stable_since > 120:
                     # 2 min stable -> restart budget wapas full.  Pehle 3 crash
                     # poore session me (ghanton me bhi) = bridge hamesha ke liye band.
                     s._ffmpeg_restarts = 0
@@ -518,6 +580,14 @@ class VCBridge:
             self._watch.cancel()
         if self._vol_task and not self._vol_task.done():
             self._vol_task.cancel()
+        if self._extra_task and not self._extra_task.done():
+            self._extra_task.cancel()
+        for x in list(self.extras):
+            try:
+                await x.stop(leave_vc=leave_target)
+            except Exception as exc:
+                logger.warning("multi-spare stop failed: %r", exc)
+        self.extras = []
         try:
             await self.relay.calls.leave_call(self.source_chat)
         except Exception:
@@ -540,12 +610,16 @@ class VCBridge:
             if not s._restarting:
                 break
             await asyncio.sleep(0.1)
-        saved = s._ffmpeg_restarts
-        s._ffmpeg_restarts = 0
-        try:
-            return await s._restart_ffmpeg(max_attempts=1)
-        finally:
-            s._ffmpeg_restarts = saved
+        ok = True
+        for x in [s] + [e for e in self.extras if not e._closed and e.ffmpeg_proc]:
+            saved = x._ffmpeg_restarts
+            x._ffmpeg_restarts = 0
+            try:
+                r = await x._restart_ffmpeg(max_attempts=1)
+                ok = ok and r if x is s else ok
+            finally:
+                x._ffmpeg_restarts = saved
+        return ok
 
     def status(self) -> dict:
         s = self.session
@@ -557,6 +631,7 @@ class VCBridge:
             "received_kb": (s._received_bytes // 1024) if s else 0,
             "uptime_s": int(time.monotonic() - self.started_at),
             "live": bool(s and not s._closed and s._started),
+            "spares": 1 + sum(1 for x in self.extras if not x._closed),
         }
 
 
@@ -566,11 +641,12 @@ def get_bridge(user_id: int) -> Optional[VCBridge]:
 
 async def start_bridge(user_id: int, uvc, relay, source_chat: int,
                        target_chat: int, settings: dict,
-                       preset: str = DEFAULT_PRESET) -> VCBridge:
+                       preset: str = DEFAULT_PRESET, extra_relays=None) -> VCBridge:
     old = _bridges.get(user_id)
     if old:
         await old.stop()
     bridge = VCBridge(user_id, uvc, relay, source_chat, target_chat, preset)
+    bridge.extra_relays = [r for r in (extra_relays or []) if r is not relay]
     _bridges[user_id] = bridge
     try:
         await bridge.start(settings)

@@ -787,6 +787,31 @@ def _find_font() -> str:
     return ""
 
 
+def _prerender_ss_base(img: str, width: int, height: int) -> str:
+    """Screen-share background ko ek baar target size par lossless BMP banao."""
+    try:
+        import hashlib
+        import tempfile
+        from PIL import Image, ImageFilter
+        st = os.stat(img)
+        tag = hashlib.md5(f"{img}:{st.st_mtime}:{st.st_size}:{width}x{height}".encode()).hexdigest()[:12]
+        out = os.path.join(tempfile.gettempdir(), f"ss_base_{tag}.bmp")
+        if os.path.exists(out):
+            return out
+        src = Image.open(img).convert("RGB")
+        scale = min(width / src.width, height / src.height)
+        nw, nh = max(2, int(src.width * scale)), max(2, int(src.height * scale))
+        if (nw, nh) != src.size:
+            src = src.resize((nw, nh), Image.LANCZOS)
+        # halka sharpen: text crisp, ringing nahi (encoder ko easy).
+        src = src.filter(ImageFilter.UnsharpMask(radius=1.0, percent=60, threshold=2))
+        canvas = Image.new("RGB", (width, height), (0, 0, 0))
+        canvas.paste(src, ((width - nw) // 2, (height - nh) // 2))
+        canvas.save(out, "BMP")
+        return out
+    except Exception as exc:
+        print(f"ss prerender failed: {exc!r}", file=__import__("sys").stderr)
+        return ""
 def build_fake_screen_command(
     width: int = 1280,
     height: int = 720,
@@ -814,12 +839,20 @@ def build_fake_screen_command(
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-threads", "2", "-re"]
     if os.path.exists(img):
-        cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
-        # Mild sharpen only (strong unsharp added ringing that Telegram's
-        # encoder turned into blur at low bitrate).
-        base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
-                "unsharp=3:3:0.4:3:3:0.0")
+        # BLUR FIX: pehle har frame par JPEG decode + lanczos scale + unsharp
+        # chalta tha (~0.4 core). Saath me WebRTC ka VP8 encoder bhi CPU
+        # khata hai -> WebRTC "CPU overuse" detect karke resolution gira deta
+        # tha = viewers ko blur screen.  Ab picture EK BAAR exact size par
+        # PNG bana ke loop karte hain (lossless, per-frame sirf meters).
+        pre = _prerender_ss_base(img, width, height)
+        if pre:
+            # -stream_loop -1 cleanly loops input; on pipe close FFmpeg exits instantly (0.1s).
+            cmd += ["-stream_loop", "-1", "-framerate", str(fps), "-i", pre]
+            base = "setsar=1"
+        else:
+            cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
+            base = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                    f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
     else:
         cmd += ["-f", "lavfi", "-i", f"color=c=0x101418:s={width}x{height}:r={fps}"]
         base = "setsar=1"

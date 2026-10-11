@@ -287,3 +287,27 @@ async def check_referral_milestones(user_id: int) -> list:
             await grant_premium_hours(user_id, hours)
             claimed.append((milestone, hours))
     return claimed
+
+
+# ── Multi-spare (ek saath kai spare ID) — premium lock owner ke haath me ──
+MULTI_SPARE_KEY = "feature_multi_spare_premium"
+
+
+async def multi_spare_premium_only() -> bool:
+    """True = sirf premium users. Default OFF -> sab free use karein."""
+    try:
+        return str(await db.get_app_value(MULTI_SPARE_KEY) or "0") == "1"
+    except Exception:
+        return False
+
+
+async def set_multi_spare_premium_only(on: bool) -> None:
+    await db.set_app_value(MULTI_SPARE_KEY, "1" if on else "0")
+
+
+async def can_multi_spare(user_id: int) -> bool:
+    if not await multi_spare_premium_only():
+        return True
+    if Config.is_owner(user_id):
+        return True
+    return await is_premium(user_id)
