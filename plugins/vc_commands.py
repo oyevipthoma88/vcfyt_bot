@@ -1214,15 +1214,9 @@ async def cb_mic(bot: Client, cq):
         return
 
     if action == "panel":
-        s = await db.get_settings(uid)
-        active_cid = next((cid for cid, st in uvc.chats.items()
-                           if st.mic_enabled), None)
-        from helpers import vc_bridge
-        mic_on = active_cid is not None or vc_bridge.get_bridge(uid) is not None
-        title = (f"User {uvc.chats[active_cid].mic_boost_user_id}"
-                 if mic_on and uvc.chats[active_cid].mic_boost_user_id else "")
-        await edit_screen(cq.message, mic_text(s, mic_on, title),
-                          reply_markup=mic_kb(mic_on, logged_in=True))
+        # Ek hi Live Mic screen: VC Bridge control panel (sab buttons).
+        from plugins.vc_bridge import open_panel_cb
+        await open_panel_cb(cq)
         await safe_answer(cq)
         return
 
@@ -1273,29 +1267,27 @@ async def cb_mic(bot: Client, cq):
                        if st.mic_enabled), None)
 
     if action == "on":
-        from plugins.vc_bridge import HELP as BRIDGE_HELP
         if not await session_manager.assistant_string(uid):
             text, kb = await spare_screen(uid)
             await edit_screen(cq.message, text, reply_markup=kb)
             await safe_answer(cq, "Pehle Spare ID login karein")
             return
-        await edit_screen(cq.message,
-            BRIDGE_HELP + "\n\n👉 Setup ke baad bot DM me <code>.mic on</code> bhejein.",
-            reply_markup=K([[B("⬅ Back", callback_data="mic:panel")]]))
-        await safe_answer(cq)
+        # Button se seedha bridge start (pehle sirf help text dikhta tha).
+        from plugins.vc_bridge import run_bridge, _CbMsg
+        await safe_answer(cq, "Mic ON ho raha hai…")
+        await run_bridge(_CbMsg(cq), ["mic", "on"])
         return
 
     if action == "off":
-        from helpers import vc_bridge
         from helpers.live_mic import reset_mic_state
+        from plugins.vc_bridge import open_panel_cb
+        from helpers import vc_bridge
         ok = await vc_bridge.stop_bridge(uid)
         try:
             await reset_mic_state(uvc, uid)
         except Exception:
             pass
-        s = await db.get_settings(uid)
-        await edit_screen(cq.message, mic_text(s, False, ""),
-                          reply_markup=mic_kb(False, logged_in=True))
+        await open_panel_cb(cq)
         await safe_answer(cq, "⏹ Live Mic OFF" if ok else "Live Mic chal nahi raha tha")
         return
 

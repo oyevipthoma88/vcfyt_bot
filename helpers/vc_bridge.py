@@ -36,28 +36,29 @@ PRESETS = {
 DEFAULT_PRESET = "clean"
 
 # ---------------------------------------------------------------------------
-# FIGHT VOICE (v3) — real recordings se tuned (6-Oct-2026):
-#   saamne wala: -2.9 LUFS, energy 400-1000 Hz me, <150 Hz lagbhag zero.
-#   hamara bridge: -7.4 LUFS, energy ka bada hissa <150 Hz (bass/boom) me,
-#   speech band (300-3500 Hz) ~10 dB dheema.  Bass limiter ki poori jagah kha
-#   leta tha, isliye shabd dab jaate the -> "uski aawaz 5 guna tez".
-# Fix: bass ko 200 Hz se steep kaat do, aawaz ki body (750 Hz) + presence
-# (2.8 kHz) uthao, fast compressor + limiter se density, aur end me "drive" dB
-# ka hard clip (Telegram 0 dBFS se upar nahi bhejta; jitna clip utni tez).
-# Sim (Opus 48k round-trip): drive 4 ≈ -3.0 LUFS (saamne wale jitna),
-# drive 6 ≈ -2.1 LUFS, drive 10 ≈ -1.2 LUFS.
+# FIGHT VOICE (v6) — har awaaz 0 dBFS tak:
+#   * PcmAgc: dheemi se dheemi awaaz (-75 dBFS tak) bhi ~-4 dBFS par aati hai.
+#   * Smart gate: shabdon ke beech ki hiss / khar-khar ab full volume par NAHI
+#     aati (pehle pause me bhi -2.5 dB hiss chalti thi) -> awaaz saaf + tagdi.
+#   * Drive  (0-30): last clip stages me push -> density (LUFS) badhta hai.
+#   * Phatna (0-10): tube/atan overdrive -> 2-4 kHz harmonics, awaaz "phati"
+#                    aur cut-through (phone speaker par sabse tez lagti hai).
+#   * Echo   (0-5) : thoda room/echo (0 = band, max clarity).
+# Peak hamesha 0 dBFS (Telegram isse upar kuch bhejta hi nahi).
 # ---------------------------------------------------------------------------
-LOUD_DEFAULT = {"drive": 18, "bass": 0, "presence": 8, "clip": "hard"}
+LOUD_DEFAULT = {"drive": 20, "bass": 0, "presence": 8, "clip": "hard",
+                "crunch": 0, "echo": 0, "gate": 1}
 LOUD_PRESETS = {
-    "safe": {"drive": 6, "bass": 0, "presence": 5, "clip": "soft"},
-    "loud": dict(LOUD_DEFAULT),
-    "max":  {"drive": 20, "bass": 0, "presence": 9, "clip": "hard"},
+    "safe":  {"drive": 6, "bass": 0, "presence": 5, "clip": "soft", "crunch": 0},
+    "loud":  {"drive": 18, "bass": 0, "presence": 8, "clip": "hard", "crunch": 0},
+    "max":   {"drive": 22, "bass": 0, "presence": 9, "clip": "hard", "crunch": 2},
     # FIGHT: saamne wala bhi max par ho tab — sabse tez + thodi phati awaaz.
-    "fight": {"drive": 26, "bass": 0, "presence": 10, "clip": "hard"},
+    "fight": {"drive": 26, "bass": 0, "presence": 10, "clip": "hard", "crunch": 5},
     # ULTRA: sabse zyada — aawaz phategi, par sabse tez.
-    "ultra": {"drive": 30, "bass": 0, "presence": 10, "clip": "hard"},
+    "ultra": {"drive": 30, "bass": 0, "presence": 10, "clip": "hard", "crunch": 10},
 }
-LOUD_LIMITS = {"drive": (0, 30), "bass": (0, 10), "presence": (0, 10)}
+LOUD_LIMITS = {"drive": (0, 30), "bass": (0, 10), "presence": (0, 10),
+               "crunch": (0, 10), "echo": (0, 5), "gate": (0, 1)}
 # v3 key: purane saved settings (drive 20 / bass 15) wapas bass-heavy chain na laayein.
 _LOUD_KEY = "bridge_loud5_{}"
 
@@ -74,37 +75,55 @@ def clean_loud(cfg: Optional[dict]) -> dict:
     return out
 
 
+def apply_preset(cfg: Optional[dict], name: str) -> dict:
+    """Preset sirf awaaz ki taakat badalta hai; echo / gate user ka hi rehta hai."""
+    c = clean_loud(cfg)
+    c.update(LOUD_PRESETS.get(name, {}))
+    return clean_loud(c)
+
+
 def drive_db(level: int) -> int:
     """Final clip push in dB (0-30 -> 0-30 dB above the limiter ceiling).
     16-30 = FIGHT zone: zyada tez + awaaz thodi phatne lagti hai (by design)."""
     return max(0, min(30, int(level)))
 
 
-# Soft gate: sirf bolne ke beech ki hiss dabata hai (-18 dB), shabd nahi kaatta.
-INPUT_GATE = ("agate=threshold=0.006:ratio=2:range=0.12:attack=2:"
-              "release=180:knee=4:detection=rms")
+# Soft gate (FFmpeg side): AGC ke baad bachi hui halki hiss dabata hai.
+INPUT_GATE = ("agate=threshold=0.004:ratio=3:range=0.05:attack=1:"
+              "release=200:knee=3:detection=rms")
 
 
 class PcmAgc:
-    """Fast Python-side PCM auto gain (s16le mono, 48 kHz).
+    """Fast Python-side PCM auto gain + smart noise gate (s16le mono, 48 kHz).
 
-    Telegram VC frames -50..-70 dBFS ho sakte hain.  Har frame ka RMS dekh ke
-    gain smooth badhata/ghatata hai (attack fast, release slow), per-sample
-    ramp ke saath (no zipper noise).  Digital khamoshi me gain freeze +
-    expander, isliye bolne ke beech hiss full volume par nahi jaati.
+    Telegram VC frames -50..-75 dBFS tak dheeme ho sakte hain (aaram se
+    bolna).  Har 10 ms frame ka RMS dekh ke gain smooth badhata/ghatata hai
+    (attack fast, release fast-ish), per-sample ramp (no zipper noise).
+    Noise floor track hota hai; floor ke paas wale frames (shabdon ke beech ki
+    hiss) -46 dB tak duck hote hain, 220 ms hold ke saath taaki shabd ki
+    poonch na kate.  Pehle duck sirf -22 dB tha aur FFmpeg ka speechnorm use
+    wapas full kar deta tha -> pause me bhi full volume hiss.
     """
 
     TARGET = 0.63 * 32767        # ~ -4 dBFS RMS (louder input into FFmpeg)
-    MAX_GAIN = 1000.0            # +60 dB (bohot dheemi VC input bhi)
+    MAX_GAIN = 3000.0            # +70 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
-    FLOOR = 0.00012 * 32767      # ~ -78 dBFS: neeche = digital khamoshi
+    FLOOR = 0.00018 * 32767      # ~ -75 dBFS: neeche = digital khamoshi
+    SPEECH_X = 3.2               # noise floor se +10 dB upar = awaaz
     ATTACK = 0.6                 # gain ghatane ki speed (per frame)
-    RELEASE = 0.08               # gain badhane ki speed (per frame)
+    RELEASE = 0.15               # gain badhane ki speed (per frame, ~+6 dB / 60 ms)
+    HOLD = 16                    # frames (~160 ms) gate khula rehta hai
+    # Pause = poori khamoshi.  Duck -46 dB bhi kaafi nahi tha: aage ki chain
+    # (compressor + multiband + clip) halki hiss ko bhi wapas 0 dB kar deti
+    # thi.  Isliye hold ke baad ~60 ms fade aur phir exact 0.
+    DUCK = 0.0
 
-    def __init__(self):
-        self.gain = 8.0          # +18 dB start: pehla shabd bhi dheema na aaye
+    def __init__(self, gate: bool = True):
+        self.gain = 12.0         # +21 dB start: pehla shabd bhi dheema na aaye
         self.noise = None        # background noise floor (frame RMS)
         self.duck = 1.0          # smoothed hiss-duck factor (no clicks)
+        self.hold = 0
+        self.gate = bool(gate)
         try:
             import numpy as np
             self._np = np
@@ -116,23 +135,30 @@ class PcmAgc:
         # Noise floor: neeche turant, upar dheere (~1.7 dB/s) -> lagatar bolne
         # par bhi shabdon ke beech ke dips floor ko neeche rakhte hain.
         if self.noise is None or rms < self.noise:
-            self.noise = rms
+            self.noise = max(rms, 1e-3)
         else:
             self.noise *= 1.002
-        if rms < self.FLOOR or rms < self.noise * 3.5:
-            # Khamoshi / sirf hiss: gain freeze + duck, taaki AGC hiss ko
-            # full volume par na le jaaye (-22 dB).
-            return g0, g0, self._duck(0.08)
+        speech = rms >= self.FLOOR and rms >= self.noise * self.SPEECH_X
+        if speech:
+            self.hold = self.HOLD
+        elif self.hold > 0:
+            self.hold -= 1
+        if not speech:
+            # Khamoshi / sirf hiss: gain freeze, aur hold ke baad duck.
+            open_ = self.hold > 0 or not self.gate
+            return g0, g0, self._duck(1.0 if open_ else self.DUCK)
         want = max(self.MIN_GAIN, min(self.MAX_GAIN, self.TARGET / rms))
         k = self.ATTACK if want < g0 else self.RELEASE
         self.gain = g0 + (want - g0) * k
         return g0, self.gain, self._duck(1.0)
 
     def _duck(self, target: float) -> tuple:
-        # Kholna fast (shabd ki shuruaat na kate), band karna ~80 ms me.
+        # Kholna turant (shabd ki shuruaat na kate), band karna ~150 ms fade.
         d0 = self.duck
-        k = 0.7 if target > d0 else 0.12
+        k = 0.85 if target > d0 else 0.3
         self.duck = d0 + (target - d0) * k
+        if self.duck < 0.002:
+            self.duck = 0.0
         return d0, self.duck
 
     def process(self, data: bytes) -> bytes:
@@ -168,20 +194,15 @@ class PcmAgc:
 
 
 def loud_stage(cfg: dict) -> str:
-    """EQ -> 5 broadcast-style loudness stages -> limiter -> clip+filter.
+    """EQ -> broadcast-style loudness stages -> limiter -> clip+filter.
 
-    v4 (5 naye stages, FM/radio processors (Orban/Stereo Tool) wali technique):
-      1. speechnorm   — har shabd/syllable ko turant same level par (dheeme
-                        akshar bhi full), zero latency.
-      2. phase rotator — 4x allpass: insaani aawaz ka waveform asymmetric hota
-                        hai (ek taraf bade peaks). Rotate karne se peaks ~3-5 dB
-                        chhote -> utni hi jagah aur gain ke liye (bina distortion).
-      3. 3-band multiband compressor — low/mid/high alag-alag dense, isliye
-                        bass shabdon ko nahi dabata aur pura band tez lagta hai.
-      4. aexciter     — 3 kHz+ par harmonics: phone speaker par aawaz cut-through.
-      5. clip + filter — final clip ke BAAD 7.4 kHz lowpass + brick-wall: clip ki
-                        kharkhar (aliasing) hat jaati hai jo Opus ke bits khaata
-                        tha, aur loudness clip wali hi rehti hai.
+      1. speechnorm   — har syllable ko same level par (halki expansion; AGC
+                        pehle hi level kar chuka hai, isliye hiss nahi uthti).
+      2. phase rotator — 4x allpass: peaks ~3-5 dB chhote -> utni jagah aur gain.
+      3. 3-band multiband compressor — pura band dense.
+      4. aexciter     — 3 kHz+ harmonics: phone speaker par cut-through.
+      5. PHATNA       — atan overdrive (0-10), sirf awaaz ki band me.
+      6. clip + filter — multi-stage clip, har clip ke baad lowpass.
     """
     from helpers.audio_processor import _has_filter
     c = clean_loud(cfg)
@@ -195,9 +216,10 @@ def loud_stage(cfg: dict) -> str:
         f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 1.1:.1f}")
         f.append(f"equalizer=f=4200:t=q:w=1.2:g={c['presence'] * 0.5:.1f}")
     f.append("lowpass=f=7500")
-    # [1] word leveller
+    # [1] word leveller — e=6 (+15 dB max): pehle e=50 (+34 dB) pause ki hiss
+    # ko bhi full kar deta tha.
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=50:r=0.001:l=1:p=0.95")
+        f.append("speechnorm=e=6:r=0.004:l=1:p=0.95")
     # [2] phase rotator (peak-to-RMS kam)
     if _has_filter("allpass"):
         f += ["allpass=f=180:t=q:w=0.7", "allpass=f=350:t=q:w=0.7",
@@ -216,13 +238,19 @@ def loud_stage(cfg: dict) -> str:
     if _has_filter("aexciter"):
         f.append("aexciter=amount=0.8:drive=6:freq=3000:ceil=9999")
     f.append("alimiter=level_in=1.3:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
+    # [5] PHATNA: atan overdrive -> odd harmonics (gritty, aggressive voice),
+    # band-limited after so the grit stays in the 1-7 kHz speech band.
+    k = c["crunch"]
+    if k and _has_filter("asoftclip"):
+        f.append(f"volume={k * 2.4:.1f}dB")
+        f.append(f"asoftclip=type={'atan' if k < 6 else 'hard'}:threshold=0.9")
+        f.append("equalizer=f=2500:t=q:w=1:g=3")
+        f.append("lowpass=f=7300:p=2")
+        f.append(f"volume=-{k * 1.2:.1f}dB")
     d = drive_db(c["drive"])
     if c["clip"] == "hard" and d and _has_filter("asoftclip"):
-        # v5 MULTI-STAGE CLIP (broadcast "final clipper" technique):
-        # ek bada clip (phat-phat) ki jagah 2-3 chhote clip + har clip ke
-        # baad lowpass.  Har stage RMS ko peak ke aur paas laata hai, isliye
-        # same 0 dBFS peak par aawaz kaafi zyada dense/tez (+2..4 LU),
-        # aur aliasing kam rehta hai (Opus bits bachte hain).
+        # MULTI-STAGE CLIP (broadcast "final clipper" technique): 2-4 chhote
+        # clip + har clip ke baad lowpass -> same 0 dBFS peak par zyada dense.
         first = min(d, 12)
         f.append(f"volume={first}dB")
         f.append("asoftclip=type=hard:threshold=0.95")
@@ -241,13 +269,14 @@ def loud_stage(cfg: dict) -> str:
             f.append(f"volume={min(6, d - 20)}dB")
             f.append("asoftclip=type=hard:threshold=0.95")
             f.append("lowpass=f=7000:p=2")
-        # Final ceiling: Opus decoder ~1 dB overshoot karta hai -> 0.89 par
-        # lock taaki VC me clip/auto-attenuate na ho.
+        # Final ceiling (Opus decoder ~1 dB overshoot karta hai).
         f.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=4:level=false")
     elif d:
         # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
         f.append(f"volume={min(d, 9)}dB")
         f.append("asoftclip=type=tanh:threshold=0.97")
+        f.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.3:release=6:level=false")
+    else:
         f.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.3:release=6:level=false")
     return ",".join(f)
 
@@ -259,15 +288,17 @@ def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET) 
     p = PRESETS.get(preset, {})
     if p.get("bass"):
         cfg["bass"] = max(cfg["bass"], min(10, int(p["bass"])))
-    parts = ["aresample=48000:async=1", INPUT_GATE]
-    if p.get("echo"):
+    parts = ["aresample=48000:async=1"]
+    if cfg["gate"]:
+        parts.append(INPUT_GATE)
+    lvl = cfg["echo"] or (int(p.get("echo_level", 2)) if p.get("echo") else 0)
+    if lvl:
         # Echo compressor se PEHLE: tail bhi utni hi tez, level nahi girta.
-        lvl = max(1, min(5, int(p.get("echo_level", 2))))
+        lvl = max(1, min(5, int(lvl)))
         parts.append(f"aecho=0.9:0.7:{40 + lvl * 15}:{0.12 + lvl * 0.04:.2f}")
     parts.append(loud_stage(cfg))
     # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
     return _sanitize_ffmpeg_filter(",".join(parts))
-
 
 async def load_loud(user_id: int) -> dict:
     import json
@@ -295,37 +326,32 @@ _bridges: Dict[int, "VCBridge"] = {}
 _handlers: Dict[int, bool] = {}
 
 
-# PCM PRE-AMP MULTIPLIER: raw Telegram VC frames ko Python level par
-# hi amplify karte hain BEFORE FFmpeg.  Ye signal ko FFmpeg ke denoiser /
-# gate tak pahunchne se pehle hi boost karta hai, taaki dheemi aawaz
-# noise samajh ke dab na jaye.  2x = +6 dB raw PCM boost (safe, no clipping).
-PCM_PREAMP = 1
-
 def _mix(frames) -> bytes:
     """Mix every incoming speaker (ssrc) into one mono s16le frame.
-    PCM samples ko Python level par hi PCM_PREAMPx amplify karta hai,
-    FFmpeg se pehle.  clipping int16 range me clamp hota hai (safe)."""
-    pcm = [f.frame for f in frames if getattr(f, "frame", None)]
+
+    Pehle per-sample Python loop tha (har 10 ms frame par hazaron operations,
+    2-3 log bolein to event loop atakta tha -> awaaz kat-kat ke).  Ab numpy
+    me sum + clamp (numpy na ho to purana tarika)."""
+    pcm = [bytes(f.frame) for f in frames if getattr(f, "frame", None)]
     if not pcm:
         return b""
     if len(pcm) == 1:
-        a = array.array("h", bytes(pcm[0]))
-        if PCM_PREAMP != 1:
-            for i in range(len(a)):
-                v = a[i] * PCM_PREAMP
-                a[i] = 32767 if v > 32767 else (-32768 if v < -32768 else v)
-        return a.tobytes()
+        return pcm[0][: len(pcm[0]) // 2 * 2]
     n = min(len(p) for p in pcm) // 2
-    out = array.array("h", bytes(n * 2))
-    acc = [0] * n
-    for p in pcm:
-        a = array.array("h", bytes(p[: n * 2]))
-        for i in range(n):
-            acc[i] += a[i]
-    for i in range(n):
-        v = acc[i] * PCM_PREAMP
-        out[i] = 32767 if v > 32767 else (-32768 if v < -32768 else v)
-    return out.tobytes()
+    try:
+        import numpy as np
+        acc = np.zeros(n, dtype=np.int32)
+        for p in pcm:
+            acc += np.frombuffer(p[: n * 2], dtype=np.int16)
+        return np.clip(acc, -32768, 32767).astype(np.int16).tobytes()
+    except ImportError:
+        acc = [0] * n
+        for p in pcm:
+            a = array.array("h", p[: n * 2])
+            for i in range(n):
+                acc[i] += a[i]
+        out = array.array("h", (32767 if v > 32767 else (-32768 if v < -32768 else v) for v in acc))
+        return out.tobytes()
 
 
 def _ensure_handler(relay) -> None:
@@ -364,6 +390,7 @@ class VCBridge:
         self.started_at = time.monotonic()
         self.loud = dict(LOUD_DEFAULT)
         self.agc = PcmAgc()
+        self._stable_since = time.monotonic()
 
     def feed(self, frames) -> None:
         s = self.session
@@ -390,6 +417,7 @@ class VCBridge:
         session.live_overrides = dict(PRESETS[self.preset])
         session.input_rate = 48000
         self.loud = await load_loud(self.user_id)
+        self.agc.gate = bool(self.loud.get("gate", 1))
         bridge = self
 
         def _build_with_loud():
@@ -471,6 +499,11 @@ class VCBridge:
                 if s.ffmpeg_proc and s.ffmpeg_proc.returncode is not None and not s._restarting:
                     if not await s._restart_ffmpeg():
                         break
+                    self._stable_since = time.monotonic()
+                elif s._ffmpeg_restarts and time.monotonic() - self._stable_since > 120:
+                    # 2 min stable -> restart budget wapas full.  Pehle 3 crash
+                    # poore session me (ghanton me bhi) = bridge hamesha ke liye band.
+                    s._ffmpeg_restarts = 0
         except asyncio.CancelledError:
             return
         if not self._closed:
@@ -499,6 +532,7 @@ class VCBridge:
     async def apply_loud(self, cfg: dict) -> bool:
         """Naye loud settings turant lagao — VC stream same rehta hai, sirf FFmpeg swap."""
         self.loud = clean_loud(cfg)
+        self.agc.gate = bool(self.loud.get("gate", 1))
         s = self.session
         if s is None or s._closed or s.ffmpeg_proc is None:
             return False

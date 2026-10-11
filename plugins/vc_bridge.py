@@ -14,26 +14,23 @@ from plugins.vc_commands import get_engine, mic_notify, target_chat, is_chat_ref
 
 HELP = (
     "🎤 <b>Live Mic (VC Bridge)</b> — Telegram VC se live aawaz\n\n"
-    "<b>Setup (ek baar):</b>\n"
+    "<b>Setup (ek baar, sab buttons se):</b>\n"
     "1. Ek private group banao, main ID + spare ID dono add karo\n"
     "2. Target group me bhi main ID + spare ID dono ho\n"
     "3. Dono groups me VC start karo\n"
-    "4. <code>.mic src -100PRIVATE</code> — private group set\n"
-    "5. <code>.mic chat -100TARGET</code> — target group set\n\n"
-    "<b>Use:</b>\n"
-    "• Main ID se PRIVATE VC join karo, mic ON\n"
-    "• <code>.mic on</code> — clean preset (sabse tez + saaf, default)\n"
-    "• <code>.mic on bass</code> / <code>echo</code> / <code>full</code> — extra effect (echo awaaz thodi door karta hai)\n"
-    "• <code>.mic on -100TARGET</code> — kisi aur target ke liye\n"
-    "• <code>.mic off</code> — band (spare target VC me baithi rahegi)\n"
-    "• <code>.mic leave</code> — band + spare dono VC se bahar\n"
-    "• <code>.mic status</code>\n"
-    "• <code>.mic loud</code> — 🔥 LOUD panel: <b>🚀 Volume</b> se awaaz badhao (0–30, 16+ par thodi phategi)\n"
-    "• <code>.mic loud fight</code> — ek command me sabse tez fight mode\n"
-    "• <code>.mic panel</code> — buttons: ON / OFF / Status / Leave + Volume/Presets/Bass/Presence\n\n"
-    "<i>Chat ID -100 ke saath ya bina dono chalega.</i>\n"
-    "<i><code>.bridge ...</code> bhi same kaam karta hai. Main ID target VC join na kare — "
-    "target VC me spare ID khud join hoke aapki aawaz bolegi.</i>"
+    "4. Panel me <b>📥 Private Group</b> dabao aur group ka ID / link bhejo\n"
+    "5. <b>🎯 Target Group</b> dabao aur target ka ID / link bhejo\n"
+    "6. <b>🟢 Mic ON</b> dabao, main ID se private VC me bolo\n\n"
+    "<b>Controls:</b>\n"
+    "• 🚀 <b>Volume</b> 0–30 — density/tezi (16+ FIGHT zone)\n"
+    "• 💥 <b>Phatna</b> 0–10 — awaaz phaadna (overdrive), sabse cut-through\n"
+    "• 📢 Presence • 🎵 Bass • 🌊 Echo 0–5\n"
+    "• 🔇 <b>Hiss Cut</b> — shabdon ke beech ki khar-khar band\n"
+    "• Presets: 🛡 Safe • 🔊 Loud • 💥 MAX • ⚔️ FIGHT • ☢️ ULTRA\n\n"
+    "<i>Dheemi se dheemi awaaz bhi automatic 0 dB tak jaati hai.</i>\n"
+    "<i>Text commands bhi chalte hain: <code>.mic on/off/leave/status</code>, "
+    "<code>.mic src ID</code>, <code>.mic chat ID</code>, <code>.mic loud fight</code>, "
+    "<code>.mic loud phatna 5</code>.</i>"
 )
 
 
@@ -42,34 +39,42 @@ def _bar(n: int, top: int = 10) -> str:
     return "█" * k + "░" * (10 - k)
 
 
-def loud_text(c: dict, live: bool) -> str:
+def loud_text(c: dict, live: bool, src=None, tgt=None) -> str:
     from helpers.vc_bridge import drive_db
     d = c["drive"]
-    zone = ("☢️ ULTRA (4-stage clip, sabse tez, phategi)" if d > 20 else
+    k = c.get("crunch", 0)
+    zone = ("☢️ ULTRA (sabse tez, phategi)" if d > 20 else
             "🔥 FIGHT zone (bohot tez + thodi phati)" if d > 15 else
             "✅ saaf + tez")
     return (
         "🎤 <b>Live Mic Control Panel</b>\n\n"
-        f"Status: {'🟢 LIVE — har badlaav turant lagega' if live else '⚪ OFF — 🟢 Mic ON dabao'}\n\n"
-        f"🚀 <b>Volume (Drive):</b> <code>{_bar(d, 30)} {d}/30</code> (+{drive_db(d)} dB)\n"
+        f"Status: {'🟢 LIVE — har badlaav turant lagega' if live else '⚪ OFF — 🟢 Mic ON dabao'}\n"
+        f"📥 Private: <code>{src or '— set nahi'}</code>\n"
+        f"🎯 Target: <code>{tgt or '— set nahi'}</code>\n\n"
+        f"🚀 <b>Volume:</b> <code>{_bar(d, 30)} {d}/30</code> (+{drive_db(d)} dB)\n"
         f"      {zone}\n"
+        f"💥 <b>Phatna:</b> <code>{_bar(k)} {k}/10</code>{' (OFF)' if not k else ''}\n"
         f"📢 <b>Presence:</b> <code>{_bar(c['presence'])} {c['presence']}/10</code>\n"
         f"🎵 <b>Bass:</b> <code>{_bar(c['bass'])} {c['bass']}/10</code>\n"
-        f"✂️ <b>Clip:</b> {'HARD (max tez)' if c['clip'] == 'hard' else 'SOFT (smooth)'}\n\n"
-        "<b>Ek tap presets:</b> 🛡 Safe 6 • 🔊 Loud 18 • 💥 MAX 20 • ⚔️ FIGHT 26 • ☢️ ULTRA 30\n"
-        "Aawaz zyada phate to Volume kam karo ya Clip SOFT. Bass 0 = shabd sabse tez.\n\n"
-        "Text: <code>.mic loud 0-30</code> • <code>.mic loud safe|loud|max|fight|ultra</code>"
+        f"🌊 <b>Echo:</b> <code>{_bar(c.get('echo', 0), 5)} {c.get('echo', 0)}/5</code>\n"
+        f"✂️ <b>Clip:</b> {'HARD (max tez)' if c['clip'] == 'hard' else 'SOFT (smooth)'}"
+        f"  •  🔇 <b>Hiss Cut:</b> {'ON' if c.get('gate', 1) else 'OFF'}\n\n"
+        "Dheemi awaaz bhi auto 0 dB par aati hai. Aur tagdi chahiye to "
+        "<b>⚔️ FIGHT</b> / <b>☢️ ULTRA</b> ya <b>💥 Phatna +</b>."
     )
 
 
-def loud_kb() -> K:
+def loud_kb(live: bool = False) -> K:
     return K([
-        [B("🟢 Mic ON", callback_data="brc:on", style="success"),
-         B("🔴 Mic OFF", callback_data="brc:off", style="danger")],
+        [B("🔴 Mic OFF", callback_data="brc:off", style="danger") if live else
+         B("🟢 Mic ON", callback_data="brc:on", style="success"),
+         B("📊 Status", callback_data="brc:status", style="primary")],
         [B("🔉 −5", callback_data="brl:drive:-5", style="primary"),
          B("🔉 −1", callback_data="brl:drive:-1", style="primary"),
          B("🔊 +1", callback_data="brl:drive:1", style="success"),
          B("🔊 +5", callback_data="brl:drive:5", style="success")],
+        [B("💥 Phatna −", callback_data="brl:crunch:-1", style="primary"),
+         B("💥 Phatna +", callback_data="brl:crunch:1", style="danger")],
         [B("🛡 Safe", callback_data="brl:p:safe", style="primary"),
          B("🔊 Loud", callback_data="brl:p:loud", style="success"),
          B("💥 MAX", callback_data="brl:p:max", style="danger")],
@@ -79,12 +84,30 @@ def loud_kb() -> K:
          B("📢 Presence +", callback_data="brl:presence:1", style="primary"),
          B("🎵 −", callback_data="brl:bass:-1", style="primary"),
          B("🎵 Bass +", callback_data="brl:bass:1", style="primary")],
+        [B("🌊 Echo −", callback_data="brl:echo:-1", style="primary"),
+         B("🌊 Echo +", callback_data="brl:echo:1", style="primary")],
         [B("✂️ Clip HARD/SOFT", callback_data="brl:clip:x", style="primary"),
+         B("🔇 Hiss Cut", callback_data="brl:gate:x", style="primary"),
          B("♻️ Reset", callback_data="brl:reset:x", style="primary")],
-        [B("📊 Status", callback_data="brc:status", style="primary"),
-         B("🔄 Refresh", callback_data="brc:loud", style="primary"),
-         B("🚪 Leave", callback_data="brc:leave", style="danger")],
+        [B("📥 Private Group", callback_data="brs:src", style="primary"),
+         B("🎯 Target Group", callback_data="brs:tgt", style="primary")],
+        [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
+         B("💬 Spare Chat", callback_data="mic:chat", style="primary"),
+         B("❓ Help", callback_data="brc:help", style="primary")],
+        [B("🔄 Refresh", callback_data="brc:loud", style="primary"),
+         B("🚪 Leave VC", callback_data="brc:leave", style="danger"),
+         B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
+
+
+async def panel(uid: int):
+    """(text, keyboard) — the one Live Mic screen (main menu + .mic panel)."""
+    from helpers import vc_bridge
+    c = await vc_bridge.load_loud(uid)
+    live = vc_bridge.get_bridge(uid) is not None
+    src = await db.get_app_value(f"bridge_src_{uid}")
+    tgt = await db.get_app_value(f"mic_chat_{uid}")
+    return loud_text(c, live, src, tgt), loud_kb(live)
 
 
 class _CbMsg:
@@ -104,30 +127,100 @@ class _CbMsg:
         return None
 
 
+async def open_panel_cb(cq) -> None:
+    text, kb = await panel(cq.from_user.id)
+    await edit_screen(cq.message, text, reply_markup=kb)
+
+
 @Client.on_callback_query(filters.regex(r"^brc:"))
 async def cb_mic_control(bot: Client, cq):
     action = cq.data.split(":", 1)[1]
-    if action not in {"on", "off", "status", "leave", "loud"}:
+    if action not in {"on", "off", "status", "leave", "loud", "help"}:
         return await safe_answer(cq, "?")
     await safe_answer(cq, {"on": "Mic ON ho raha hai…", "off": "Mic band…",
                            "leave": "VC se bahar…", "status": "Status…",
-                           "loud": "Refresh"}[action])
+                           "loud": "Refresh", "help": "Help"}[action])
     if action == "loud":
-        from helpers import vc_bridge
-        c = await vc_bridge.load_loud(cq.from_user.id)
-        live = vc_bridge.get_bridge(cq.from_user.id) is not None
-        await edit_screen(cq.message, loud_text(c, live), reply_markup=loud_kb())
+        await open_panel_cb(cq)
+        return
+    if action == "help":
+        await edit_screen(cq.message, HELP,
+                          reply_markup=K([[B("⬅ Back", callback_data="brc:loud")]]))
         return
     await run_bridge(_CbMsg(cq), ["mic", action])
+    if action in {"off", "leave"}:
+        try:
+            await open_panel_cb(cq)
+        except Exception:
+            pass
+
+
+# uid -> "src" | "tgt": next plain DM message is the group ID / link.
+_await_chat: dict = {}
+
+
+@Client.on_callback_query(filters.regex(r"^brs:"))
+async def cb_mic_setup(bot: Client, cq):
+    what = cq.data.split(":", 1)[1]
+    uid = cq.from_user.id
+    if what == "cancel":
+        _await_chat.pop(uid, None)
+        await safe_answer(cq, "Cancel")
+        await open_panel_cb(cq)
+        return
+    if what not in {"src", "tgt"}:
+        return await safe_answer(cq, "?")
+    _await_chat[uid] = what
+    await safe_answer(cq)
+    label = "📥 PRIVATE (source) group" if what == "src" else "🎯 TARGET group"
+    await edit_screen(cq.message, (
+        f"{label} set karna hai.\n\n"
+        "Bot DM me abhi group ka <b>chat ID</b> (<code>-100…</code> ya bina -100), "
+        "<b>@username</b> ya <b>invite link</b> bhejo.\n\n"
+        "<i>Message turant delete ho jayega.</i>"),
+        reply_markup=K([[B("❌ Cancel", callback_data="brs:cancel", style="danger")]]))
+
+
+@Client.on_message(HAS_USER & filters.private & filters.text
+                   & ~filters.regex(r"^[/.!]"), group=4)
+async def mic_setup_listener(bot: Client, msg: Message):
+    uid = msg.from_user.id
+    what = _await_chat.get(uid)
+    if not what:
+        return
+    ref = cmd_text(msg).strip().split()[0] if cmd_text(msg).strip() else ""
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    cid, _ = await target_chat(msg, ref) if ref else (None, None)
+    if not cid:
+        await bot.send_message(
+            msg.chat.id, "❌ Group nahi mila. Chat ID / @username / invite link dobara bhejo.",
+            reply_markup=K([[B("❌ Cancel", callback_data="brs:cancel", style="danger")]]))
+        return
+    other = await db.get_app_value(f"mic_chat_{uid}" if what == "src" else f"bridge_src_{uid}")
+    if other and str(other) == str(cid):
+        await bot.send_message(
+            msg.chat.id, "❌ Private aur target group alag hone chahiye. Dusra group bhejo.",
+            reply_markup=K([[B("❌ Cancel", callback_data="brs:cancel", style="danger")]]))
+        return
+    _await_chat.pop(uid, None)
+    await db.set_app_value(f"bridge_src_{uid}" if what == "src" else f"mic_chat_{uid}", str(cid))
+    text, kb = await panel(uid)
+    await bot.send_message(msg.chat.id, f"✅ {'Private' if what == 'src' else 'Target'} group set: "
+                           f"<code>{cid}</code>\n\n" + text, reply_markup=kb)
 
 
 async def _loud_change(uid: int, key: str, val: str) -> dict:
     from helpers import vc_bridge
     c = await vc_bridge.load_loud(uid)
     if key == "p" and val in vc_bridge.LOUD_PRESETS:
-        c = dict(vc_bridge.LOUD_PRESETS[val])
+        c = vc_bridge.apply_preset(c, val)
     elif key == "clip":
         c["clip"] = val if val in ("hard", "soft") else ("soft" if c["clip"] == "hard" else "hard")
+    elif key == "gate":
+        c["gate"] = 0 if c.get("gate", 1) else 1
     elif key in vc_bridge.LOUD_LIMITS:
         try:
             c[key] = int(c[key]) + int(val)
@@ -138,6 +231,12 @@ async def _loud_change(uid: int, key: str, val: str) -> dict:
     return await vc_bridge.save_loud(uid, c)
 
 
+_TEXT_KEYS = {"drive": "drive", "volume": "drive", "vol": "drive",
+              "bass": "bass", "presence": "presence",
+              "phatna": "crunch", "crunch": "crunch", "fat": "crunch",
+              "echo": "echo"}
+
+
 async def loud_command(msg: Message, args):
     from helpers import vc_bridge
     uid = msg.from_user.id
@@ -146,29 +245,30 @@ async def loud_command(msg: Message, args):
     try:
         if a:
             if a[0] in vc_bridge.LOUD_PRESETS:
-                c = dict(vc_bridge.LOUD_PRESETS[a[0]])
+                c = vc_bridge.apply_preset(c, a[0])
             elif a[0].isdigit():
                 c["drive"] = int(a[0])
-            elif a[0] in ("drive", "bass", "presence") and len(a) > 1:
-                c[a[0]] = int(a[1])
+            elif a[0] in _TEXT_KEYS and len(a) > 1:
+                c[_TEXT_KEYS[a[0]]] = int(a[1])
             elif a[0] == "clip" and len(a) > 1 and a[1] in ("hard", "soft"):
                 c["clip"] = a[1]
+            elif a[0] in ("gate", "hiss") and len(a) > 1:
+                c["gate"] = 1 if a[1] in ("on", "1") else 0
             c = await vc_bridge.save_loud(uid, c)
     except ValueError:
         pass
-    live = vc_bridge.get_bridge(uid) is not None
-    await mic_notify(msg, loud_text(c, live), reply_markup=loud_kb())
+    text, kb = await panel(uid)
+    await mic_notify(msg, text, reply_markup=kb)
 
 
 @Client.on_callback_query(filters.regex(r"^brl:"))
 async def cb_loud(bot: Client, cq):
-    from helpers import vc_bridge
     _, key, val = (cq.data.split(":") + ["", ""])[:3]
     uid = cq.from_user.id
     c = await _loud_change(uid, key, val)
-    live = vc_bridge.get_bridge(uid) is not None
-    await edit_screen(cq.message, loud_text(c, live), reply_markup=loud_kb())
-    await safe_answer(cq, f"Drive {c['drive']} · Bass {c['bass']} · Presence {c['presence']} · {c['clip'].upper()}")
+    await open_panel_cb(cq)
+    await safe_answer(cq, f"Volume {c['drive']} · Phatna {c['crunch']} · Bass {c['bass']} · "
+                          f"Presence {c['presence']} · Echo {c['echo']} · {c['clip'].upper()}")
 
 
 @Client.on_message(HAS_USER & cmd_prefix(r"bridge\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -190,7 +290,19 @@ async def run_bridge(msg: Message, parts):
             pass
 
     if action == "help":
-        await mic_notify(msg, HELP)
+        await mic_notify(msg, HELP, reply_markup=K([[B("🎛 Control Panel", callback_data="brc:loud", style="primary")]]))
+        return
+
+    if action in {"chat", "setchat", "target"}:
+        if len(parts) < 3:
+            await mic_notify(msg, "Target group do: <code>.mic chat -100xxxxxxxx</code>")
+            return
+        cid, _ = await target_chat(msg, parts[2])
+        if not cid:
+            await mic_notify(msg, "❌ Target group nahi mila. Chat ID / @username / link do.")
+            return
+        await db.set_app_value(f"mic_chat_{uid}", str(cid))
+        await mic_notify(msg, f"✅ Target group set: <code>{cid}</code>")
         return
 
     if action in {"loud", "power", "boost", "panel", "control", "ctrl"}:
@@ -215,15 +327,18 @@ async def run_bridge(msg: Message, parts):
         tgt = await db.get_app_value(f"mic_chat_{uid}")
         if not b:
             await mic_notify(msg, f"🎤 Live Mic (Bridge) OFF\nSource: <code>{src or '—'}</code>\n"
-                                  f"Target: <code>{tgt or '—'}</code>")
+                                  f"Target: <code>{tgt or '—'}</code>",
+                             reply_markup=K([[B("🎛 Control Panel", callback_data="brc:loud", style="primary")]]))
             return
         s = b.status()
         await mic_notify(msg, (
             f"🎤 Live Mic (Bridge) {'🟢 LIVE' if s['live'] else '🟡 starting'}\n"
             f"Source: <code>{s['source']}</code>\nTarget: <code>{s['target']}</code>\n"
             f"Preset: <b>{s['preset']}</b>\nAudio: {s['received_kb']} KB · {s['uptime_s']}s\n"
-            f"🔥 Loud: drive {s['loud']['drive']}/20 · bass {s['loud']['bass']} · "
-            f"presence {s['loud']['presence']} · {s['loud']['clip']}"))
+            f"🔥 Volume {s['loud']['drive']}/30 · Phatna {s['loud']['crunch']}/10 · "
+            f"bass {s['loud']['bass']} · presence {s['loud']['presence']} · "
+            f"echo {s['loud']['echo']} · {s['loud']['clip']}"),
+            reply_markup=K([[B("🎛 Control Panel", callback_data="brc:loud", style="primary")]]))
         return
 
     if action in {"off", "stop", "leave"}:
@@ -246,7 +361,8 @@ async def run_bridge(msg: Message, parts):
         return
     relay = await session_manager.get_relay(uid)
     if relay is None:
-        await mic_notify(msg, "❌ Spare ID set nahi hai. Live Mic panel → 👥 Spare Mic Account se login karo.")
+        await mic_notify(msg, "❌ Spare ID set nahi hai. Neeche <b>👥 Spare ID</b> dabake login karo.",
+                         reply_markup=K([[B("👥 Spare ID", callback_data="mic:acct", style="primary")]]))
         return
     preset = vc_bridge.DEFAULT_PRESET
     tgt_arg = None
@@ -257,11 +373,13 @@ async def run_bridge(msg: Message, parts):
             tgt_arg = p
     src = await db.get_app_value(f"bridge_src_{uid}")
     if not src:
-        await mic_notify(msg, "Pehle private group set karo: <code>.mic src -100xxxxxxxx</code>")
+        await mic_notify(msg, "Pehle private group set karo: <b>📥 Private Group</b> button ya <code>.mic src -100xxxxxxxx</code>",
+                         reply_markup=K([[B("📥 Private Group", callback_data="brs:src", style="primary")]]))
         return
     tgt_arg = tgt_arg or await db.get_app_value(f"mic_chat_{uid}")
     if not tgt_arg:
-        await mic_notify(msg, "Target group set karo: <code>.mic chat -100xxxxxxxx</code>")
+        await mic_notify(msg, "Target group set karo: <b>🎯 Target Group</b> button ya <code>.mic chat -100xxxxxxxx</code>",
+                         reply_markup=K([[B("🎯 Target Group", callback_data="brs:tgt", style="primary")]]))
         return
     tgt, _ = await target_chat(msg, str(tgt_arg))
     src_id = int(src)
@@ -291,12 +409,11 @@ async def run_bridge(msg: Message, parts):
         await mic_notify(msg, text)
         return
     # Mic ON hote hi control panel auto-show: LIVE status + saare buttons.
-    c = await vc_bridge.load_loud(uid)
-    panel = loud_text(c, True)
+    text, kb = await panel(uid)
     try:
         if note:
-            await note.edit_text(panel, reply_markup=loud_kb())
+            await note.edit_text(text, reply_markup=kb)
             return
     except Exception:
         pass
-    await mic_notify(msg, panel, reply_markup=loud_kb())
+    await mic_notify(msg, text, reply_markup=kb)
