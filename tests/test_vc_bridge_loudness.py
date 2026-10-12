@@ -123,7 +123,17 @@ def test_soft_voice_reaches_full_scale_and_pauses_silent():
     assert silent > 0.7, f"pause hiss: only {silent:.0%} silent"
 
 
+def test_non_admin_boost_and_extra_layer_build():
+    for name in v.LOUD_PRESETS:
+        f = v.build_bridge_filter(v.LOUD_PRESETS[name], focus=True)
+        assert "highpass=f=300" in f
+        assert v.EXTRA_LAYER.split(",")[0] in v.build_bridge_filter(
+            v.LOUD_PRESETS[name], focus=True, layer=True)
+    assert v.EXTRA_LAYER not in v.build_bridge_filter(v.LOUD_DEFAULT)
+
+
 if __name__ == "__main__":
+    test_non_admin_boost_and_extra_layer_build()
     test_every_combo_builds()
     test_mix_numpy_clamps()
     test_soft_voice_reaches_full_scale_and_pauses_silent()

@@ -193,7 +193,7 @@ class PcmAgc:
         return a.tobytes()
 
 
-def loud_stage(cfg: dict) -> str:
+def loud_stage(cfg: dict, focus: bool = False) -> str:
     """EQ -> broadcast-style loudness stages -> limiter -> clip+filter.
 
       1. speechnorm   — har syllable ko same level par (halki expansion; AGC
@@ -207,14 +207,22 @@ def loud_stage(cfg: dict) -> str:
     from helpers.audio_processor import _has_filter
     c = clean_loud(cfg)
     hp = 200 - c["bass"] * 8            # bass 0 -> 200 Hz, bass 10 -> 120 Hz
+    if focus:
+        # NON-ADMIN BOOST: 200% volume nahi mil sakta, isliye energy wahan
+        # daalo jahan kaan + phone speaker sabse sensitive hai (1-5 kHz).
+        # Low-mid (<300 Hz) headroom khaata hai par tez nahi lagta -> kaato.
+        hp = max(hp, 300)
     f = [f"highpass=f={hp}:p=2", f"highpass=f={hp}:p=2",
-         "equalizer=f=300:t=q:w=1:g=-4"]
+         f"equalizer=f=300:t=q:w=1:g={-9 if focus else -4}"]
     if c["bass"]:
         f.append(f"equalizer=f={hp + 40}:t=q:w=1:g={c['bass'] * 0.6:.1f}")
     f.append("equalizer=f=750:t=q:w=0.9:g=8")
     if c["presence"]:
         f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 1.1:.1f}")
         f.append(f"equalizer=f=4200:t=q:w=1.2:g={c['presence'] * 0.5:.1f}")
+    if focus:
+        f.append("equalizer=f=2500:t=q:w=1.2:g=5")
+        f.append("equalizer=f=3600:t=q:w=1:g=4")
     f.append("lowpass=f=7500")
     # [1] word leveller — e=6 (+15 dB max): pehle e=50 (+34 dB) pause ki hiss
     # ko bhi full kar deta tha.
@@ -269,6 +277,11 @@ def loud_stage(cfg: dict) -> str:
             f.append(f"volume={min(6, d - 20)}dB")
             f.append("asoftclip=type=hard:threshold=0.95")
             f.append("lowpass=f=7000:p=2")
+        if focus:
+            # Non-admin: ek aur density clip -> same peak, zyada RMS.
+            f.append("volume=4dB")
+            f.append("asoftclip=type=hard:threshold=0.95")
+            f.append("lowpass=f=6800:p=2")
         # Final ceiling (Opus decoder ~1 dB overshoot karta hai).
         f.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=4:level=false")
     elif d:
@@ -281,7 +294,19 @@ def loud_stage(cfg: dict) -> str:
     return ",".join(f)
 
 
-def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET) -> str:
+# Extra spare IDs (multi-spare): sab same full-band awaaz bhejte the -> network
+# delay ki wajah se lows/mids aapas me cancel (comb filter) hote the aur awaaz
+# "gol-gol" lagti thi.  Ab extra IDs sirf 1-7 kHz (sabse tez lagne wala band)
+# bhejti hain: main ID poori awaaz, extras us par "presence layer" chadhati hain
+# -> har extra ID se non-admin GC me bhi saaf +3..6 dB tez.
+EXTRA_LAYER = ("highpass=f=1000:p=2,highpass=f=1000:p=2,"
+               "equalizer=f=3000:t=q:w=1:g=3,volume=4dB,"
+               "asoftclip=type=hard:threshold=0.95,lowpass=f=7000:p=2,"
+               "alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=4:level=false")
+
+
+def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET,
+                        focus: bool = False, layer: bool = False) -> str:
     """Bridge ki single lean FFmpeg chain (PCM AGC ke baad chalti hai)."""
     from helpers.audio_processor import _sanitize_ffmpeg_filter
     cfg = clean_loud(loud_cfg)
@@ -296,7 +321,9 @@ def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET) 
         # Echo compressor se PEHLE: tail bhi utni hi tez, level nahi girta.
         lvl = max(1, min(5, int(lvl)))
         parts.append(f"aecho=0.9:0.7:{40 + lvl * 15}:{0.12 + lvl * 0.04:.2f}")
-    parts.append(loud_stage(cfg))
+    parts.append(loud_stage(cfg, focus))
+    if layer:
+        parts.append(EXTRA_LAYER)
     # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
     return _sanitize_ffmpeg_filter(",".join(parts))
 
@@ -396,6 +423,9 @@ class VCBridge:
         self.extra_relays: list = []
         self.extras: list = []
         self._extra_task: Optional[asyncio.Task] = None
+        # True = target GC me main/spare admin nahi (200% lock nahi lagega)
+        # -> Non-admin Boost chain apne aap ON.
+        self.focus = False
 
     def feed(self, frames) -> None:
         s = self.session
@@ -429,7 +459,7 @@ class VCBridge:
         bridge = self
 
         def _build_with_loud():
-            return build_bridge_filter(bridge.loud, bridge.preset)
+            return build_bridge_filter(bridge.loud, bridge.preset, focus=bridge.focus)
 
         session._build_filter = _build_with_loud
         self.session = session
@@ -469,6 +499,7 @@ class VCBridge:
         # Self-volume sirf spare ID ke liye lagta hai; MAIN ID (group admin)
         # se spare ID ka volume 200% set karo -> sab listeners ke liye tez.
         self._vol_task = asyncio.create_task(self._admin_volume_keeper())
+        asyncio.create_task(self._detect_admin())
         self._watch = asyncio.create_task(self._watchdog())
         if self.extra_relays:
             self._extra_task = asyncio.create_task(self._start_extras(settings))
@@ -479,7 +510,8 @@ class VCBridge:
         bridge = self
 
         def _build_with_loud():
-            return build_bridge_filter(bridge.loud, bridge.preset)
+            return build_bridge_filter(bridge.loud, bridge.preset,
+                                       focus=bridge.focus, layer=True)
 
         for relay in list(self.extra_relays):
             if self._closed:
@@ -509,6 +541,29 @@ class VCBridge:
                     await sess.stop()
                 except Exception:
                     pass
+
+    async def _detect_admin(self) -> None:
+        """Main ID ya spare ID target GC me admin hai? Nahi -> Non-admin Boost ON."""
+        s = self.session
+        admin = False
+        for vc in (self.uvc, self.relay):
+            if vc is None or not getattr(vc, "client", None) or s is None:
+                continue
+            try:
+                if await s._is_admin(vc):
+                    admin = True
+                    break
+            except Exception:
+                pass
+        if self._closed or admin == (not self.focus):
+            return
+        self.focus = not admin
+        logger.info("Bridge %s: target admin=%s -> non-admin boost=%s",
+                    self.user_id, admin, self.focus)
+        try:
+            await self.apply_loud(self.loud)
+        except Exception as exc:
+            logger.warning("non-admin boost apply fail: %r", exc)
 
     async def _admin_volume_keeper(self) -> None:
         """Main ID (admin) se spare ID ka participant volume 200% pe lock rakho."""
@@ -631,6 +686,7 @@ class VCBridge:
             "received_kb": (s._received_bytes // 1024) if s else 0,
             "uptime_s": int(time.monotonic() - self.started_at),
             "live": bool(s and not s._closed and s._started),
+            "boost": self.focus,
             "spares": 1 + sum(1 for x in self.extras if not x._closed),
         }
 

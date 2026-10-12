@@ -37,7 +37,7 @@ def _bar(n: int, top: int = 10) -> str:
     return "█" * k + "░" * (10 - k)
 
 
-def loud_text(c: dict, live: bool, src=None, tgt=None) -> str:
+def loud_text(c: dict, live: bool, src=None, tgt=None, boost=False, spares=1) -> str:
     from helpers.vc_bridge import drive_db
     d = c["drive"]
     k = c.get("crunch", 0)
@@ -56,7 +56,12 @@ def loud_text(c: dict, live: bool, src=None, tgt=None) -> str:
         f"🎵 <b>Bass:</b> <code>{_bar(c['bass'])} {c['bass']}/10</code>\n"
         f"🌊 <b>Echo:</b> <code>{_bar(c.get('echo', 0), 5)} {c.get('echo', 0)}/5</code>\n"
         f"✂️ <b>Clip:</b> {'HARD (max tez)' if c['clip'] == 'hard' else 'SOFT (smooth)'}"
-        f"  •  🔇 <b>Hiss Cut:</b> {'ON' if c.get('gate', 1) else 'OFF'}\n\n"
+        f"  •  🔇 <b>Hiss Cut:</b> {'ON' if c.get('gate', 1) else 'OFF'}\n"
+        + (f"⚡ <b>Non-admin Boost: ON</b> (200% nahi mil sakta, isliye awaaz "
+           f"tez band me daali) • 👥 Spare IDs: {spares}\n"
+           "<i>Aur tez? ☰ Aur options → 👥 Extra Spare ID jodo — har ID +3–6 dB.</i>\n"
+           if live and boost else "")
+        + "\n"
         + ("✅ <b>Live hai</b> — bolo! Awaaz kam/zyada: <b>🔉 −</b> / <b>🔊 +</b>"
            if live else
            "<b>Ab kya karein?</b>\n1️⃣ Private VC join karo, apna mic ON karo\n"
@@ -96,6 +101,7 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
              B("☢️ ULTRA", callback_data="brl:p:ultra", style="danger")],
             [B("🎛 Fine tune", callback_data="brv:tune", style="primary"),
              B("⚙️ Groups / ID", callback_data="brv:setup", style="primary")],
+            [B("👥 Extra Spare ID (aur tez)", callback_data="mic:acct", style="success")],
             [B("📊 Status", callback_data="brc:status", style="primary"),
              B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
             [B("❓ Help", callback_data="brc:help", style="primary"),
@@ -245,8 +251,11 @@ async def panel(uid: int):
         return text, K(rows + [[B("🎬 Video dekho", callback_data="tut:video", style="primary"),
                                 B("🏠 Home", callback_data="menu:home", style="primary")]])
     c = await vc_bridge.load_loud(uid)
-    live = vc_bridge.get_bridge(uid) is not None
-    return loud_text(c, live, src, tgt), loud_kb(live)
+    b = vc_bridge.get_bridge(uid)
+    live = b is not None
+    st = b.status() if b else {}
+    return (loud_text(c, live, src, tgt, st.get("boost", False), st.get("spares", 1)),
+            loud_kb(live))
 
 
 class _CbMsg:
