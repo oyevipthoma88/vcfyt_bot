@@ -92,15 +92,21 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
         ])
     return K([
         [B("🔴 Mic OFF", callback_data="brc:off", style="danger") if live else
-         B("🟢 Mic ON", callback_data="brc:on", style="success")],
+         B("🟢 Mic ON", callback_data="brc:on", style="success"),
+         B("📊 Status", callback_data="brc:status", style="primary")],
         [B("🔉 Volume −", callback_data="brl:drive:-2", style="primary"),
          B("🔊 Volume +", callback_data="brl:drive:2", style="success")],
         [B("🛡 Safe", callback_data="brl:p:safe", style="primary"),
          B("🔊 Loud", callback_data="brl:p:loud", style="success"),
-         B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger")],
+         B("💥 MAX", callback_data="brl:p:max", style="danger")],
+        [B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger"),
+         B("☢️ ULTRA", callback_data="brl:p:ultra", style="danger")],
         [B("🎛 Fine tune", callback_data="brv:tune", style="primary"),
          B("⚙️ Groups / ID", callback_data="brv:setup", style="primary")],
-        [B("❓ Help", callback_data="brc:help", style="primary")] + nav,
+        [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
+         B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
+        [B("❓ Help", callback_data="brc:help", style="primary"),
+         B("🔄 Refresh", callback_data="brc:loud", style="primary")] + nav,
     ])
 
 
@@ -132,10 +138,84 @@ _STEP_SCREENS = {
 
 
 async def _is_logged(uid: int) -> bool:
-    if uid in session_manager.users:
-        return True
-    data = await db.get_user(uid)
-    return bool(data and data.get("string_session"))
+    from plugins.start import _is_logged_in
+    return await _is_logged_in(uid)
+
+
+async def resolve_group(msg, ref: str, uid: int, kind: str):
+    """(chat_id, join_ref). Public @username / t.me link / invite link /
+    numeric ID — bot, main ID ya spare ID me se jo bhi resolve kar sake.
+    Target ke liye spare ID khud join bhi kar leti hai (public + invite)."""
+    cid, jref = await target_chat(msg, ref)
+    if cid:
+        return cid, jref or (ref if not re.fullmatch(r"-?\d+", ref) else None)
+    if re.fullmatch(r"-?\d+", ref):
+        return 0, None
+    clients = []
+    try:
+        relay = await session_manager.get_relay(uid)
+        if relay and getattr(relay, "client", None):
+            clients.append(relay.client)
+    except Exception:
+        pass
+    if kind == "src":
+        try:
+            uvc = await session_manager.get(uid)
+            if uvc and getattr(uvc, "client", None):
+                clients.insert(0, uvc.client)
+        except Exception:
+            pass
+    key = _join_key(ref)
+    for c in clients:
+        for fn in ("join_chat", "get_chat"):
+            try:
+                chat = await getattr(c, fn)(key)
+                if getattr(chat, "id", None):
+                    return chat.id, ref
+            except Exception as exc:
+                if "ALREADY" in str(exc).upper():
+                    try:
+                        chat = await c.get_chat(key)
+                        if getattr(chat, "id", None):
+                            return chat.id, ref
+                    except Exception:
+                        pass
+                continue
+    return 0, ref
+
+
+def _join_key(ref: str) -> str:
+    ref = (ref or "").strip()
+    m = re.search(r"t\.me/(?!\+|joinchat/)([A-Za-z0-9_]{4,})", ref)
+    if m:
+        return m.group(1)
+    return ref[1:] if ref.startswith("@") else ref
+
+
+async def ensure_in_target(client, tgt: int, ref) -> None:
+    """Spare ID target group me ho aur peer cache me ho — warna public /
+    naye group pe Mic ON 'PEER_ID_INVALID' / 'not in chat' se fail hota tha."""
+    if not client:
+        return
+    try:
+        await client.get_chat(tgt)
+        return
+    except Exception:
+        pass
+    if ref:
+        try:
+            await client.join_chat(_join_key(ref))
+        except Exception:
+            pass
+        try:
+            await client.get_chat(_join_key(ref))
+        except Exception:
+            pass
+    try:
+        async for _ in client.get_dialogs(limit=200):
+            pass
+    except Exception:
+        pass
 
 
 async def panel(uid: int):
@@ -245,7 +325,7 @@ async def mic_setup_listener(bot: Client, msg: Message):
         await msg.delete()
     except Exception:
         pass
-    cid, _ = await target_chat(msg, ref) if ref else (None, None)
+    cid, jref = await resolve_group(msg, ref, uid, what) if ref else (None, None)
     if not cid:
         await bot.send_message(
             msg.chat.id, "❌ Group nahi mila. Chat ID / @username / invite link dobara bhejo.",
@@ -259,6 +339,8 @@ async def mic_setup_listener(bot: Client, msg: Message):
         return
     _await_chat.pop(uid, None)
     await db.set_app_value(f"bridge_src_{uid}" if what == "src" else f"mic_chat_{uid}", str(cid))
+    if what == "tgt":
+        await db.set_app_value(f"mic_chat_ref_{uid}", jref or "")
     text, kb = await panel(uid)
     await bot.send_message(msg.chat.id, f"✅ {'Private' if what == 'src' else 'Target'} group set: "
                            f"<code>{cid}</code>\n\n" + text, reply_markup=kb)
@@ -349,11 +431,12 @@ async def run_bridge(msg: Message, parts):
         if len(parts) < 3:
             await mic_notify(msg, "Target group do: <code>.mic chat -100xxxxxxxx</code>")
             return
-        cid, _ = await target_chat(msg, parts[2])
+        cid, jref = await resolve_group(msg, parts[2], uid, "tgt")
         if not cid:
             await mic_notify(msg, "❌ Target group nahi mila. Chat ID / @username / link do.")
             return
         await db.set_app_value(f"mic_chat_{uid}", str(cid))
+        await db.set_app_value(f"mic_chat_ref_{uid}", jref or "")
         await mic_notify(msg, f"✅ Target group set: <code>{cid}</code>")
         return
 
@@ -365,7 +448,7 @@ async def run_bridge(msg: Message, parts):
         if len(parts) < 3:
             await mic_notify(msg, "Private group do: <code>.mic src -100xxxxxxxx</code>")
             return
-        cid, _ = await target_chat(msg, parts[2])
+        cid, _ = await resolve_group(msg, parts[2], uid, "src")
         if not cid:
             await mic_notify(msg, "❌ Private group nahi mila. Chat ID (-100 ke saath ya bina) / @username / link do.")
             return
@@ -433,7 +516,13 @@ async def run_bridge(msg: Message, parts):
         await mic_notify(msg, "Target group set karo: <b>🎯 Target Group</b> button ya <code>.mic chat -100xxxxxxxx</code>",
                          reply_markup=K([[B("🎯 Target Group", callback_data="brs:tgt", style="primary")]]))
         return
-    tgt, _ = await target_chat(msg, str(tgt_arg))
+    tgt_ref = await db.get_app_value(f"mic_chat_ref_{uid}") or None
+    if tgt_arg and not re.fullmatch(r"-?\d+", str(tgt_arg)):
+        tgt_ref = str(tgt_arg)
+    tgt, jref = await resolve_group(msg, str(tgt_arg), uid, "tgt")
+    if not tgt and tgt_ref:
+        tgt, jref = await resolve_group(msg, tgt_ref, uid, "tgt")
+    tgt_ref = jref or tgt_ref
     src_id = int(src)
     if not tgt:
         await mic_notify(msg, "❌ Target group nahi mila.")
@@ -442,6 +531,17 @@ async def run_bridge(msg: Message, parts):
         await mic_notify(msg, "❌ Private aur target group alag hone chahiye.")
         return
     await db.set_app_value(f"mic_chat_{uid}", str(tgt))
+    if tgt_ref:
+        await db.set_app_value(f"mic_chat_ref_{uid}", tgt_ref)
+    await ensure_in_target(getattr(relay, "client", None), tgt, tgt_ref)
+    try:
+        await uvc.client.get_chat(src_id)
+    except Exception:
+        try:
+            async for _ in uvc.client.get_dialogs(limit=200):
+                pass
+        except Exception:
+            pass
     await reset_mic_state(uvc, uid)
 
     note = await mic_notify(msg, (
@@ -455,6 +555,8 @@ async def run_bridge(msg: Message, parts):
             extras = await session_manager.extra_relays(
                 uid, exclude_ids=(getattr(relay, "account_id", 0),
                                   getattr(uvc, "account_id", 0)))
+        for r in extras:
+            await ensure_in_target(getattr(r, "client", None), tgt, tgt_ref)
         await vc_bridge.start_bridge(uid, uvc, relay, src_id, tgt, settings, preset,
                                      extra_relays=extras)
     except Exception as exc:

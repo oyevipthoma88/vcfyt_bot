@@ -164,10 +164,32 @@ def now_playing_kb(cid: int, st=None) -> K:
     ])
 
 async def get_engine(msg: Message):
-    uvc = await session_manager.get(msg.from_user.id)
+    uid = msg.from_user.id
+    uvc = await session_manager.get(uid)
     if not uvc:
-        # Never raise here: in a restricted / non-admin group the bot may not be
-        # allowed to post, and that must not swallow the command silently.
+        from plugins.start import _is_logged_in
+        if await _is_logged_in(uid):
+            # Logged-in user: session sirf start nahi hua (network / flood) —
+            # ek baar retry, aur "login karo" mat bolo.
+            import asyncio
+            await asyncio.sleep(1.5)
+            uvc = await session_manager.get(uid)
+            if not uvc:
+                try:
+                    from config import Config
+                    if Config.is_owner(uid) and Config.STRING_SESSION:
+                        uvc = await session_manager.add(uid, Config.STRING_SESSION)
+                except Exception:
+                    uvc = None
+            if not uvc:
+                await mic_notify(
+                    msg,
+                    "⚠️ <b>Aapka account connect ho raha hai…</b>\n\n"
+                    "Login saved hai, bas abhi start nahi hua. 10 sec baad dobara dabao.\n"
+                    "Baar-baar aaye to 🔁 Re-Login karo.",
+                    reply_markup=LOGIN_KB,
+                )
+            return uvc
         await mic_notify(
             msg,
             "❌ <b>Pehle login karein.</b>\n\n"
@@ -215,7 +237,14 @@ async def target_chat(msg: Message, arg: str = None) -> tuple:
             variants = chat_id_variants(arg)
             return (variants[0] if variants else int(arg)), None
         else:
+            arg = arg.strip()
             ref = arg if arg.startswith("@") or "t.me/" in arg or "+" in arg else None
+            m = re.search(r"t\.me/(?!\+|joinchat/)([A-Za-z0-9_]{4,})", arg)
+            if m:
+                # Public link https://t.me/name -> "name" (get_chat URL nahi leta)
+                arg = m.group(1)
+            elif arg.startswith("@"):
+                arg = arg[1:]
             # Bot first; if the bot was never added to that group (or it is a
             # private group), fall back to the user's own logged-in account —
             # that one IS a member, so it can resolve the chat.

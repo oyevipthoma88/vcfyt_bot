@@ -18,10 +18,25 @@ from plugins.ui import (
 from plugins.tutorial import TUTORIAL_MENU_TEXT, tutorial_kb
 
 async def _is_logged_in(user_id: int) -> bool:
+    """Logged = active session, saved session (int ya str user_id), ya owner ka
+    env STRING_SESSION. Pehle sirf int lookup tha — kuch users ko login ke baad
+    bhi 'Pehle login karo' dikh jaata tha."""
     if user_id in session_manager.users:
         return True
-    data = await db.get_user(user_id)
-    return bool(data and data.get("string_session"))
+    try:
+        from config import Config
+        if Config.is_owner(user_id) and Config.STRING_SESSION:
+            return True
+    except Exception:
+        pass
+    for key in (user_id, str(user_id)):
+        try:
+            data = await db.get_user(key)
+        except Exception:
+            data = None
+        if data and (data.get("string_session") or "").strip():
+            return True
+    return False
 
 @Client.on_message(HAS_USER & filters.command("start", prefixes=[".", "/"]) & filters.private)
 async def cmd_start(bot: Client, msg: Message):
