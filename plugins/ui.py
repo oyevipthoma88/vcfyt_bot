@@ -132,12 +132,17 @@ def B(text: str, callback_data: str = None, style: str = None,
 
             style = "primary"
 
-    del icon_custom_emoji_id
+    if icon_custom_emoji_id is None:
+        from helpers.custom_emoji import button_icon
+        icon_custom_emoji_id = button_icon(text)
     if isinstance(style, ButtonStyle):
         style = style.value
     if style:
         try:
-            return _InlineKeyboardButton(text, style=style, **params)
+            button = _InlineKeyboardButton(text, style=style, **params)
+            if icon_custom_emoji_id:
+                button._bot_api_icon = icon_custom_emoji_id
+            return button
         except (TypeError, ValueError):
 
             pass
@@ -148,6 +153,8 @@ def B(text: str, callback_data: str = None, style: str = None,
     if style:
 
         button._bot_api_style = style
+    if icon_custom_emoji_id:
+        button._bot_api_icon = icon_custom_emoji_id
     return button
 
 def home_text(name: str, logged_in: bool) -> str:
@@ -164,7 +171,7 @@ def home_text(name: str, logged_in: bool) -> str:
     else:
         steps = (
             "<b>Shuru kaise karein? (2 min)</b>\n"
-            "1️⃣ Neeche <b>🔐 Login</b> dabao\n"
+            "1️⃣ Neeche <b>🔐 Setup shuru karein</b> dabao\n"
             "2️⃣ Apna phone number bhejo (jaise +91…)\n"
             "3️⃣ Telegram ka OTP bot ko bhejo\n"
             "4️⃣ Done! Fir group me <code>.setgc</code> aur <code>.play</code>"
@@ -186,10 +193,8 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     # Player / Mic / Audio / Library login ke baad hi dikhte hain.
     if not logged_in:
         rows = [
-            [B("🔐 Login — Start here", callback_data="menu:login", style="success")],
-            [B("📘 How to use", callback_data="menu:tutorial", style="primary")],
-            [B("💎 Premium", callback_data="pay:menu", style="primary"),
-             B("👥 Refer & Earn", callback_data="ref:menu", style="primary")],
+            [B("🔐 Setup shuru karein", callback_data="menu:login", style="success")],
+            [B("📘 Madad", callback_data="menu:tutorial", style="primary")],
         ]
         if is_owner:
             rows.append([B("👑 Owner Panel", callback_data="adm_back", style="success")])
@@ -197,21 +202,27 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         return K(rows)
     now = (f"vc:now:{active_chat_id}" if active_chat_id is not None else "vc:list:0")
     rows = [
-        [B("▶️ Now Playing", callback_data=now, style="success"),
-         B("🎤 Live Mic", callback_data="mic:panel", style="success")],
-        [B("🎚️ Audio Controls", callback_data="menu:settings", style="primary"),
-         B("🎵 Library", callback_data="aud:menu", style="primary")],
-        [B("👤 My Account", callback_data="menu:status", style="primary"),
-         B("📘 How to use", callback_data="menu:tutorial", style="primary")],
-        [B("💎 Premium", callback_data="pay:menu", style="primary"),
-         B("👥 Refer & Earn", callback_data="ref:menu", style="primary")],
-        [B("🔁 Re-Login", callback_data="menu:login", style="primary"),
-         B("🚪 Logout", callback_data="menu:logout", style="danger")],
+        [B("🎤 Live Mic setup", callback_data="mic:panel", style="success")],
+        [B("▶️ Audio player", callback_data=now, style="primary")],
+        [B("☰ More", callback_data="menu:more", style="primary")],
     ]
     if is_owner:
         rows.append([B("👑 Owner Panel", callback_data="adm_back", style="success")])
     rows.extend(source_button())
     return K(rows)
+
+def more_kb() -> K:
+    return K([
+        [B("🎚️ Audio Controls", callback_data="menu:settings", style="primary"),
+         B("🎵 Library", callback_data="aud:menu", style="primary")],
+        [B("👤 My Account", callback_data="menu:status", style="primary"),
+         B("📘 Madad", callback_data="menu:tutorial", style="primary")],
+        [B("💎 Premium", callback_data="pay:menu", style="primary"),
+         B("👥 Refer & Earn", callback_data="ref:menu", style="primary")],
+        [B("🔁 Re-Login", callback_data="menu:login", style="primary"),
+         B("🚪 Logout", callback_data="menu:logout", style="danger")],
+        [B("🏠 Home", callback_data="menu:home", style="primary")],
+    ])
 
 def back_kb(target: str = "menu:home") -> K:
     return K([[B("⬅ Back", callback_data=target, style="primary"),

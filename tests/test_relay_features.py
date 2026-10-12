@@ -112,7 +112,7 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertEqual(button.text, "❌ Logout")
         self.assertEqual(button.callback_data, "menu:logout")
 
-    def test_bot_api_bridge_emits_native_style_without_numeric_emoji_id(self):
+    def test_bot_api_bridge_keeps_custom_emoji_id(self):
         from pyrogram.types import InlineKeyboardMarkup
         markup = InlineKeyboardMarkup([[
             B("Support", url="https://example.com",
@@ -121,7 +121,7 @@ class RelayFeatureTests(unittest.TestCase):
         ]])
         payload = markup_payload(markup)
         self.assertEqual(payload["inline_keyboard"][0][0]["style"], "success")
-        self.assertNotIn("icon_custom_emoji_id", payload["inline_keyboard"][0][0])
+        self.assertEqual(payload["inline_keyboard"][0][0]["icon_custom_emoji_id"], "5443038326535759644")
         self.assertEqual(payload["inline_keyboard"][0][0]["text"], "Support")
 
     def test_styled_dm_transport_omits_initial_markup(self):

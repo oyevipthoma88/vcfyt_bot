@@ -188,3 +188,11 @@ async def cb_settings_change(bot, cq):
         await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
     except Exception:
         pass
+
+
+@Client.on_callback_query(filters.regex(r"^menu:more$"))
+async def cb_more(bot, cq):
+    from plugins.ui import more_kb
+    await safe_answer(cq)
+    await edit_screen(cq.message, "☰ <b>More options</b>\nJo chahiye wo chuno:",
+                      reply_markup=more_kb())

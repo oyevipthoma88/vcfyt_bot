@@ -11,6 +11,7 @@ logger = logging.getLogger("vcbot.bot_api_styles")
 def has_native_styles(markup: Any) -> bool:
     rows = getattr(markup, "inline_keyboard", None) or []
     return any(getattr(button, "_bot_api_style", None)
+               or getattr(button, "_bot_api_icon", None)
                for row in rows for button in row)
 
 def _button_payload(button: Any) -> dict:
@@ -42,7 +43,18 @@ def _button_payload(button: Any) -> dict:
     style = getattr(button, "_bot_api_style", None)
     if style:
         data["style"] = style
+    icon = getattr(button, "_bot_api_icon", None)
+    if icon:
+        data["icon_custom_emoji_id"] = str(icon)
     return data
+
+def _strip_icons(payload: dict) -> bool:
+    found = False
+    for row in payload.get("inline_keyboard", []):
+        for btn in row:
+            if btn.pop("icon_custom_emoji_id", None):
+                found = True
+    return found
 
 def markup_payload(markup: Any) -> dict | None:
     rows = getattr(markup, "inline_keyboard", None)
@@ -71,6 +83,12 @@ async def apply_native_styles(message: Any, markup: Any) -> bool:
                 # Same keyboard already there = colours already correct.
                 if "not modified" in str(result.get("description", "")).lower():
                     return True
+                # Premium emoji allowed nahi -> icons hata ke plain keyboard.
+                if response.status == 400 and _strip_icons(payload):
+                    async with session.post(url, json=body) as retry:
+                        again = await retry.json(content_type=None)
+                        if retry.status == 200 and again.get("ok"):
+                            return True
                 logger.debug("Bot API style patch skipped: %s", result)
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
         logger.debug("Bot API style patch unavailable: %s", exc)

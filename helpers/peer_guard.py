@@ -230,16 +230,16 @@ def chat_id_variants(raw) -> list:
         n = int(str(raw).strip())
     except (TypeError, ValueError):
         return []
+    if n == 0:
+        return []
     s = str(abs(n))
     out = []
     if s.startswith("100") and len(s) >= 13:
         out.append(-int(s))
     else:
-        if n < 0:
-            out.append(n)
+        # -100<id> pehle: supergroup ID bina -100 ke bhi chalega.
         out.append(-int("100" + s))
-        if n > 0:
-            out.append(-n)
+        out.append(-int(s))
     seen = []
     for v in out:
         if v not in seen:

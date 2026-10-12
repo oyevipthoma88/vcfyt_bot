@@ -64,49 +64,101 @@ def loud_text(c: dict, live: bool, src=None, tgt=None) -> str:
     )
 
 
-def loud_kb(live: bool = False) -> K:
+def loud_kb(live: bool = False, page: str = "main") -> K:
+    nav = [B("🏠 Home", callback_data="menu:home", style="primary")]
+    if page == "tune":
+        return K([
+            [B("💥 Phatna −", callback_data="brl:crunch:-1", style="primary"),
+             B("💥 Phatna +", callback_data="brl:crunch:1", style="danger")],
+            [B("📢 Presence −", callback_data="brl:presence:-1", style="primary"),
+             B("📢 Presence +", callback_data="brl:presence:1", style="primary")],
+            [B("🎵 Bass −", callback_data="brl:bass:-1", style="primary"),
+             B("🎵 Bass +", callback_data="brl:bass:1", style="primary")],
+            [B("🌊 Echo −", callback_data="brl:echo:-1", style="primary"),
+             B("🌊 Echo +", callback_data="brl:echo:1", style="primary")],
+            [B("✂️ Clip", callback_data="brl:clip:x", style="primary"),
+             B("🔇 Hiss Cut", callback_data="brl:gate:x", style="primary"),
+             B("♻️ Reset", callback_data="brl:reset:x", style="primary")],
+            [B("⬅️ Back", callback_data="brc:loud", style="primary")] + nav,
+        ])
+    if page == "setup":
+        return K([
+            [B("📥 Private Group badlo", callback_data="brs:src", style="primary")],
+            [B("🎯 Target Group badlo", callback_data="brs:tgt", style="primary")],
+            [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
+             B("💬 Spare Chat", callback_data="mic:chat", style="primary")],
+            [B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
+            [B("⬅️ Back", callback_data="brc:loud", style="primary")] + nav,
+        ])
     return K([
         [B("🔴 Mic OFF", callback_data="brc:off", style="danger") if live else
-         B("🟢 Mic ON", callback_data="brc:on", style="success"),
-         B("📊 Status", callback_data="brc:status", style="primary")],
-        [B("🔉 −5", callback_data="brl:drive:-5", style="primary"),
-         B("🔉 −1", callback_data="brl:drive:-1", style="primary"),
-         B("🔊 +1", callback_data="brl:drive:1", style="success"),
-         B("🔊 +5", callback_data="brl:drive:5", style="success")],
-        [B("💥 Phatna −", callback_data="brl:crunch:-1", style="primary"),
-         B("💥 Phatna +", callback_data="brl:crunch:1", style="danger")],
+         B("🟢 Mic ON", callback_data="brc:on", style="success")],
+        [B("🔉 Volume −", callback_data="brl:drive:-2", style="primary"),
+         B("🔊 Volume +", callback_data="brl:drive:2", style="success")],
         [B("🛡 Safe", callback_data="brl:p:safe", style="primary"),
          B("🔊 Loud", callback_data="brl:p:loud", style="success"),
-         B("💥 MAX", callback_data="brl:p:max", style="danger")],
-        [B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger"),
-         B("☢️ ULTRA", callback_data="brl:p:ultra", style="danger")],
-        [B("📢 −", callback_data="brl:presence:-1", style="primary"),
-         B("📢 Presence +", callback_data="brl:presence:1", style="primary"),
-         B("🎵 −", callback_data="brl:bass:-1", style="primary"),
-         B("🎵 Bass +", callback_data="brl:bass:1", style="primary")],
-        [B("🌊 Echo −", callback_data="brl:echo:-1", style="primary"),
-         B("🌊 Echo +", callback_data="brl:echo:1", style="primary")],
-        [B("✂️ Clip HARD/SOFT", callback_data="brl:clip:x", style="primary"),
-         B("🔇 Hiss Cut", callback_data="brl:gate:x", style="primary"),
-         B("♻️ Reset", callback_data="brl:reset:x", style="primary")],
-        [B("📥 Private Group", callback_data="brs:src", style="primary"),
-         B("🎯 Target Group", callback_data="brs:tgt", style="primary")],
-        [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
-         B("💬 Spare Chat", callback_data="mic:chat", style="primary"),
-         B("❓ Help", callback_data="brc:help", style="primary")],
-        [B("🔄 Refresh", callback_data="brc:loud", style="primary"),
-         B("🚪 Leave VC", callback_data="brc:leave", style="danger"),
-         B("🏠 Home", callback_data="menu:home", style="primary")],
+         B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger")],
+        [B("🎛 Fine tune", callback_data="brv:tune", style="primary"),
+         B("⚙️ Groups / ID", callback_data="brv:setup", style="primary")],
+        [B("❓ Help", callback_data="brc:help", style="primary")] + nav,
     ])
 
 
-async def panel(uid: int):
-    """(text, keyboard) — the one Live Mic screen (main menu + .mic panel)."""
+@Client.on_callback_query(filters.regex(r"^brv:(tune|setup)$"))
+async def cb_mic_view(bot: Client, cq):
     from helpers import vc_bridge
-    c = await vc_bridge.load_loud(uid)
-    live = vc_bridge.get_bridge(uid) is not None
+    await safe_answer(cq)
+    text, _ = await panel(cq.from_user.id)
+    live = vc_bridge.get_bridge(cq.from_user.id) is not None
+    await edit_screen(cq.message, text, reply_markup=loud_kb(live, cq.data.split(":")[1]))
+
+
+_STEP_SCREENS = {
+    "login": ("Step 1/4 — 🔐 Apna account login karo",
+              "Live Mic ke liye pehle main account connect karna zaroori hai.",
+              [[B("🔐 Login karo", callback_data="menu:login", style="success")]]),
+    "spare": ("Step 2/4 — 👥 Spare ID add karo",
+              "Spare ID target VC me aapki aawaz bolegi. Uska session add karo.",
+              [[B("👥 Spare ID add karo", callback_data="mic:acct", style="success")]]),
+    "src": ("Step 3/4 — 📥 Private group set karo",
+            "Ek private group banao, main + spare ID add karo, VC start karo.\n"
+            "Phir neeche dabake group ka ID (-100 ke saath ya bina), @username ya link bhejo.",
+            [[B("📥 Private group set karo", callback_data="brs:src", style="success")]]),
+    "tgt": ("Step 4/4 — 🎯 Target group set karo",
+            "Jis group ki VC me aawaz bhejni hai, uska ID / @username / link bhejo.\n"
+            "Spare ID us group me honi chahiye aur VC chalu ho.",
+            [[B("🎯 Target group set karo", callback_data="brs:tgt", style="success")]]),
+}
+
+
+async def _is_logged(uid: int) -> bool:
+    if uid in session_manager.users:
+        return True
+    data = await db.get_user(uid)
+    return bool(data and data.get("string_session"))
+
+
+async def panel(uid: int):
+    """(text, keyboard) — guided setup until ready, then the Live Mic panel."""
+    from helpers import vc_bridge
+    from helpers.setup_flow import mic_setup_step
     src = await db.get_app_value(f"bridge_src_{uid}")
     tgt = await db.get_app_value(f"mic_chat_{uid}")
+    try:
+        spare = bool(await session_manager.assistant_string(uid, 1))
+    except Exception:
+        spare = False
+    step = mic_setup_step(await _is_logged(uid), spare, src, tgt)
+    if step != "ready":
+        title, body, rows = _STEP_SCREENS[step]
+        done = ["login", "spare", "src", "tgt"].index(step)
+        bar = "🟢" * done + "⚪" * (4 - done)
+        text = (f"🎤 <b>Live Mic Setup</b>  {bar}\n\n<b>{title}</b>\n{body}\n\n"
+                "<i>Ek step poora hote hi agla khud dikhega.</i>")
+        return text, K(rows + [[B("❓ Help", callback_data="brc:help", style="primary"),
+                                B("🏠 Home", callback_data="menu:home", style="primary")]])
+    c = await vc_bridge.load_loud(uid)
+    live = vc_bridge.get_bridge(uid) is not None
     return loud_text(c, live, src, tgt), loud_kb(live)
 
 
