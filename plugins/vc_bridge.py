@@ -529,10 +529,13 @@ async def run_bridge(msg: Message, parts):
         await mic_notify(msg, HELP)
         return
 
-    uvc = await get_engine(msg)
-    if not uvc:
-        return
+    try:
+        main_uvc = await session_manager.get(uid)
+    except Exception:
+        main_uvc = None
     relay = await session_manager.get_relay(uid)
+    # SPARE-ONLY MODE: main ID login nahi hai to spare ID hi sab karegi.
+    uvc = main_uvc or relay
     if relay is None:
         expired = (uid, 1) in session_manager.dead_spares
         await mic_notify(msg, ("⚠️ <b>Spare ID ka session expire ho gaya</b> (Telegram ne logout kar diya).\n"
@@ -553,7 +556,7 @@ async def run_bridge(msg: Message, parts):
     if not src:
         # Private group nahi hai -> spare ID khud bana degi (zero setup).
         try:
-            cid_, inv_, vlink_, me_in_ = await auto_private_group(uid, uvc, relay)
+            cid_, inv_, vlink_, me_in_ = await auto_private_group(uid, main_uvc, relay)
             src = str(cid_)
             auto_note = auto_group_text(cid_, inv_, vlink_, me_in_)
             await mic_notify(msg, auto_note, disable_web_page_preview=True)
@@ -697,9 +700,19 @@ async def auto_private_group(uid: int, uvc, relay):
         chat = await rc.create_supergroup("🎤 My Live Mic", "Auto-created by bot — sirf aap aur spare ID")
         cid = chat.id
         await db.set_app_value(f"bridge_auto_src_{uid}", str(cid))
-    invite = (await rc.create_chat_invite_link(cid)).invite_link
+    spare_only = uvc is None or getattr(uvc, "client", None) is None or uvc is relay
+    if spare_only:
+        # APPROVE SYSTEM: link pe join request aati hai, spare ID sirf ASLI
+        # user (uid) ko approve karti hai — baaki sab decline.
+        invite = (await rc.create_chat_invite_link(cid, creates_join_request=True)).invite_link
+    else:
+        invite = (await rc.create_chat_invite_link(cid)).invite_link
     # Main ID ko khud join karao — user ko kuch nahi karna.
     me_in = False
+    if spare_only:
+        me_in = await _spare_add_user(rc, cid, uid)
+        if not me_in:
+            _start_approver(rc, cid, uid)
     if uvc is not None and getattr(uvc, "client", None) is not None:
         try:
             await uvc.client.get_chat_member(cid, "me")
@@ -716,10 +729,53 @@ async def auto_private_group(uid: int, uvc, relay):
     return cid, invite, await _vc_link(rc, cid, invite), me_in
 
 
+async def _spare_add_user(rc, cid: int, uid: int) -> bool:
+    """User pehle se group me hai ya spare ID use seedha add kar de."""
+    try:
+        m = await rc.get_chat_member(cid, uid)
+        if str(getattr(m.status, "value", m.status)).lower() not in ("left", "banned"):
+            return True
+    except Exception:
+        pass
+    try:
+        await rc.add_chat_members(cid, uid)
+        return True
+    except Exception:
+        return False  # privacy ki wajah se add nahi hua -> approve link
+
+
+_approvers: dict = {}
+
+
+def _start_approver(rc, cid: int, uid: int, minutes: int = 10) -> None:
+    """10 min tak join requests dekho: uid approve, baaki decline."""
+    import asyncio
+    old = _approvers.get(cid)
+    if old and not old.done():
+        return
+
+    async def _loop():
+        for _ in range(minutes * 12):
+            try:
+                async for req in rc.get_chat_join_requests(cid):
+                    rid = getattr(req.user, "id", 0)
+                    if rid == uid:
+                        await rc.approve_chat_join_request(cid, rid)
+                        return
+                    await rc.decline_chat_join_request(cid, rid)
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+
+    _approvers[cid] = asyncio.create_task(_loop())
+
+
 def auto_group_text(cid: int, invite: str, vc_link: str, me_in: bool) -> str:
     return ("✅ <b>Private group + VC ready!</b>\n\n"
             f"Group: <code>{cid}</code>\n"
             + ("Aapki main ID group me auto-add ho gayi.\n" if me_in else
-               f"Group join karo: {invite}\n") +
+               f"Group join karo: {invite}\n"
+               "<i>(Join request bhejo — spare ID sirf aapko auto-approve karegi, "
+               "koi aur join nahi kar payega.)</i>\n") +
             f"\n👉 <b>Bas ye link dabao aur VC me mic ON karo:</b>\n{vc_link}\n\n"
             "<i>Isi VC me jo bologe, spare ID target VC me loud bolegi.</i>")

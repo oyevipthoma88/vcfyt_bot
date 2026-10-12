@@ -1249,12 +1249,18 @@ async def cb_mic(bot: Client, cq):
     from plugins.start import apply_settings_live
 
     uid = cq.from_user.id
+    _, action, *rest = cq.data.split(":")
+
     uvc = await _cb_engine(uid)
     if not uvc:
-        await safe_answer(cq, "⚠️ Account connect nahi hua. 10 sec baad dobara dabao ya 🔁 Re-Login karo.", show_alert=True)
+        # SPARE-ONLY MODE: main ID login ke bina bhi Live Mic chalta hai —
+        # spare ID hi listener + speaker dono banti hai.
+        uvc = await session_manager.get_relay(uid)
+    if not uvc and action not in {"acct", "panel", "noop"}:
+        text, kb = await spare_screen(uid)
+        await edit_screen(cq.message, "🎤 <b>Live Mic ke liye sirf Spare ID chahiye</b> — main ID login zaroori nahi.\n\n" + text, reply_markup=kb)
+        await safe_answer(cq, "Pehle Spare ID add karo")
         return
-
-    _, action, *rest = cq.data.split(":")
 
     if action == "noop":
         await safe_answer(cq)

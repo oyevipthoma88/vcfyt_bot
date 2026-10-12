@@ -45,6 +45,9 @@ async def login_gate(bot, cq):
     from plugins.start import _is_logged_in
     if await _is_logged_in(user.id):
         return
+    # Live Mic sirf Spare ID se bhi chalta hai — main login ke bina.
+    if re.match(r"^(mic:|brs:|brc:|brl:)", cq.data or ""):
+        return
     await safe_answer(cq, "🔒 Pehle Login karo", show_alert=False)
     try:
         await edit_screen(cq.message, GATE_TEXT, reply_markup=GATE_KB)
