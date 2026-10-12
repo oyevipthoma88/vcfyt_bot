@@ -534,7 +534,11 @@ async def run_bridge(msg: Message, parts):
         return
     relay = await session_manager.get_relay(uid)
     if relay is None:
-        await mic_notify(msg, "❌ Spare ID set nahi hai. Neeche <b>👥 Spare ID</b> dabake login karo.",
+        expired = (uid, 1) in session_manager.dead_spares
+        await mic_notify(msg, ("⚠️ <b>Spare ID ka session expire ho gaya</b> (Telegram ne logout kar diya).\n"
+                               "Aapka main login theek hai — bas <b>👥 Spare ID</b> dabake spare account dobara login karo.")
+                         if expired else
+                         "❌ Spare ID set nahi hai. Neeche <b>👥 Spare ID</b> dabake login karo.",
                          reply_markup=K([[B("👥 Spare ID", callback_data="mic:acct", style="primary")]]))
         return
     preset = vc_bridge.DEFAULT_PRESET

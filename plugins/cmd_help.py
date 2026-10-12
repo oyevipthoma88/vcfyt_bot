@@ -1,6 +1,6 @@
 """Per-command help.
 
-* `.help <cmd>`  /  `/help <cmd>`  -> full info + how to use for that command
+* `.help <cmd>`  /  `.help <cmd>`  -> full info + how to use for that command
 * `.<cmd> help`  /  `.<cmd> ?`     -> same, without running the command
 * Unknown dot command in bot DM    -> "did you mean" suggestion
 """
@@ -75,9 +75,9 @@ HELP = {
     "vcreact": (["vcr", "vcemoji"], ".vcreact <emoji>", "VC me emoji reaction.", ".vcr 🔥"),
     "audio": (["audios", "myaudio"], ".audio", "Audio library (My Audio / Bot Audios).", ".audio"),
     "saveaudio": ([], ".saveaudio <name>  (audio reply karke)", "Library me audio save.", ".saveaudio My Intro"),
-    "addaudio": ([], "/addaudio <name>  (owner)", "Sabke liye shared audio add (owner only).", "/addaudio Welcome"),
-    "setlog": ([], "/setlog <channel_id>  (owner)", "Log channel set.", "/setlog -1001234567890"),
-    "logtest": ([], "/logtest", "Log channel test message.", "/logtest"),
+    "addaudio": ([], ".addaudio <name>  (owner)", "Sabke liye shared audio add (owner only).", ".addaudio Welcome"),
+    "setlog": ([], ".setlog <channel_id>  (owner)", "Log channel set.", ".setlog -1001234567890"),
+    "logtest": ([], ".logtest", "Log channel test message.", ".logtest"),
 }
 
 ALIAS = {}

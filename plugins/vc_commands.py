@@ -163,6 +163,24 @@ def now_playing_kb(cid: int, st=None) -> K:
          B("🔄 Refresh", callback_data=f"vc:now:{cid}", style="primary")],
     ])
 
+async def _cb_engine(uid: int):
+    """Saved login ko bhi start karta hai — pehle sirf in-memory session
+    dekha jaata tha, isliye restart ke baad Live Mic 'login karo' bolta tha."""
+    uvc = session_manager.users.get(uid)
+    if uvc:
+        return uvc
+    try:
+        uvc = await session_manager.get(uid)
+    except Exception:
+        uvc = None
+    if not uvc:
+        try:
+            if Config.is_owner(uid) and Config.STRING_SESSION:
+                uvc = await session_manager.add(uid, Config.STRING_SESSION)
+        except Exception:
+            uvc = None
+    return uvc
+
 async def get_engine(msg: Message):
     uid = msg.from_user.id
     uvc = await session_manager.get(uid)
@@ -629,7 +647,7 @@ async def dm_only(msg: Message, text: str, **kwargs):
         try:
             await msg.reply_text(
                 " Iska jawab aapke DM me bheja jaata hai. "
-                "Pehle bot ko DM me <code>/start</code> karein."
+                "Pehle bot ko DM me <code>.start</code> karein."
             )
         except Exception:
             pass
@@ -1019,7 +1037,7 @@ async def cmd_vol(bot, msg: Message):
 async def cmd_bass(bot, msg: Message):
     n = _num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>/bass &lt;0-100&gt;</code>")
+        await msg.reply_text("Usage: <code>.bass &lt;0-100&gt;</code>")
         return
     await _apply_and_reply(msg, f" Bass set: <b>+{clamp(n, BASS_MIN, BASS_MAX)} dB</b>",
                            bass=clamp(n, BASS_MIN, BASS_MAX))
@@ -1111,9 +1129,9 @@ async def cmd_myboost(bot: Client, msg: Message):
 async def cb_vc(bot, cq):
     _, action, cid = cq.data.split(":")
     cid = int(cid)
-    uvc = session_manager.users.get(cq.from_user.id)
+    uvc = await _cb_engine(cq.from_user.id)
     if not uvc:
-        await safe_answer(cq, "Pehle login karein.", show_alert=True)
+        await safe_answer(cq, "⚠️ Account connect nahi hua. 10 sec baad dobara dabao ya 🔁 Re-Login karo.", show_alert=True)
         return
     if action == "list":
         active = next((chat_id for chat_id, state in uvc.chats.items()
@@ -1231,9 +1249,9 @@ async def cb_mic(bot: Client, cq):
     from plugins.start import apply_settings_live
 
     uid = cq.from_user.id
-    uvc = session_manager.users.get(uid)
+    uvc = await _cb_engine(uid)
     if not uvc:
-        await safe_answer(cq, "❌ Pehle login karein.", show_alert=True)
+        await safe_answer(cq, "⚠️ Account connect nahi hua. 10 sec baad dobara dabao ya 🔁 Re-Login karo.", show_alert=True)
         return
 
     _, action, *rest = cq.data.split(":")
@@ -1544,7 +1562,7 @@ def _relay_num_arg(msg: Message):
 async def cmd_volume(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>/volume &lt;0-1000&gt;</code>")
+        await msg.reply_text("Usage: <code>.volume &lt;0-1000&gt;</code>")
         return
     n = max(0, min(VOLUME_MAX, n))
     await _apply_and_reply(msg, f" Playback volume: <b>{n}/1000</b>", relay_volume=n, volume=n)
@@ -1553,7 +1571,7 @@ async def cmd_volume(bot: Client, msg: Message):
 async def cmd_gain(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>/gain &lt;0-200&gt;</code>")
+        await msg.reply_text("Usage: <code>.gain &lt;0-200&gt;</code>")
         return
     n = max(0, min(400, n))
     await _apply_and_reply(msg, f" Gain: <b>{n}/400</b>", gain=n)
@@ -1562,7 +1580,7 @@ async def cmd_gain(bot: Client, msg: Message):
 async def cmd_treble(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>/treble &lt;0-100&gt;</code>")
+        await msg.reply_text("Usage: <code>.treble &lt;0-100&gt;</code>")
         return
     n = max(0, min(100, n))
     await _apply_and_reply(msg, f" Treble: <b>{n}/100</b>", treble=n)
@@ -1572,7 +1590,7 @@ async def cmd_voice(bot: Client, msg: Message):
     parts = cmd_text(msg).split()
     if len(parts) < 2 or parts[1].lower() not in {"female", "male", "normal"}:
         await msg.reply_text(
-            "Usage: <code>/voice female|male|normal</code>\n\n"
+            "Usage: <code>.voice female|male|normal</code>\n\n"
             "female: sharp/bright | male: heavy/bassy | normal: balanced"
         )
         return

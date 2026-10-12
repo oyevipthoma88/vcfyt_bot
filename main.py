@@ -222,7 +222,7 @@ async def main():
             await log_error("owner_env_session", e)
 
     try:
-        await bot.set_bot_commands(BOT_COMMANDS)
+        await bot.delete_bot_commands()  # "/" menu hata diya — sirf "." commands
     except Exception:
         pass
 

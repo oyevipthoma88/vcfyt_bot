@@ -1,19 +1,19 @@
 """Payment system: owner price/QR/coupon management + user plan display & requests.
 
 Owner commands:
-  /setprice <plan_id> <price>  — set plan price
-  /grant <user_id> <plan_id>   — manually grant premium
-  /revoke <user_id>            — revoke premium
-  /addcoupon <code> <plan_id> [max_uses]  — create coupon
-  /delcoupon <code>            — delete coupon
-  /listcoupons                 — list all coupons
-  /setqr (reply to photo)      — set QR code image
-  /clearqr                     — remove QR code
-  /pending                     — list pending payment requests
+  .setprice <plan_id> <price>  — set plan price
+  .grant <user_id> <plan_id>   — manually grant premium
+  .revoke <user_id>            — revoke premium
+  .addcoupon <code> <plan_id> [max_uses]  — create coupon
+  .delcoupon <code>            — delete coupon
+  .listcoupons                 — list all coupons
+  .setqr (reply to photo)      — set QR code image
+  .clearqr                     — remove QR code
+  .pending                     — list pending payment requests
 
 User commands:
-  /redeem <code>               — redeem coupon code
-  /plans                       — view plans & buy
+  .redeem <code>               — redeem coupon code
+  .plans                       — view plans & buy
 
 Callbacks:
   pay:menu / pay:plan:<id> / pay:request:<id>
@@ -62,15 +62,15 @@ def _payment_panel_text() -> str:
         "💳 <b>Payment Management</b>\n\n"
         f"{LINE}\n"
         "<b>Owner Commands:</b>\n"
-        "• <code>/setprice &lt;plan_id&gt; &lt;price&gt;</code>\n"
-        "• <code>/grant &lt;user_id&gt; &lt;plan_id&gt;</code>\n"
-        "• <code>/revoke &lt;user_id&gt;</code>\n"
-        "• <code>/addcoupon &lt;code&gt; &lt;plan_id&gt; [max_uses]</code>\n"
-        "• <code>/delcoupon &lt;code&gt;</code>\n"
-        "• <code>/listcoupons</code>\n"
-        "• <code>/setqr</code> (QR photo reply karke)\n"
-        "• <code>/clearqr</code>\n"
-        "• <code>/pending</code> — pending payment requests\n\n"
+        "• <code>.setprice &lt;plan_id&gt; &lt;price&gt;</code>\n"
+        "• <code>.grant &lt;user_id&gt; &lt;plan_id&gt;</code>\n"
+        "• <code>.revoke &lt;user_id&gt;</code>\n"
+        "• <code>.addcoupon &lt;code&gt; &lt;plan_id&gt; [max_uses]</code>\n"
+        "• <code>.delcoupon &lt;code&gt;</code>\n"
+        "• <code>.listcoupons</code>\n"
+        "• <code>.setqr</code> (QR photo reply karke)\n"
+        "• <code>.clearqr</code>\n"
+        "• <code>.pending</code> — pending payment requests\n\n"
         "<b>Plans:</b>\n"
         + "\n".join(f"• <code>{p[0]}</code> — {p[1]}" for p in PAYMENT_PLANS)
     )
@@ -123,7 +123,7 @@ async def _user_plans_text(user_id: int) -> str:
         + f"\n{LINE}\n\n"
         "Premium = <b>unlimited</b> uses, no daily limit!\n"
         "Plan choose karein → Request karein → QR DM mein aayega → payment karein → screenshot bhejein.\n"
-        "Ya coupon code redeem karein: <code>/redeem &lt;code&gt;</code>"
+        "Ya coupon code redeem karein: <code>.redeem &lt;code&gt;</code>"
     )
 
 
@@ -146,14 +146,14 @@ def user_payment_kb(config: dict = None) -> K:
 
 # ── Owner commands ───────────────────────────────────────
 
-@Client.on_message(HAS_USER & filters.command("setprice", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("setprice", prefixes=["."]) & filters.private)
 async def cmd_setprice(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
     parts = cmd_text(msg).split(maxsplit=2)
     if len(parts) < 3:
         await msg.reply_text(
-            "Usage: <code>/setprice &lt;plan_id&gt; &lt;price&gt;</code>\n\n"
+            "Usage: <code>.setprice &lt;plan_id&gt; &lt;price&gt;</code>\n\n"
             "Plans: " + ", ".join(p[0] for p in PAYMENT_PLANS)
         )
         return
@@ -170,14 +170,14 @@ async def cmd_setprice(bot: Client, msg: Message):
     await msg.reply_text(f"✅ <b>{label}</b> price set: <code>{price}</code>")
 
 
-@Client.on_message(HAS_USER & filters.command("grant", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("grant", prefixes=["."]) & filters.private)
 async def cmd_grant(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
     parts = cmd_text(msg).split(maxsplit=2)
     if len(parts) < 3:
         await msg.reply_text(
-            "Usage: <code>/grant &lt;user_id&gt; &lt;plan_id&gt;</code>\n"
+            "Usage: <code>.grant &lt;user_id&gt; &lt;plan_id&gt;</code>\n"
             "Plans: " + ", ".join(p[0] for p in PAYMENT_PLANS)
         )
         return
@@ -212,13 +212,13 @@ async def cmd_grant(bot: Client, msg: Message):
         pass
 
 
-@Client.on_message(HAS_USER & filters.command("revoke", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("revoke", prefixes=["."]) & filters.private)
 async def cmd_revoke(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
     parts = cmd_text(msg).split(maxsplit=1)
     if len(parts) < 2 or not parts[1].lstrip("-").isdigit():
-        await msg.reply_text("Usage: <code>/revoke &lt;user_id&gt;</code>")
+        await msg.reply_text("Usage: <code>.revoke &lt;user_id&gt;</code>")
         return
     uid = int(parts[1])
     ok = await revoke_premium_all(uid)
@@ -228,14 +228,14 @@ async def cmd_revoke(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(HAS_USER & filters.command("addcoupon", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("addcoupon", prefixes=["."]) & filters.private)
 async def cmd_addcoupon(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
     parts = cmd_text(msg).split(maxsplit=3)
     if len(parts) < 3:
         await msg.reply_text(
-            "Usage: <code>/addcoupon &lt;code&gt; &lt;plan_id&gt; [max_uses]</code>\n"
+            "Usage: <code>.addcoupon &lt;code&gt; &lt;plan_id&gt; [max_uses]</code>\n"
             "Plans: " + ", ".join(p[0] for p in PAYMENT_PLANS)
         )
         return
@@ -256,13 +256,13 @@ async def cmd_addcoupon(bot: Client, msg: Message):
         await msg.reply_text(f"❌ Coupon <code>{code}</code> already exists.")
 
 
-@Client.on_message(HAS_USER & filters.command("delcoupon", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("delcoupon", prefixes=["."]) & filters.private)
 async def cmd_delcoupon(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
     parts = cmd_text(msg).split(maxsplit=1)
     if len(parts) < 2:
-        await msg.reply_text("Usage: <code>/delcoupon &lt;code&gt;</code>")
+        await msg.reply_text("Usage: <code>.delcoupon &lt;code&gt;</code>")
         return
     ok = await db.delete_coupon(parts[1])
     await msg.reply_text(
@@ -271,7 +271,7 @@ async def cmd_delcoupon(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(HAS_USER & filters.command("listcoupons", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("listcoupons", prefixes=["."]) & filters.private)
 async def cmd_listcoupons(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -288,7 +288,7 @@ async def cmd_listcoupons(bot: Client, msg: Message):
     await msg.reply_text("📋 <b>All Coupons</b>\n" + "\n".join(lines))
 
 
-@Client.on_message(HAS_USER & filters.command("setqr", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("setqr", prefixes=["."]) & filters.private)
 async def cmd_setqr(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -297,7 +297,7 @@ async def cmd_setqr(bot: Client, msg: Message):
         await msg.reply_text(
             "❌ <b>QR code set karne ka tareeka:</b>\n\n"
             "1. QR code ki photo bot ko bhejein\n"
-            "2. Us photo ko reply karke <code>/setqr</code> likhein\n\n"
+            "2. Us photo ko reply karke <code>.setqr</code> likhein\n\n"
             "Ya agar photo already bheji hai, to us par reply karke command do."
         )
         return
@@ -307,7 +307,7 @@ async def cmd_setqr(bot: Client, msg: Message):
     await msg.reply_text("✅ QR code set ho gaya. Ab users plan select karke request karte hi QR DM mein mil jayega.")
 
 
-@Client.on_message(HAS_USER & filters.command("clearqr", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("clearqr", prefixes=["."]) & filters.private)
 async def cmd_clearqr(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -315,7 +315,7 @@ async def cmd_clearqr(bot: Client, msg: Message):
     await msg.reply_text("✅ QR code removed.")
 
 
-@Client.on_message(HAS_USER & filters.command("pending", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("pending", prefixes=["."]) & filters.private)
 async def cmd_pending(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -336,11 +336,11 @@ async def cmd_pending(bot: Client, msg: Message):
 
 # ── User: redeem coupon ──────────────────────────────────
 
-@Client.on_message(HAS_USER & filters.command("redeem", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("redeem", prefixes=["."]) & filters.private)
 async def cmd_redeem(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
     if len(parts) < 2:
-        await msg.reply_text("Usage: <code>/redeem &lt;coupon_code&gt;</code>")
+        await msg.reply_text("Usage: <code>.redeem &lt;coupon_code&gt;</code>")
         return
     result = await redeem_coupon(msg.from_user.id, parts[1])
     await msg.reply_text(result["message"])
@@ -601,6 +601,6 @@ async def cb_payment(bot, cq):
         await edit_screen(cq.message,
             "🎟️ <b>Coupon Redeem</b>\n\n"
             "Apna coupon code bhejein:\n"
-            "<code>/redeem &lt;code&gt;</code>",
+            "<code>.redeem &lt;code&gt;</code>",
             reply_markup=K([[B("⬅ Back to Plans", callback_data="pay:menu")]]))
         await safe_answer(cq)

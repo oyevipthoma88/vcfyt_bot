@@ -116,14 +116,14 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
         text = _bq(
             "⚠️ <b>Session saved, but engine init failed.</b>\n"
             f"<code>{engine_err}</code>\n"
-            "Bot restart karein ya dobara /login karein."
+            "Bot restart karein ya dobara .login karein."
         )
     await _edit(target_msg, text, home_kb(Config.is_owner(user.id), engine_ok))
 
-@Client.on_message(HAS_USER & filters.command("login", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("login", prefixes=["."]) & filters.private)
 async def cmd_login(bot: Client, msg: Message):
     await _reset_now(msg.from_user.id)
-    await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, "/login")
+    await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".login")
     await msg.reply_text(LOGIN_INTRO, reply_markup=login_kb())
 
 @Client.on_callback_query(filters.regex(r"^menu:login$"))
@@ -153,7 +153,7 @@ async def cb_login_phone(bot, cq):
     ), reply_markup=CANCEL_KB)
     await safe_answer(cq)
 
-@Client.on_message(HAS_USER & filters.command("logout", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("logout", prefixes=["."]) & filters.private)
 async def cmd_logout(bot: Client, msg: Message):
     await _do_logout(msg.from_user, msg)
 
@@ -251,7 +251,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
         client_auth = AUTH_CLIENTS.get(sender_id)
         if not client_auth:
             _reset(sender_id)
-            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /login karein."))
+            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara .login karein."))
             return
         if len(otp) < 5:
             await msg.reply_text(_bq("❌ Valid OTP bhejein: <code>1 2 3 4 5</code>"),
@@ -279,7 +279,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             _reset(sender_id)
             await log_login_failed(sender.id, sender.username, sender.first_name, str(e))
-            await _edit(proc, _bq("❌ Invalid/Expired OTP. Try again via /login."),
+            await _edit(proc, _bq("❌ Invalid/Expired OTP. Try again via .login."),
                         back_kb("menu:login"))
         except FloodWait as e:
             _reset(sender_id)
@@ -296,7 +296,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
         client_auth = AUTH_CLIENTS.get(sender_id)
         if not client_auth:
             _reset(sender_id)
-            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /login karein."))
+            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara .login karein."))
             return
         try:
             await msg.delete()

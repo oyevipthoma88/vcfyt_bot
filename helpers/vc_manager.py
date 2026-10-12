@@ -1790,6 +1790,7 @@ class SessionManager:
         self.users: "OrderedDict[int, UserVC]" = OrderedDict()
         self._locks: Dict[int, asyncio.Lock] = {}
         self.assistants: Dict[str, UserVC] = {}
+        self.dead_spares: set = set()  # (user_id, slot) jinka session expire hua
         self._assistant_lock = asyncio.Lock()
 
     @staticmethod
@@ -1811,6 +1812,8 @@ class SessionManager:
             stored = None
         if slot > 1:
             return (stored or "").strip()
+        if not (stored or "").strip() and (user_id, slot) in getattr(self, "dead_spares", ()):
+            return ""  # env ASSISTANT_SESSION bhi expire ho chuka
         return (stored or Config.ASSISTANT_SESSION or "").strip()
 
     async def spare_slots(self, user_id: int) -> list:
@@ -1850,8 +1853,21 @@ class SessionManager:
                     await uvc.stop()
                 except Exception:
                     pass
+                if _is_invalid_session(exc):
+                    # Spare ID ka session Telegram ne hata diya (logout /
+                    # terminate). Saved string clear karo taaki har baar
+                    # AUTH_KEY_UNREGISTERED error na aaye; user Spare ID
+                    # dobara login kare.
+                    try:
+                        await _db().delete_app_value(self.spare_key(user_id, slot))
+                    except Exception:
+                        pass
+                    self.dead_spares.add((user_id, slot))
+                    logger.warning("Spare session %s/%s expired — cleared", user_id, slot)
+                    return None
                 await log_error(f"assistant_start_{user_id}_{slot}", exc)
                 return None
+            self.dead_spares.discard((user_id, slot))
             self.assistants[key] = uvc
             return uvc
 

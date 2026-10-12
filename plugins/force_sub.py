@@ -119,15 +119,15 @@ async def fsub_panel_text() -> str:
         "🔒 <b>Auto Join / Must Join</b>\n\n"
         f"{lines}\n\n"
         "<b>Add:</b> <code>/addfsub https://t.me/yourchannel</code>\n"
-        "<b>Remove:</b> <code>/delfsub yourchannel</code>\n"
-        "<b>Clear all:</b> <code>/clearfsub</code>\n\n"
+        "<b>Remove:</b> <code>.delfsub yourchannel</code>\n"
+        "<b>Clear all:</b> <code>.clearfsub</code>\n\n"
         "ℹ️ Bot ko us channel me <b>admin</b> banayein warna membership check nahi hoga.\n"
         "Jis user ka account bot me logged-in hai, uska account channel me "
         "<b>automatically join</b> ho jata hai."
     )
 
 
-@Client.on_message(HAS_USER & filters.command("addfsub", prefixes=[".", "/"]) & filters.private, group=1)
+@Client.on_message(HAS_USER & filters.command("addfsub", prefixes=["."]) & filters.private, group=1)
 @_owner_only
 async def cmd_addfsub(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
@@ -149,24 +149,24 @@ async def cmd_addfsub(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(HAS_USER & filters.command("delfsub", prefixes=[".", "/"]) & filters.private, group=1)
+@Client.on_message(HAS_USER & filters.command("delfsub", prefixes=["."]) & filters.private, group=1)
 @_owner_only
 async def cmd_delfsub(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
     if len(parts) < 2:
-        await msg.reply_text("Usage: <code>/delfsub yourchannel</code>")
+        await msg.reply_text("Usage: <code>.delfsub yourchannel</code>")
         return
     removed = await force_sub.remove(parts[1])
     await msg.reply_text("✅ Removed." if removed else "❌ Ye channel list me nahi mila.")
 
 
-@Client.on_message(HAS_USER & filters.command("listfsub", prefixes=[".", "/"]) & filters.private, group=1)
+@Client.on_message(HAS_USER & filters.command("listfsub", prefixes=["."]) & filters.private, group=1)
 @_owner_only
 async def cmd_listfsub(bot: Client, msg: Message):
     await msg.reply_text(await fsub_panel_text(), disable_web_page_preview=True)
 
 
-@Client.on_message(HAS_USER & filters.command("clearfsub", prefixes=[".", "/"]) & filters.private, group=1)
+@Client.on_message(HAS_USER & filters.command("clearfsub", prefixes=["."]) & filters.private, group=1)
 @_owner_only
 async def cmd_clearfsub(bot: Client, msg: Message):
     await force_sub.clear()

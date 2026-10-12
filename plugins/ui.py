@@ -27,11 +27,12 @@ def cmd_prefix(pattern: str, flags=0):
       - "." + pattern  in any chat (group or private)
       - "/" + pattern  only in private chats
     """
-    # "." "/" and "!" all work in groups AND DM.  "/boost@MyBot 5" style
+    # Sirf "." prefix chalta hai (groups + DM). "/" aur "!" ignore.
+    # (old note) "." "/" and "!" all work in groups AND DM.  "/boost@MyBot 5" style
     # (Telegram's command menu in groups) is accepted too.  The old check
     # compared m.chat.type to the string "private", but pyrofork uses the
     # ChatType enum, so every "/" command silently failed.
-    any_re = _re.compile(r"^[./!]" + pattern, flags)
+    any_re = _re.compile(r"^\." + pattern, flags)  # sirf "." commands
 
     def _f(_, __, m):
         text = (getattr(m, "text", None) or getattr(m, "caption", None) or "").lstrip()
@@ -263,7 +264,7 @@ def settings_text(s: dict) -> str:
         f"🔁 <b>Echo:</b> {'ON' if s['echo'] else 'OFF'}\n"
         f"{LINE}\n"
         "Button dabao → <b>✅ Apply</b> dabao, chal raha gaana turant update.\n"
-        "Ya group me likho: <code>/boost 10</code>, <code>/echo on</code>, <code>/vol 1000</code>"
+        "Ya group me likho: <code>.boost 10</code>, <code>.echo on</code>, <code>.vol 1000</code>"
     )
 
 def settings_kb() -> K:

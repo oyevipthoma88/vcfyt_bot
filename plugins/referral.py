@@ -57,7 +57,7 @@ async def _referral_text(user_id: int, bot_username: str) -> str:
         + f"\n\n{LINE}\n"
         f"💡 <b>How it works:</b>\n"
         f"• Apna link dosto ko share karein\n"
-        f"• Wo bot par /start link se aayein\n"
+        f"• Wo bot par .start link se aayein\n"
         f"• Referral count automatically badhega\n"
         f"• Milestone poora hone par free premium hours milega!"
     )
@@ -75,7 +75,7 @@ def referral_kb(bot_username: str, user_id: int) -> K:
 
 # ── Handlers ─────────────────────────────────────────────
 
-@Client.on_message(HAS_USER & filters.command("referral", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & filters.command("referral", prefixes=["."]) & filters.private)
 async def cmd_referral(bot: Client, msg: Message):
     me = await bot.get_me()
     await edit_or_send(
@@ -105,7 +105,7 @@ async def edit_or_send(msg: Message, text: str, reply_markup=None):
 async def process_referral_start(bot: Client, user_id: int, referrer_id: int):
     """Record a referral if valid and check milestones.
 
-    Called from /start when the payload is ref_<referrer_id>.
+    Called from .start when the payload is ref_<referrer_id>.
     """
     if user_id == referrer_id:
         return

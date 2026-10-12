@@ -189,6 +189,6 @@ async def cb_audio_library(bot, cq):
         except Exception as exc:
             await log_error("send_library_audio", exc)
             await safe_answer(cq,
-                "Audio bhejna fail hua. Bot ko pehle /start karein.",
+                "Audio bhejna fail hua. Bot ko pehle .start karein.",
                 show_alert=True,
             )
