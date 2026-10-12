@@ -15,12 +15,10 @@ from plugins.vc_commands import get_engine, mic_notify, target_chat, is_chat_ref
 HELP = (
     "🎤 <b>Live Mic (VC Bridge)</b> — Telegram VC se live aawaz\n\n"
     "<b>Setup (ek baar, sab buttons se):</b>\n"
-    "1. Ek private group banao, main ID + spare ID dono add karo\n"
-    "2. Target group me bhi main ID + spare ID dono ho\n"
-    "3. Dono groups me VC start karo\n"
-    "4. Panel me <b>📥 Private Group</b> dabao aur group ka ID / link bhejo\n"
-    "5. <b>🎯 Target Group</b> dabao aur target ka ID / link bhejo\n"
-    "6. <b>🟢 Mic ON</b> dabao, main ID se private VC me bolo\n\n"
+    "1. 🔐 Main ID login + 👥 Spare ID add karo\n"
+    "2. <b>⚡ Auto bana do</b> — spare ID private group + VC khud banati hai, link bhejti hai\n"
+    "3. <b>🎯 Target Group</b> dabao aur target ka ID / link bhejo (VC wahan chalu ho)\n"
+    "4. <b>🟢 Mic ON</b> dabao, link se private VC me jao aur bolo\n\n"
     "<b>Controls:</b>\n"
     "• 🚀 <b>Volume</b> 0–30 — density/tezi (16+ FIGHT zone)\n"
     "• 💥 <b>Phatna</b> 0–10 — awaaz phaadna (overdrive), sabse cut-through\n"
@@ -126,10 +124,12 @@ _STEP_SCREENS = {
     "spare": ("Step 2/4 — 👥 Spare ID add karo",
               "Spare ID target VC me aapki aawaz bolegi. Uska session add karo.",
               [[B("👥 Spare ID add karo", callback_data="mic:acct", style="success")]]),
-    "src": ("Step 3/4 — 📥 Private group set karo",
-            "Ek private group banao, main + spare ID add karo, VC start karo.\n"
-            "Phir neeche dabake group ka ID (-100 ke saath ya bina), @username ya link bhejo.",
-            [[B("📥 Private group set karo", callback_data="brs:src", style="success")]]),
+    "src": ("Step 3/4 — 📥 Private group (1 click)",
+            "<b>⚡ Auto bana do</b> dabao — spare ID khud private group banayegi, VC start "
+            "karegi, aapki main ID ko add karegi aur aapko VC ka link bhejegi.\n"
+            "Pehle se group hai? To <b>Apna group do</b> dabao.",
+            [[B("⚡ Auto bana do (easy)", callback_data="brs:auto", style="success")],
+             [B("📥 Apna group do", callback_data="brs:src", style="primary")]]),
     "tgt": ("Step 4/4 — 🎯 Target group set karo",
             "Jis group ki VC me aawaz bhejni hai, uska ID / @username / link bhejo.\n"
             "Spare ID us group me honi chahiye aur VC chalu ho.",
@@ -299,6 +299,28 @@ async def cb_mic_setup(bot: Client, cq):
         _await_chat.pop(uid, None)
         await safe_answer(cq, "Cancel")
         await open_panel_cb(cq)
+        return
+    if what == "auto":
+        await safe_answer(cq, "Group ban raha hai…")
+        uvc = await session_manager.get(uid)
+        relay = await session_manager.get_relay(uid)
+        if relay is None:
+            await edit_screen(cq.message, "❌ Pehle Spare ID add karo.",
+                              reply_markup=K([[B("👥 Spare ID", callback_data="mic:acct", style="success")]]))
+            return
+        await edit_screen(cq.message, "⏳ Spare ID private group bana rahi hai aur VC start kar rahi hai…")
+        try:
+            cid, inv, vlink, me_in = await auto_private_group(uid, uvc, relay)
+        except Exception as exc:
+            await edit_screen(cq.message, f"❌ Auto group nahi bana:\n<code>{str(exc)[:300]}</code>\n\n"
+                              "Spare ID nayi ho to Telegram thodi der group banane nahi deta — "
+                              "<b>📥 Apna group do</b> try karo.",
+                              reply_markup=K([[B("🔁 Dobara", callback_data="brs:auto", style="success")],
+                                              [B("📥 Apna group do", callback_data="brs:src", style="primary")]]))
+            return
+        text, kb = await panel(uid)
+        await edit_screen(cq.message, auto_group_text(cid, inv, vlink, me_in) + "\n\n" + text,
+                          reply_markup=kb, disable_web_page_preview=True)
         return
     if what not in {"src", "tgt"}:
         return await safe_answer(cq, "?")
@@ -507,10 +529,23 @@ async def run_bridge(msg: Message, parts):
         elif is_chat_ref(p):
             tgt_arg = p
     src = await db.get_app_value(f"bridge_src_{uid}")
+    auto_note = None
     if not src:
-        await mic_notify(msg, "Pehle private group set karo: <b>📥 Private Group</b> button ya <code>.mic src -100xxxxxxxx</code>",
-                         reply_markup=K([[B("📥 Private Group", callback_data="brs:src", style="primary")]]))
-        return
+        # Private group nahi hai -> spare ID khud bana degi (zero setup).
+        try:
+            cid_, inv_, vlink_, me_in_ = await auto_private_group(uid, uvc, relay)
+            src = str(cid_)
+            auto_note = auto_group_text(cid_, inv_, vlink_, me_in_)
+            await mic_notify(msg, auto_note, disable_web_page_preview=True)
+        except Exception as exc:
+            await mic_notify(msg, f"❌ Private group auto nahi bana: <code>{str(exc)[:200]}</code>\n"
+                                  "<b>📥 Private Group</b> button se apna group do.",
+                             reply_markup=K([[B("⚡ Auto bana do", callback_data="brs:auto", style="success")],
+                                             [B("📥 Private Group", callback_data="brs:src", style="primary")]]))
+            return
+    elif str(src) == str(await db.get_app_value(f"bridge_auto_src_{uid}") or ""):
+        # Auto group ki VC band ho gayi ho to dobara chalu kar do.
+        await _start_vc(relay.client, int(src))
     tgt_arg = tgt_arg or await db.get_app_value(f"mic_chat_{uid}")
     if not tgt_arg:
         await mic_notify(msg, "Target group set karo: <b>🎯 Target Group</b> button ya <code>.mic chat -100xxxxxxxx</code>",
@@ -578,3 +613,93 @@ async def run_bridge(msg: Message, parts):
     except Exception:
         pass
     await mic_notify(msg, text, reply_markup=kb)
+
+
+# ---------------------------------------------------------------------------
+# AUTO PRIVATE GROUP — user ko khud group banana / ID bhejna nahi padega.
+# Spare ID ek private supergroup banati hai, VC start karti hai, main ID ko
+# auto-join karati hai, aur bot user ko VC ka direct link deta hai.
+# ---------------------------------------------------------------------------
+async def _vc_running(client, chat_id: int) -> bool:
+    from pyrogram.raw.functions.channels import GetFullChannel
+    try:
+        full = await client.invoke(GetFullChannel(channel=await client.resolve_peer(chat_id)))
+        return getattr(full.full_chat, "call", None) is not None
+    except Exception:
+        return False
+
+
+async def _start_vc(client, chat_id: int) -> bool:
+    import asyncio
+    import random
+    from pyrogram.raw.functions.phone import CreateGroupCall
+    if await _vc_running(client, chat_id):
+        return True
+    try:
+        await client.invoke(CreateGroupCall(peer=await client.resolve_peer(chat_id),
+                                            random_id=random.randint(1, 2**31 - 1)))
+        await asyncio.sleep(1.5)
+        return True
+    except Exception:
+        return await _vc_running(client, chat_id)
+
+
+async def _vc_link(client, chat_id: int, fallback: str) -> str:
+    """Direct 'VC kholo' link (tap karte hi voice chat open)."""
+    from pyrogram.raw.functions.channels import GetFullChannel
+    from pyrogram.raw.functions.phone import ExportGroupCallInvite
+    try:
+        full = await client.invoke(GetFullChannel(channel=await client.resolve_peer(chat_id)))
+        call = getattr(full.full_chat, "call", None)
+        if call:
+            res = await client.invoke(ExportGroupCallInvite(call=call, can_self_unmute=True))
+            if getattr(res, "link", None):
+                return res.link
+    except Exception:
+        pass
+    return fallback
+
+
+async def auto_private_group(uid: int, uvc, relay):
+    """(chat_id, invite_link, vc_link) — reuse ya naya private group + VC."""
+    rc = getattr(relay, "client", None)
+    if rc is None:
+        raise RuntimeError("Spare ID connected nahi hai.")
+    cid = None
+    saved = await db.get_app_value(f"bridge_auto_src_{uid}")
+    if saved:
+        try:
+            await rc.get_chat(int(saved))
+            cid = int(saved)
+        except Exception:
+            cid = None
+    if cid is None:
+        chat = await rc.create_supergroup("🎤 My Live Mic", "Auto-created by bot — sirf aap aur spare ID")
+        cid = chat.id
+        await db.set_app_value(f"bridge_auto_src_{uid}", str(cid))
+    invite = (await rc.create_chat_invite_link(cid)).invite_link
+    # Main ID ko khud join karao — user ko kuch nahi karna.
+    me_in = False
+    if uvc is not None and getattr(uvc, "client", None) is not None:
+        try:
+            await uvc.client.get_chat_member(cid, "me")
+            me_in = True
+        except Exception:
+            try:
+                await uvc.client.join_chat(invite)
+                me_in = True
+            except Exception:
+                me_in = False
+    if not await _start_vc(rc, cid):
+        raise RuntimeError("Private group me VC start nahi hui.")
+    await db.set_app_value(f"bridge_src_{uid}", str(cid))
+    return cid, invite, await _vc_link(rc, cid, invite), me_in
+
+
+def auto_group_text(cid: int, invite: str, vc_link: str, me_in: bool) -> str:
+    return ("✅ <b>Private group + VC ready!</b>\n\n"
+            f"Group: <code>{cid}</code>\n"
+            + ("Aapki main ID group me auto-add ho gayi.\n" if me_in else
+               f"Group join karo: {invite}\n") +
+            f"\n👉 <b>Bas ye link dabao aur VC me mic ON karo:</b>\n{vc_link}\n\n"
+            "<i>Isi VC me jo bologe, spare ID target VC me loud bolegi.</i>")
