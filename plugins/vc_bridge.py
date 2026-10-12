@@ -57,8 +57,10 @@ def loud_text(c: dict, live: bool, src=None, tgt=None) -> str:
         f"🌊 <b>Echo:</b> <code>{_bar(c.get('echo', 0), 5)} {c.get('echo', 0)}/5</code>\n"
         f"✂️ <b>Clip:</b> {'HARD (max tez)' if c['clip'] == 'hard' else 'SOFT (smooth)'}"
         f"  •  🔇 <b>Hiss Cut:</b> {'ON' if c.get('gate', 1) else 'OFF'}\n\n"
-        "Dheemi awaaz bhi auto 0 dB par aati hai. Aur tagdi chahiye to "
-        "<b>⚔️ FIGHT</b> / <b>☢️ ULTRA</b> ya <b>💥 Phatna +</b>."
+        + ("✅ <b>Live hai</b> — bolo! Awaaz kam/zyada: <b>🔉 −</b> / <b>🔊 +</b>"
+           if live else
+           "<b>Ab kya karein?</b>\n1️⃣ Private VC join karo, apna mic ON karo\n"
+           "2️⃣ Neeche <b>🟢 Mic ON</b> dabao — bas!")
     )
 
 
@@ -88,27 +90,32 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
             [B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
             [B("⬅️ Back", callback_data="brc:loud", style="primary")] + nav,
         ])
+    if page == "more":
+        return K([
+            [B("💥 MAX", callback_data="brl:p:max", style="danger"),
+             B("☢️ ULTRA", callback_data="brl:p:ultra", style="danger")],
+            [B("🎛 Fine tune", callback_data="brv:tune", style="primary"),
+             B("⚙️ Groups / ID", callback_data="brv:setup", style="primary")],
+            [B("📊 Status", callback_data="brc:status", style="primary"),
+             B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
+            [B("❓ Help", callback_data="brc:help", style="primary"),
+             B("🎬 Video", callback_data="tut:video", style="primary")],
+            [B("⬅️ Back", callback_data="brc:loud", style="primary")] + nav,
+        ])
+    # Main panel: sirf 4 line — ON/OFF, awaaz, mode, aur options.
     return K([
         [B("🔴 Mic OFF", callback_data="brc:off", style="danger") if live else
-         B("🟢 Mic ON", callback_data="brc:on", style="success"),
-         B("📊 Status", callback_data="brc:status", style="primary")],
-        [B("🔉 Volume −", callback_data="brl:drive:-2", style="primary"),
-         B("🔊 Volume +", callback_data="brl:drive:2", style="success")],
-        [B("🛡 Safe", callback_data="brl:p:safe", style="primary"),
+         B("🟢 Mic ON", callback_data="brc:on", style="success")],
+        [B("🔉 Awaaz −", callback_data="brl:drive:-2", style="primary"),
+         B("🔊 Awaaz +", callback_data="brl:drive:2", style="success")],
+        [B("🛡 Saaf", callback_data="brl:p:safe", style="primary"),
          B("🔊 Loud", callback_data="brl:p:loud", style="success"),
-         B("💥 MAX", callback_data="brl:p:max", style="danger")],
-        [B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger"),
-         B("☢️ ULTRA", callback_data="brl:p:ultra", style="danger")],
-        [B("🎛 Fine tune", callback_data="brv:tune", style="primary"),
-         B("⚙️ Groups / ID", callback_data="brv:setup", style="primary")],
-        [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
-         B("🚪 Leave VC", callback_data="brc:leave", style="danger")],
-        [B("❓ Help", callback_data="brc:help", style="primary"),
-         B("🔄 Refresh", callback_data="brc:loud", style="primary")] + nav,
+         B("⚔️ FIGHT", callback_data="brl:p:fight", style="danger")],
+        [B("☰ Aur options", callback_data="brv:more", style="primary")] + nav,
     ])
 
 
-@Client.on_callback_query(filters.regex(r"^brv:(tune|setup)$"))
+@Client.on_callback_query(filters.regex(r"^brv:(tune|setup|more)$"))
 async def cb_mic_view(bot: Client, cq):
     from helpers import vc_bridge
     await safe_answer(cq)
@@ -235,7 +242,7 @@ async def panel(uid: int):
         bar = "🟢" * done + "⚪" * (4 - done)
         text = (f"🎤 <b>Live Mic Setup</b>  {bar}\n\n<b>{title}</b>\n{body}\n\n"
                 "<i>Ek step poora hote hi agla khud dikhega.</i>")
-        return text, K(rows + [[B("❓ Help", callback_data="brc:help", style="primary"),
+        return text, K(rows + [[B("🎬 Video dekho", callback_data="tut:video", style="primary"),
                                 B("🏠 Home", callback_data="menu:home", style="primary")]])
     c = await vc_bridge.load_loud(uid)
     live = vc_bridge.get_bridge(uid) is not None

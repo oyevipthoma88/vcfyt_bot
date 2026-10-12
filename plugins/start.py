@@ -62,14 +62,19 @@ async def cmd_start(bot: Client, msg: Message):
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
     text = home_text(user.first_name or "friend", logged)
     markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
+    sent = False
     if Config.START_PIC:
         try:
             await msg.reply_photo(Config.START_PIC, caption=text, reply_markup=markup)
-            return
+            sent = True
         except Exception:
-
             pass
-    await msg.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
+    if not sent:
+        await msg.reply_text(text, reply_markup=markup, disable_web_page_preview=True)
+    # Naya user (ya abhi tak login nahi) — samjhane ke liye 1 min video turant.
+    if not existing or not logged:
+        from plugins.tutorial import send_tutorial_video
+        await send_tutorial_video(msg)
 
 @Client.on_callback_query(filters.regex(r"^menu:home$"))
 async def cb_home(bot, cq):

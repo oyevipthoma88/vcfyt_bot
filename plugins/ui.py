@@ -194,7 +194,8 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     if not logged_in:
         rows = [
             [B("🔐 Setup shuru karein", callback_data="menu:login", style="success")],
-            [B("📘 Madad", callback_data="menu:tutorial", style="primary")],
+            [B("🎬 Video (1 min)", callback_data="tut:video", style="primary"),
+             B("📘 Madad", callback_data="menu:tutorial", style="primary")],
         ]
         if is_owner:
             rows.append([B("👑 Owner Panel", callback_data="adm_back", style="success")])
@@ -204,7 +205,8 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     rows = [
         [B("🎤 Live Mic setup", callback_data="mic:panel", style="success")],
         [B("▶️ Audio player", callback_data=now, style="primary")],
-        [B("☰ More", callback_data="menu:more", style="primary")],
+        [B("☰ More", callback_data="menu:more", style="primary"),
+         B("🎬 Video", callback_data="tut:video", style="primary")],
     ]
     if is_owner:
         rows.append([B("👑 Owner Panel", callback_data="adm_back", style="success")])

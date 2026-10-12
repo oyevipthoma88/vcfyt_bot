@@ -20,6 +20,7 @@ TUTORIAL_MENU_TEXT = (
 
 def tutorial_kb() -> K:
     rows = [
+        [B("🎬 Video Tutorial (1 min)", callback_data="tut:video", style="success")],
         [B("🚀 Quick Start", callback_data="tut:quick"),
          B("🔐 Setup / Login", callback_data="tut:setup")],
         [B("▶️ Play & Queue", callback_data="tut:play"),
@@ -282,6 +283,49 @@ SECTIONS = {
     ),
 }
 
+import os
+
+_VIDEO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets", "tutorial.mp4")
+_video_file_id = None  # pehli upload ke baad file_id cache — dobara upload nahi
+
+VIDEO_CAPTION = (
+    "🎬 <b>Live Mic — 1 minute tutorial</b>\n\n"
+    "1️⃣ 🔐 Login  2️⃣ 👥 Spare ID  3️⃣ ⚡ Auto private group\n"
+    "4️⃣ 🎯 Target group  5️⃣ 🟢 Mic ON — bas!\n\n"
+    "👇 Shuru karne ke liye <b>🎤 Live Mic setup</b> dabao."
+)
+
+
+def _video_kb() -> K:
+    return K([[B("🎤 Live Mic setup", callback_data="brc:loud", style="success")],
+              [B("📘 Madad", callback_data="tut:menu", style="primary"),
+               B("🏠 Home", callback_data="menu:home", style="primary")]])
+
+
+async def send_tutorial_video(message) -> bool:
+    """Tutorial video bhejta hai (env TUTORIAL_VIDEO > cached file_id > assets/tutorial.mp4)."""
+    global _video_file_id
+    from config import Config
+    src = getattr(Config, "TUTORIAL_VIDEO", "") or _video_file_id or _VIDEO_PATH
+    if src == _VIDEO_PATH and not os.path.exists(src):
+        return False
+    try:
+        sent = await message.reply_video(src, caption=VIDEO_CAPTION, reply_markup=_video_kb(),
+                                         supports_streaming=True)
+        if sent and getattr(sent, "video", None) and not getattr(Config, "TUTORIAL_VIDEO", ""):
+            _video_file_id = sent.video.file_id
+        return True
+    except Exception:
+        return False
+
+
+@Client.on_message(HAS_USER & filters.command(["video", "guide", "tutorial"], prefixes=[".", "/"]) & filters.private)
+async def cmd_video(bot: Client, msg: Message):
+    if not await send_tutorial_video(msg):
+        await msg.reply_text(TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
+
+
 @Client.on_message(HAS_USER & filters.command("help", prefixes=[".", "/"]))
 async def cmd_help(bot: Client, msg: Message):
     await log_command(msg.from_user.id if msg.from_user else 0,
@@ -292,6 +336,11 @@ async def cmd_help(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^tut:"))
 async def cb_tutorial(bot, cq):
     key = cq.data.split(":", 1)[1]
+    if key == "video":
+        await safe_answer(cq, "🎬 Video aa raha hai…")
+        if not await send_tutorial_video(cq.message):
+            await edit_screen(cq.message, SECTIONS["livemic"], reply_markup=back_kb("tut:menu"))
+        return
     if key == "menu":
         await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
         await safe_answer(cq)

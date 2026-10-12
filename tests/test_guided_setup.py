@@ -33,6 +33,25 @@ class GuidedSetupTests(unittest.TestCase):
         from plugins.ui import home_kb
         self.assertEqual(len(home_kb(False, False).inline_keyboard), 2)
 
+    def test_mic_panel_is_simple(self):
+        from plugins.vc_bridge import loud_kb
+        for live in (False, True):
+            rows = loud_kb(live).inline_keyboard
+            self.assertLessEqual(len(rows), 4)
+            self.assertEqual(len(rows[0]), 1)  # sirf ek bada ON/OFF button
+        self.assertEqual(loud_kb(False).inline_keyboard[0][0].callback_data, "brc:on")
+        self.assertEqual(loud_kb(True).inline_keyboard[0][0].callback_data, "brc:off")
+
+    def test_every_panel_button_has_handler(self):
+        import re
+        from plugins.vc_bridge import loud_kb
+        ok = re.compile(r"^(brc:(on|off|status|leave|loud|help)|brl:.+|brv:(tune|setup|more)|"
+                        r"brs:(src|tgt|auto)|tut:video|menu:home|mic:(acct|chat))$")
+        for page in ("main", "more", "tune", "setup"):
+            for row in loud_kb(False, page).inline_keyboard:
+                for b in row:
+                    self.assertRegex(b.callback_data, ok)
+
 
 if __name__ == "__main__":
     unittest.main()

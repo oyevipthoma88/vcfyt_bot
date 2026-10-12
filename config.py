@@ -132,5 +132,7 @@ class Config:
     # for live mic — it only joins an already running VC.
     LIVE_MIC_AUTO_START_VC: bool = _bool("LIVE_MIC_AUTO_START_VC", False)
     START_PIC: str = os.environ.get("START_PIC", "").strip()
+    # Tutorial video: file_id / URL / local path. Default = bundled assets/tutorial.mp4
+    TUTORIAL_VIDEO: str = os.environ.get("TUTORIAL_VIDEO", "").strip()
     SOURCE_CODE_URL: str = os.environ.get("SOURCE_CODE_URL", "").strip()
     PAYMENT_CONTACT_URL: str = os.environ.get("PAYMENT_CONTACT_URL", "").strip()
