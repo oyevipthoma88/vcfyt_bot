@@ -4,6 +4,7 @@ import os
 import sys
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from plugins.ui import HAS_USER, cmd_text, B, edit_screen, safe_answer, set_source_code_url
 import plugins.ui as shared_ui
 from pyrogram.types import InlineKeyboardMarkup as K
@@ -56,7 +57,7 @@ async def _panel_text() -> str:
         "Neeche se control choose karo 👇"
     )
 
-@Client.on_message(HAS_USER & filters.command("owner", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("owner") & filters.private)
 @owner_only
 async def cmd_owner_panel(bot: Client, msg: Message):
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".owner")
@@ -265,7 +266,7 @@ async def cb_admin(bot, cq):
 
     await safe_answer(cq)
 
-@Client.on_message(HAS_USER & filters.command("setsource", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("setsource") & filters.private)
 @owner_only
 async def cmd_setsource(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
@@ -280,14 +281,14 @@ async def cmd_setsource(bot: Client, msg: Message):
     await db.set_app_value("source_code_url", shared_ui.SOURCE_CODE_URL)
     await msg.reply_text("✅ Source Code button updated. .start dobara bhejein.")
 
-@Client.on_message(HAS_USER & filters.command("clearsource", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("clearsource") & filters.private)
 @owner_only
 async def cmd_clearsource(bot: Client, msg: Message):
     set_source_code_url("")
     await db.set_app_value("source_code_url", "")
     await msg.reply_text("✅ Source Code button removed. .start dobara bhejein.")
 
-@Client.on_message(HAS_USER & filters.command("broadcast", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("broadcast") & filters.private)
 @owner_only
 async def cmd_broadcast(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
@@ -335,7 +336,7 @@ async def cmd_broadcast(bot: Client, msg: Message):
         "└ Target: all registered users + tracked VC groups")
     await log_broadcast(msg.from_user.id, len(recipients), success)
 
-@Client.on_message(HAS_USER & filters.command("users", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("users") & filters.private)
 @owner_only
 async def cmd_users(bot: Client, msg: Message):
     users = await db.all_users()
@@ -351,12 +352,12 @@ async def cmd_users(bot: Client, msg: Message):
         text += f"\n…+{len(users) - 40} more"
     await msg.reply_text(text)
 
-@Client.on_message(HAS_USER & filters.command("stats", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("stats") & filters.private)
 @owner_only
 async def cmd_stats(bot: Client, msg: Message):
     await msg.reply_text(await _panel_text(), reply_markup=panel_kb())
 
-@Client.on_message(HAS_USER & filters.command("ban", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("ban") & filters.private)
 @owner_only
 async def cmd_ban(bot: Client, msg: Message):
     parts = cmd_text(msg).split()
@@ -371,7 +372,7 @@ async def cmd_ban(bot: Client, msg: Message):
     await session_manager.remove(uid)
     await msg.reply_text(f"ℹ️ <code>{uid}</code> banned.")
 
-@Client.on_message(HAS_USER & filters.command("unban", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("unban") & filters.private)
 @owner_only
 async def cmd_unban(bot: Client, msg: Message):
     parts = cmd_text(msg).split()
@@ -382,7 +383,7 @@ async def cmd_unban(bot: Client, msg: Message):
     BANNED_USERS.discard(uid)
     await msg.reply_text(f"ℹ️ <code>{uid}</code> unbanned.")
 
-@Client.on_message(HAS_USER & filters.command("restart", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("restart") & filters.private)
 @owner_only
 async def cmd_restart(bot: Client, msg: Message):
     await msg.reply_text("ℹ️ Restarting…")
@@ -395,7 +396,7 @@ async def ban_filter(bot: Client, msg: Message):
         await msg.stop_propagation()
 
 
-@Client.on_message(HAS_USER & filters.command("growbots", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("growbots") & filters.private)
 @owner_only
 async def cmd_growbots(bot: Client, msg: Message):
     from helpers import grow as G
@@ -413,7 +414,7 @@ async def cmd_growbots(bot: Client, msg: Message):
         reply_markup=K([[B("🌱 Open Grow", callback_data="adm_grow")]]))
 
 
-@Client.on_message(HAS_USER & filters.command("grow", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("grow") & filters.private)
 @owner_only
 async def cmd_grow(bot: Client, msg: Message):
     from helpers import grow as G

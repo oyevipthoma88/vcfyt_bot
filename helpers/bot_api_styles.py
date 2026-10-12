@@ -14,7 +14,7 @@ def has_native_styles(markup: Any) -> bool:
                or getattr(button, "_bot_api_icon", None)
                for row in rows for button in row)
 
-def _button_payload(button: Any) -> dict:
+def _button_payload(button: Any, icons: bool = True) -> dict:
     text = button.text
     for prefix in ("[PRIMARY] ", "[SUCCESS] ", "[DANGER] ", "🔹 ", "✅ ", "❌ "):
         if text.startswith(prefix):
@@ -44,8 +44,11 @@ def _button_payload(button: Any) -> dict:
     if style:
         data["style"] = style
     icon = getattr(button, "_bot_api_icon", None)
-    if icon:
+    if icon and icons:
+        from helpers.custom_emoji import strip_icon_emoji
         data["icon_custom_emoji_id"] = str(icon)
+        # Sirf premium emoji dikhe — normal wala text se hatao.
+        data["text"] = strip_icon_emoji(data["text"])
     return data
 
 def _strip_icons(payload: dict) -> bool:
@@ -54,13 +57,14 @@ def _strip_icons(payload: dict) -> bool:
         for btn in row:
             if btn.pop("icon_custom_emoji_id", None):
                 found = True
+
     return found
 
-def markup_payload(markup: Any) -> dict | None:
+def markup_payload(markup: Any, icons: bool = True) -> dict | None:
     rows = getattr(markup, "inline_keyboard", None)
     if not rows:
         return None
-    return {"inline_keyboard": [[_button_payload(b) for b in row] for row in rows]}
+    return {"inline_keyboard": [[_button_payload(b, icons) for b in row] for row in rows]}
 
 async def apply_native_styles(message: Any, markup: Any) -> bool:
     token = getattr(Config, "BOT_TOKEN", None)
@@ -85,6 +89,7 @@ async def apply_native_styles(message: Any, markup: Any) -> bool:
                     return True
                 # Premium emoji allowed nahi -> icons hata ke plain keyboard.
                 if response.status == 400 and _strip_icons(payload):
+                    body["reply_markup"] = markup_payload(markup, icons=False)
                     async with session.post(url, json=body) as retry:
                         again = await retry.json(content_type=None)
                         if retry.status == 200 and again.get("ok"):

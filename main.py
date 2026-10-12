@@ -222,7 +222,9 @@ async def main():
             await log_error("owner_env_session", e)
 
     try:
-        await bot.delete_bot_commands()  # "/" menu hata diya — sirf "." commands
+        from pyrogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
+        await bot.set_bot_commands(BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())  # "/" menu sirf DM
+        await bot.delete_bot_commands(scope=BotCommandScopeAllGroupChats())
     except Exception:
         pass
 

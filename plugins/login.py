@@ -3,6 +3,7 @@ import asyncio
 import re
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from pyrogram.errors import (
     ApiIdInvalid, AuthKeyUnregistered, FloodWait, PhoneCodeExpired,
     PhoneCodeInvalid, PhoneNumberBanned, PhoneNumberInvalid, PasswordHashInvalid,
@@ -120,7 +121,7 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
         )
     await _edit(target_msg, text, home_kb(Config.is_owner(user.id), engine_ok))
 
-@Client.on_message(HAS_USER & filters.command("login", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("login") & filters.private)
 async def cmd_login(bot: Client, msg: Message):
     await _reset_now(msg.from_user.id)
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".login")
@@ -153,7 +154,7 @@ async def cb_login_phone(bot, cq):
     ), reply_markup=CANCEL_KB)
     await safe_answer(cq)
 
-@Client.on_message(HAS_USER & filters.command("logout", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("logout") & filters.private)
 async def cmd_logout(bot: Client, msg: Message):
     await _do_logout(msg.from_user, msg)
 

@@ -23,6 +23,7 @@ Callbacks:
 
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from pyrogram.types import InlineKeyboardMarkup as K, Message
 
 from config import Config
@@ -146,7 +147,7 @@ def user_payment_kb(config: dict = None) -> K:
 
 # ── Owner commands ───────────────────────────────────────
 
-@Client.on_message(HAS_USER & filters.command("setprice", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("setprice") & filters.private)
 async def cmd_setprice(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -170,7 +171,7 @@ async def cmd_setprice(bot: Client, msg: Message):
     await msg.reply_text(f"✅ <b>{label}</b> price set: <code>{price}</code>")
 
 
-@Client.on_message(HAS_USER & filters.command("grant", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("grant") & filters.private)
 async def cmd_grant(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -212,7 +213,7 @@ async def cmd_grant(bot: Client, msg: Message):
         pass
 
 
-@Client.on_message(HAS_USER & filters.command("revoke", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("revoke") & filters.private)
 async def cmd_revoke(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -228,7 +229,7 @@ async def cmd_revoke(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(HAS_USER & filters.command("addcoupon", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("addcoupon") & filters.private)
 async def cmd_addcoupon(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -256,7 +257,7 @@ async def cmd_addcoupon(bot: Client, msg: Message):
         await msg.reply_text(f"❌ Coupon <code>{code}</code> already exists.")
 
 
-@Client.on_message(HAS_USER & filters.command("delcoupon", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("delcoupon") & filters.private)
 async def cmd_delcoupon(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -271,7 +272,7 @@ async def cmd_delcoupon(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(HAS_USER & filters.command("listcoupons", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("listcoupons") & filters.private)
 async def cmd_listcoupons(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -288,7 +289,7 @@ async def cmd_listcoupons(bot: Client, msg: Message):
     await msg.reply_text("📋 <b>All Coupons</b>\n" + "\n".join(lines))
 
 
-@Client.on_message(HAS_USER & filters.command("setqr", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("setqr") & filters.private)
 async def cmd_setqr(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -307,7 +308,7 @@ async def cmd_setqr(bot: Client, msg: Message):
     await msg.reply_text("✅ QR code set ho gaya. Ab users plan select karke request karte hi QR DM mein mil jayega.")
 
 
-@Client.on_message(HAS_USER & filters.command("clearqr", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("clearqr") & filters.private)
 async def cmd_clearqr(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -315,7 +316,7 @@ async def cmd_clearqr(bot: Client, msg: Message):
     await msg.reply_text("✅ QR code removed.")
 
 
-@Client.on_message(HAS_USER & filters.command("pending", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("pending") & filters.private)
 async def cmd_pending(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
@@ -336,7 +337,7 @@ async def cmd_pending(bot: Client, msg: Message):
 
 # ── User: redeem coupon ──────────────────────────────────
 
-@Client.on_message(HAS_USER & filters.command("redeem", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("redeem") & filters.private)
 async def cmd_redeem(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
     if len(parts) < 2:

@@ -1,5 +1,6 @@
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from pyrogram.types import Message
 
 from config import Config
@@ -38,8 +39,7 @@ async def _is_logged_in(user_id: int) -> bool:
             return True
     return False
 
-# "/start" Telegram ka START button khud bhejta hai — sirf isko "/" allowed.
-@Client.on_message(HAS_USER & filters.command("start", prefixes=[".", "/"]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("start") & filters.private)
 async def cmd_start(bot: Client, msg: Message):
     user = msg.from_user
     await log_command(user.id, user.username, msg.chat.id, ".start")
@@ -95,7 +95,7 @@ async def cb_tutorial_menu(bot, cq):
     await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
     await safe_answer(cq)
 
-@Client.on_message(HAS_USER & filters.command("mystatus", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("mystatus") & filters.private)
 async def cmd_mystatus(bot: Client, msg: Message):
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id,
                       ".mystatus")
@@ -121,7 +121,7 @@ async def cb_status(bot, cq):
                                reply_markup=back_kb("menu:home"))
     await safe_answer(cq)
 
-@Client.on_message(HAS_USER & filters.command("settings", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("settings") & filters.private)
 async def cmd_settings(bot: Client, msg: Message):
     s = await db.get_settings(msg.from_user.id)
     await msg.reply_text(settings_text(s), reply_markup=settings_kb())

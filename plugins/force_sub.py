@@ -3,6 +3,7 @@
 import asyncio
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
@@ -127,7 +128,7 @@ async def fsub_panel_text() -> str:
     )
 
 
-@Client.on_message(HAS_USER & filters.command("addfsub", prefixes=["."]) & filters.private, group=1)
+@Client.on_message(HAS_USER & dm_cmd("addfsub") & filters.private, group=1)
 @_owner_only
 async def cmd_addfsub(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
@@ -149,7 +150,7 @@ async def cmd_addfsub(bot: Client, msg: Message):
     )
 
 
-@Client.on_message(HAS_USER & filters.command("delfsub", prefixes=["."]) & filters.private, group=1)
+@Client.on_message(HAS_USER & dm_cmd("delfsub") & filters.private, group=1)
 @_owner_only
 async def cmd_delfsub(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
@@ -160,13 +161,13 @@ async def cmd_delfsub(bot: Client, msg: Message):
     await msg.reply_text("✅ Removed." if removed else "❌ Ye channel list me nahi mila.")
 
 
-@Client.on_message(HAS_USER & filters.command("listfsub", prefixes=["."]) & filters.private, group=1)
+@Client.on_message(HAS_USER & dm_cmd("listfsub") & filters.private, group=1)
 @_owner_only
 async def cmd_listfsub(bot: Client, msg: Message):
     await msg.reply_text(await fsub_panel_text(), disable_web_page_preview=True)
 
 
-@Client.on_message(HAS_USER & filters.command("clearfsub", prefixes=["."]) & filters.private, group=1)
+@Client.on_message(HAS_USER & dm_cmd("clearfsub") & filters.private, group=1)
 @_owner_only
 async def cmd_clearfsub(bot: Client, msg: Message):
     await force_sub.clear()

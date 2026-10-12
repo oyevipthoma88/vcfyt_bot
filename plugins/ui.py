@@ -27,18 +27,33 @@ def cmd_prefix(pattern: str, flags=0):
       - "." + pattern  in any chat (group or private)
       - "/" + pattern  only in private chats
     """
-    # Sirf "." prefix chalta hai (groups + DM). "/" aur "!" ignore.
+    # "." har jagah, "/" sirf bot DM mein, "!" band.
     # (old note) "." "/" and "!" all work in groups AND DM.  "/boost@MyBot 5" style
     # (Telegram's command menu in groups) is accepted too.  The old check
     # compared m.chat.type to the string "private", but pyrofork uses the
     # ChatType enum, so every "/" command silently failed.
-    any_re = _re.compile(r"^\." + pattern, flags)  # sirf "." commands
+    dot_re = _re.compile(r"^\." + pattern, flags)
+    slash_re = _re.compile(r"^/" + pattern, flags)
 
     def _f(_, __, m):
         text = (getattr(m, "text", None) or getattr(m, "caption", None) or "").lstrip()
-        return bool(any_re.match(text))
+        if dot_re.match(text):
+            return True  # "." har jagah
+        return bool(slash_re.match(text)) and _is_private(m)  # "/" sirf bot DM
 
     return _filters.create(_f)
+
+
+def _is_private(m) -> bool:
+    chat = getattr(m, "chat", None)
+    t = getattr(chat, "type", None)
+    return str(getattr(t, "value", t)).lower() in ("private", "chattype.private")
+
+
+def dm_cmd(commands):
+    """"." command har jagah, "/" command sirf bot ke DM mein."""
+    return (_filters.command(commands, prefixes=".")
+            | (_filters.private & _filters.command(commands, prefixes="/")))
 
 def cmd_text(m) -> str:
     """Command text of a message.

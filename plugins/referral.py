@@ -9,6 +9,7 @@ Referral tiers:
 import logging
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from pyrogram.types import InlineKeyboardMarkup as K, Message
 
 from helpers.access_control import REFERRAL_REWARDS, check_referral_milestones, premium_info
@@ -75,7 +76,7 @@ def referral_kb(bot_username: str, user_id: int) -> K:
 
 # ── Handlers ─────────────────────────────────────────────
 
-@Client.on_message(HAS_USER & filters.command("referral", prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd("referral") & filters.private)
 async def cmd_referral(bot: Client, msg: Message):
     me = await bot.get_me()
     await edit_or_send(

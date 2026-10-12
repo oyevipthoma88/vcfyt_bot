@@ -1,5 +1,6 @@
 
 from pyrogram import Client, filters
+from plugins.ui import dm_cmd
 from plugins.ui import HAS_USER, B
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
@@ -320,13 +321,13 @@ async def send_tutorial_video(message) -> bool:
         return False
 
 
-@Client.on_message(HAS_USER & filters.command(["video", "guide", "tutorial"], prefixes=["."]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd(["video", "guide", "tutorial"]) & filters.private)
 async def cmd_video(bot: Client, msg: Message):
     if not await send_tutorial_video(msg):
         await msg.reply_text(TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
 
 
-@Client.on_message(HAS_USER & filters.command("help", prefixes=["."]))
+@Client.on_message(HAS_USER & dm_cmd("help"))
 async def cmd_help(bot: Client, msg: Message):
     await log_command(msg.from_user.id if msg.from_user else 0,
                       msg.from_user.username if msg.from_user else "",
