@@ -38,10 +38,19 @@ class LoudnessControls(unittest.TestCase):
         self.assertGreaterEqual(rms, -6.0)
         noisy = ("anoisesrc=d=2:c=white:a=0.002")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", noisy, "-af",
-                            build_live_mic_filter() + ",astats=measure_overall=RMS_level:measure_perchannel=0",
+                            build_live_mic_filter() + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
                             "-f", "null", "-"], capture_output=True, text=True)
         floor = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
         self.assertLess(floor, -20.0)
+
+    def test_playback_does_not_pump_hiss(self):
+        # Pure background hiss through the playback chain must stay far
+        # below the voice (old chain lifted it to ~-2 dBFS = "khar khar").
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "anoisesrc=d=3:c=pink:a=0.004",
+                            "-af", build_ffmpeg_filter(volume=1000) + ",atrim=start=1,astats=measure_overall=RMS_level:measure_perchannel=0",
+                            "-f", "null", "-"], capture_output=True, text=True)
+        floor = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
+        self.assertLess(floor, -12.0)
 
     def test_volume_500_is_quieter_than_1000(self):
         _, half = measure(build_ffmpeg_filter(volume=500))
