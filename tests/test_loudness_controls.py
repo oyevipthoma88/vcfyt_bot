@@ -31,9 +31,17 @@ class LoudnessControls(unittest.TestCase):
         self.assertLessEqual(pk, -0.45)
 
     def test_live_mic_default_is_loud_and_guarded(self):
+        # Loud but CLEAN: the gaps between words must stay well below the
+        # voice (old chain pumped the hiss up to voice level = "khar khar").
         pk, rms = measure(build_live_mic_filter(loud=120))
         self.assertLessEqual(pk, -0.45)
-        self.assertGreaterEqual(rms, -3.0)
+        self.assertGreaterEqual(rms, -6.0)
+        noisy = ("anoisesrc=d=2:c=white:a=0.002")
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", noisy, "-af",
+                            build_live_mic_filter() + ",astats=measure_overall=RMS_level:measure_perchannel=0",
+                            "-f", "null", "-"], capture_output=True, text=True)
+        floor = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
+        self.assertLess(floor, -20.0)
 
     def test_volume_500_is_quieter_than_1000(self):
         _, half = measure(build_ffmpeg_filter(volume=500))
