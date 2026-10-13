@@ -95,7 +95,7 @@ def _env_db(name: str, default: float, high: float = 30.0,
 # ---------------------------------------------------------------------------
 AUDIO_FRAME_SAMPLES = 960            # 20 ms @ 48 kHz
 SYNC_RESAMPLE = "aresample=48000:async=1000:min_hard_comp=0.100000:first_pts=0"
-LOW_LATENCY_FLAGS = ["-fflags", "nobuffer", "-flags", "low_delay", "-avioflags", "direct"]
+LOW_LATENCY_FLAGS = ["-fflags", "nobuffer", "-flags", "low_delay"]
 PRESENCE_BOOST = ["equalizer=f=3200:t=q:w=1:g=4.5", "equalizer=f=4000:t=q:w=1:g=4.5"]
 _ARESAMPLE_RE = re.compile(r"(?i)aresample=48000(?::[^,]*)?")
 
@@ -792,7 +792,7 @@ def build_stream_command(
     ))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
-           "-avioflags", "direct", "-threads", "2"]
+           "-threads", "2"]
     if loop:
         # Native, gapless looping — no stream-end round trip, no re-processing.
         cmd += ["-stream_loop", "-1"]

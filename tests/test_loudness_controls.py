@@ -49,6 +49,19 @@ class LoudnessControls(unittest.TestCase):
         src = inspect.getsource(audio_processor.process_audio_to_file)
         self.assertNotIn('"volume=36dB,",', src)
 
+    def test_ogg_voice_note_streams_without_crash(self):
+        import os, shlex, tempfile
+        from helpers.audio_processor import build_stream_command
+        ogg = os.path.join(tempfile.mkdtemp(), "v.ogg")
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=d=1", "-c:a", "libopus", ogg],
+                       check=True, capture_output=True)
+        cmd = build_stream_command(ogg)
+        self.assertNotIn("avioflags", cmd)
+        r = subprocess.run(shlex.split(cmd), capture_output=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-300:])
+        self.assertNotIn(b"CRC mismatch", r.stderr)
+        self.assertGreater(len(r.stdout), 100000)
+
 
 if __name__ == "__main__":
     unittest.main()

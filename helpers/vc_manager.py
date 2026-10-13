@@ -955,6 +955,22 @@ class UserVC:
                 if st.loop_left > 0:
                     st.loop_left -= 1
                 if st.loop_left != 0:
+                    # Runaway guard: a stream that dies instantly must not
+                    # replay 20x/sec (flood-wait storm). Back off, then stop
+                    # looping after 3 instant failures instead of leaving VC.
+                    import time as _t
+                    now = _t.monotonic()
+                    started = getattr(st, "_loop_started", 0.0)
+                    fails = getattr(st, "_loop_fails", 0)
+                    fails = fails + 1 if now - started < 2.0 else 0
+                    st._loop_fails, st._loop_started = fails, now
+                    if fails >= 3:
+                        logger.warning("Loop stopped for chat %s: stream keeps failing", chat_id)
+                        st.loop, st._loop_fails = False, 0
+                        st.is_playing = False
+                        return
+                    if fails:
+                        await asyncio.sleep(1.5 * fails)
                     # Replay the already-processed file directly (no re-processing)
                     # with a small delay so py-tgcalls cleanly ends the old stream
                     # before we start the new one.  Re-processing from scratch each
@@ -977,8 +993,16 @@ class UserVC:
                                            chat_id, exc)
                     if not replayed and have_source:
                         # Fallback: full re-process + re-stream.
-                        await self._stream(chat_id, st.current_file, st.source_name)
-                        replayed = True
+                        await asyncio.sleep(0.5)
+                        try:
+                            await self._stream(chat_id, st.current_file, st.source_name)
+                            replayed = True
+                        except Exception as exc:
+                            logger.warning("Loop re-stream failed for %s: %r", chat_id, exc)
+                    if not replayed:
+                        # Keep the bot in VC with loop ON; don't delete files.
+                        st.is_playing = False
+                        return
                     if replayed:
                         return
                     # Nothing left to loop — say so instead of silently leaving.
