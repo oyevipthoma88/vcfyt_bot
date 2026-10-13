@@ -158,6 +158,10 @@ def B(text: str, callback_data: str = None, style: str = None,
             button = _InlineKeyboardButton(text, style=style, **params)
             if icon_custom_emoji_id:
                 button._bot_api_icon = icon_custom_emoji_id
+                # Premium icon buttons are sent through the Bot API, which
+                # only knows the colour from _bot_api_style.  Without this
+                # every button with a premium emoji lost its colour.
+                button._bot_api_style = style
             return button
         except (TypeError, ValueError):
 
