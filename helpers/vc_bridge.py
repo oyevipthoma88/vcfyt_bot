@@ -46,8 +46,8 @@ DEFAULT_PRESET = "clean"
 #   * Echo   (0-5) : thoda room/echo (0 = band, max clarity).
 # Peak hamesha 0 dBFS (Telegram isse upar kuch bhejta hi nahi).
 # ---------------------------------------------------------------------------
-LOUD_DEFAULT = {"drive": 20, "bass": 0, "presence": 8, "clip": "hard",
-                "crunch": 0, "echo": 0, "gate": 1}
+LOUD_DEFAULT = {"drive": 24, "bass": 0, "presence": 10, "clip": "hard",
+                "crunch": 2, "echo": 0, "gate": 1}
 LOUD_PRESETS = {
     "safe":  {"drive": 6, "bass": 0, "presence": 5, "clip": "soft", "crunch": 0},
     "loud":  {"drive": 18, "bass": 0, "presence": 8, "clip": "hard", "crunch": 0},

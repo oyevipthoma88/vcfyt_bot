@@ -63,7 +63,7 @@ class Config:
     SESSION_BOT_USERNAME: str = os.environ.get("SESSION_BOT_USERNAME", "Session_generator_1bot")
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
-    DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1000)
+    DEFAULT_VOLUME: int = _int("DEFAULT_VOLUME", 1200)
     DEFAULT_BASS: int = _int("DEFAULT_BASS", 10)
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)

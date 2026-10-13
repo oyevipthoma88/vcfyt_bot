@@ -568,10 +568,14 @@ def build_ffmpeg_filter(
 
 
     filters = [
-        f"highpass=f={30 if bass_value else 75}",
+        # LOUDNESS v7: sub-bass (<60 Hz) phone speaker baja hi nahi pata par
+        # headroom khaata hai -> kaato, wahi taakat 2.8-4 kHz me daalo.
+        "highpass=f=60:p=2",
+        "highpass=f=60:p=2",
         "aresample=48000",
         "aformat=channel_layouts=stereo",
-        "pan=stereo|c0=0.71*c0+0.71*c1|c1=0.71*c0+0.71*c1",
+        # Pehle pan=0.71 se stereo mono me collapse (-3 dB) hota tha. Ab
+        # asli stereo rehta hai (mono file dono kaan me full level).
         ("dynaudnorm=f=30:g=5:p=0.98:m=35:r=0.96:s=0" if low_lat
          else "dynaudnorm=f=120:g=15:p=0.96:m=20:r=0.98:s=0"),
     ]
@@ -584,6 +588,8 @@ def build_ffmpeg_filter(
     if not live:
         filters.append("equalizer=f=2600:t=q:w=1.4:g=5.5")
     filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(min(5.0, 1.0 + treble_value * 0.06))}")
+    # Presence shift: kaan ki sabse sensitive band -> bina phate tez.
+    filters.append("equalizer=f=3300:t=q:w=0.9:g=3.5")
 
     ratio = min(6.0, 3.0 + boost_value * 0.3)
     threshold = max(0.05, 0.20 - boost_value * 0.015)
