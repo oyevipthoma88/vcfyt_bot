@@ -259,7 +259,7 @@ class LiveMicSession:
             # Keep probe minimal but non-zero — probesize=16 / analyzeduration=0
             # made FFmpeg's internal analyser overflow (ERANGE) and die instantly,
             # which then caused the 15 s FIFO-open timeout.
-            "-fflags", "+nobuffer", "-flags", "low_delay",
+            "-fflags", "nobuffer", "-flags", "low_delay", "-avioflags", "direct",
             "-analyzeduration", "1000", "-probesize", "32",
             "-f", "s16le", "-ar", str(rate), "-ac", "1",
             "-thread_queue_size", "64",

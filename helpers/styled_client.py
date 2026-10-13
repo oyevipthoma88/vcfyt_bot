@@ -7,7 +7,9 @@ def _transport_markup(markup):
     return None if has_native_styles(markup) else markup
 
 def _quote_text(value):
-    return value
+    # Premium emoji upgrade: messages / panels / notifications.
+    from helpers.custom_emoji import premium_text
+    return premium_text(value)
 
 async def _restyle_or_fallback(client, message, markup):
     """Paint native colours; if Bot API refuses, put the plain keyboard back

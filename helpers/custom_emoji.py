@@ -94,3 +94,37 @@ def strip_icon_emoji(text: str) -> str:
     """Button text bina leading emoji ke (icon_custom_emoji_id use hone par)."""
     emoji, rest = _split(text)
     return rest if emoji and rest else text
+
+
+# ---------------------------------------------------------------------------
+# PREMIUM TEXT EMOJI: messages, status panels and notifications.
+# Har known emoji ko <emoji id="..."> tag me wrap karte hain (Pyrogram HTML).
+# Telegram jahan custom emoji allow na kare, wahan wahi normal emoji dikhta hai
+# (safe fallback). PREMIUM_TEXT_EMOJI=0 se band kar sakte hain.
+# ---------------------------------------------------------------------------
+import os as _os
+import re as _re
+
+_TEXT_RE = _re.compile(
+    "(" + "|".join(_re.escape(e) for e in sorted(ICONS, key=len, reverse=True)) + ")\ufe0f?"
+)
+_SKIP_RE = _re.compile(r"(?is)<(code|pre|emoji)\b.*?</\1>|`[^`]*`")
+
+
+def premium_text(value):
+    """Wrap known emojis in message text with premium custom-emoji tags."""
+    if not isinstance(value, str) or not value:
+        return value
+    if _os.environ.get("PREMIUM_TEXT_EMOJI", "1") == "0":
+        return value
+
+    def _wrap(chunk: str) -> str:
+        return _TEXT_RE.sub(lambda m: f'<emoji id="{ICONS[m.group(1)]}">{m.group(1)}</emoji>', chunk)
+
+    out, pos = [], 0
+    for m in _SKIP_RE.finditer(value):
+        out.append(_wrap(value[pos:m.start()]))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(_wrap(value[pos:]))
+    return "".join(out)

@@ -84,6 +84,40 @@ def _env_db(name: str, default: float, high: float = 30.0,
         value = default
     return max(min(low, high), min(max(low, high), value))
 
+
+# ---------------------------------------------------------------------------
+# SYNC + BROADCAST LOUDNESS (shared by live mic + playback)
+#
+# Drift ("aage-piche") root fix: every chain resamples with explicit timestamp
+# sync and emits fixed 20 ms frames (960 samples @ 48 kHz) so all pipes stay
+# phase-locked.  Fletcher-Munson presence (+4.5 dB @ 3.2/4.0 kHz) and a cubic
+# soft-saturator raise perceived loudness without crackle.
+# ---------------------------------------------------------------------------
+AUDIO_FRAME_SAMPLES = 960            # 20 ms @ 48 kHz
+SYNC_RESAMPLE = "aresample=48000:async=1000:min_hard_comp=0.100000:first_pts=0"
+LOW_LATENCY_FLAGS = ["-fflags", "nobuffer", "-flags", "low_delay", "-avioflags", "direct"]
+PRESENCE_BOOST = ["equalizer=f=3200:t=q:w=1:g=4.5", "equalizer=f=4000:t=q:w=1:g=4.5"]
+_ARESAMPLE_RE = re.compile(r"(?i)aresample=48000(?::[^,]*)?")
+
+
+def apply_sync_and_presence(chain: str, boost: bool = True) -> str:
+    """Lock resample timestamps, add presence boost + cubic soft-clip before
+    the final limiter, and force strict 20 ms output frames."""
+    parts = [x for x in (chain or "").split(",") if x]
+    parts = [SYNC_RESAMPLE if _ARESAMPLE_RE.fullmatch(x) else x for x in parts]
+    if not any(x == SYNC_RESAMPLE for x in parts):
+        parts.insert(0, SYNC_RESAMPLE)
+    if boost:
+        extra = list(PRESENCE_BOOST)
+        if _has_filter("asoftclip"):
+            extra.append("asoftclip=type=cubic")
+        idx = max((i for i, x in enumerate(parts) if x.startswith("alimiter")), default=len(parts))
+        parts[idx:idx] = extra
+    parts = [x for x in parts if not x.startswith("asetnsamples")]
+    if _has_filter("asetnsamples"):
+        parts.append(f"asetnsamples=n={AUDIO_FRAME_SAMPLES}:p=0")
+    return ",".join(parts)
+
 def _sanitize_ffmpeg_filter(value: str) -> str:
     value = re.sub(r"(?i)(knee=)0(?:\.0+)?(?![\d.])", r"\g<1>1", value)
     value = re.sub(r"(?i)(attack=)0(?:\.0+)?(?![\d.])", r"\g<1>0.1", value)
@@ -315,13 +349,13 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
             f.append("asoftclip=type=hard:threshold=1")
         else:
             f.append("alimiter=limit=1:level=false:attack=0.1:release=2")
-        return ",".join(f)
+        return apply_sync_and_presence(",".join(f))
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",
           # Stage 2: fast brick-wall at the ceiling (no clipping, Opus-safe).
           f"alimiter=limit={limit:.3f}:level=false:attack=0.5:release=15"]
-    return ",".join(f)
+    return apply_sync_and_presence(",".join(f))
 
 
 def build_ffmpeg_filter(
@@ -439,7 +473,7 @@ def build_ffmpeg_filter(
         filters.append(f"volume={_db(min(6.0, 2.0 + final_db * 0.08))}dB")
         filters.append("alimiter=level_in=1.15:level_out=1:limit=0.96:"
                        "attack=1:release=25:level=false:asc=1")
-        return _sanitize_ffmpeg_filter(",".join(filters))
+        return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
 
     if live and _live_chain_mode() == "soft":
 
@@ -562,7 +596,7 @@ def build_ffmpeg_filter(
         filters.append("alimiter=level_in=1.6:level_out=1:limit=0.985:"
                        "attack=1:release=30:level=false:asc=1")
 
-        return _sanitize_ffmpeg_filter(",".join(filters))
+        return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
 
 
 
@@ -653,7 +687,7 @@ def build_ffmpeg_filter(
             filters.append("asoftclip=type=hard:threshold=1")
         else:
             filters.append("alimiter=limit=1:attack=0.1:release=2:level=false")
-    return _sanitize_ffmpeg_filter(",".join(filters))
+    return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
 
 async def process_audio_to_file(
     input_path: str,
@@ -679,7 +713,7 @@ async def process_audio_to_file(
     async def _run(filter_chain: str) -> tuple:
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-i", input_path, "-vn", "-af", filter_chain,
+            "-i", input_path, "-vn", "-af", apply_sync_and_presence(filter_chain),
             "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", output_path,
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -752,7 +786,7 @@ def build_stream_command(
         extra_filters=extra_filters, stream=True,
     ))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-           "-fflags", "+nobuffer+genpts+flush_packets", "-flags", "low_delay",
+           "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
            "-avioflags", "direct", "-threads", "2"]
     if loop:
         # Native, gapless looping — no stream-end round trip, no re-processing.

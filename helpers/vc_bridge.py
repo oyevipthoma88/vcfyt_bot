@@ -313,7 +313,7 @@ def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET,
     p = PRESETS.get(preset, {})
     if p.get("bass"):
         cfg["bass"] = max(cfg["bass"], min(10, int(p["bass"])))
-    parts = ["aresample=48000:async=1"]
+    parts = ["aresample=48000:async=1000:min_hard_comp=0.100000:first_pts=0"]
     if cfg["gate"]:
         parts.append(INPUT_GATE)
     lvl = cfg["echo"] or (int(p.get("echo_level", 2)) if p.get("echo") else 0)
@@ -323,9 +323,12 @@ def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET,
         parts.append(f"aecho=0.9:0.7:{40 + lvl * 15}:{0.12 + lvl * 0.04:.2f}")
     parts.append(loud_stage(cfg, focus))
     if layer:
+        # Spare-ID layer: untouched (only timestamp sync + 20 ms frames).
         parts.append(EXTRA_LAYER)
+    from helpers.audio_processor import apply_sync_and_presence
+    chain = apply_sync_and_presence(",".join(parts), boost=not layer)
     # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
-    return _sanitize_ffmpeg_filter(",".join(parts))
+    return _sanitize_ffmpeg_filter(chain)
 
 async def load_loud(user_id: int) -> dict:
     import json
