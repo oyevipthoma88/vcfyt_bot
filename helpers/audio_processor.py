@@ -571,8 +571,8 @@ def build_ffmpeg_filter(
         f"highpass=f={30 if bass_value else 75}",
         "aresample=48000",
         "aformat=channel_layouts=stereo",
-        "pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1",
-        ("dynaudnorm=f=20:g=3:p=0.95:m=20:r=0.95:s=0" if low_lat
+        "pan=stereo|c0=0.71*c0+0.71*c1|c1=0.71*c0+0.71*c1",
+        ("dynaudnorm=f=30:g=5:p=0.98:m=35:r=0.96:s=0" if low_lat
          else "dynaudnorm=f=120:g=15:p=0.96:m=20:r=0.98:s=0"),
     ]
 
@@ -582,7 +582,7 @@ def build_ffmpeg_filter(
 
     filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(min(6.0, -1.0 + treble_value * 0.08))}")
     if not live:
-        filters.append("equalizer=f=2600:t=q:w=1.4:g=3.5")
+        filters.append("equalizer=f=2600:t=q:w=1.4:g=5.5")
     filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(min(5.0, 1.0 + treble_value * 0.06))}")
 
     ratio = min(6.0, 3.0 + boost_value * 0.3)
@@ -601,7 +601,7 @@ def build_ffmpeg_filter(
             f"{decay:.2f}|{decay * 0.5:.2f}"
         )
 
-    filters.append(f"volume={_db(max(4.0, min(18.0, 6.0 + volume_to_db(vol) * 0.3 + _legacy_gain_to_db(gain_value) * 0.5)))}dB")
+    filters.append(f"volume={_db(max(6.0, min(24.0, 8.0 + volume_to_db(vol) * 0.35 + _legacy_gain_to_db(gain_value) * 0.6)))}dB")
 
     if extra_filters:
         filters.append(extra_filters)
@@ -614,9 +614,9 @@ def build_ffmpeg_filter(
     # compressor -> loudness drive -> ONE brick-wall limiter (no level loss).
     if _has_filter("speechnorm"):
         filters.append("speechnorm=e=12:r=0.001:l=1:p=0.95:t=0.01")
-    filters.append("acompressor=threshold=0.25:ratio=8:attack=0.5:release=30:makeup=2:knee=2")
+    filters.append("acompressor=threshold=0.20:ratio=10:attack=0.3:release=25:makeup=4.5:knee=2")
     # LOUDER PLAYBACK: +6 dB more drive into the limiter than before.
-    filters.append(f"volume={_db(min(24.0, 14.0 + extra_loud_db() * 0.45))}dB")
+    filters.append(f"volume={_db(min(28.0, 16.0 + extra_loud_db() * 0.50))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=0.5:release=20:level=false:asc=1")
     # PLAYBACK MAX-DENSITY STAGE (same trick as the live-mic bridge):
     # phase rotator shrinks peaks, then a +PLAY_DRIVE_DB push into a hard
@@ -626,7 +626,7 @@ def build_ffmpeg_filter(
     if _has_filter("allpass"):
         filters += ["allpass=f=200:t=q:w=0.7", "allpass=f=800:t=q:w=0.7",
                     "allpass=f=2000:t=q:w=0.7"]
-    drive = _env_db("PLAY_DRIVE_DB", 27.0, high=30.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 30.0, high=34.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         # v5: 2-stage clip (har stage ke baad de-alias) -> zyada dense/tez.
         first = min(drive, 8.0)
