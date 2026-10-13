@@ -7,6 +7,7 @@ import aiohttp
 from config import Config
 
 logger = logging.getLogger("vcbot.bot_api_styles")
+_ICON_WARNED = False
 
 def has_native_styles(markup: Any) -> bool:
     rows = getattr(markup, "inline_keyboard", None) or []
@@ -89,12 +90,20 @@ async def apply_native_styles(message: Any, markup: Any) -> bool:
                     return True
                 # Premium emoji allowed nahi -> icons hata ke plain keyboard.
                 if response.status == 400 and _strip_icons(payload):
+                    # Telegram only shows premium button emoji when the BOT
+                    # OWNER has Telegram Premium (or the bot has a Fragment
+                    # username).  Log the exact reason once so it's visible.
+                    global _ICON_WARNED
+                    if not _ICON_WARNED:
+                        _ICON_WARNED = True
+                        logger.warning("Premium button emoji rejected by Telegram: %s "
+                                       "(bot owner needs Telegram Premium)", result.get("description"))
                     body["reply_markup"] = markup_payload(markup, icons=False)
                     async with session.post(url, json=body) as retry:
                         again = await retry.json(content_type=None)
                         if retry.status == 200 and again.get("ok"):
                             return True
-                logger.debug("Bot API style patch skipped: %s", result)
+                logger.warning("Bot API style patch skipped: %s", result)
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
         logger.debug("Bot API style patch unavailable: %s", exc)
     return False
