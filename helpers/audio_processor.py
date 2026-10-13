@@ -262,10 +262,10 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f.append("afftdn=nr=10:nf=-50:tn=1")
     if _has_filter("agate"):
         f.append("agate=threshold=0.0004:range=0.002:ratio=20:attack=1:release=250:detection=peak")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 32.0, high=38.0, low=0.0))}dB")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 35.0, high=40.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
         f.append("speechnorm=e=48:r=0.0005:l=1:p=0.95")
-    f.append("acompressor=threshold=0.035:ratio=12:attack=2:release=80:makeup=6:knee=4")
+    f.append("acompressor=threshold=0.035:ratio=14:attack=1:release=60:makeup=8:knee=4")
     if _has_filter("agate"):
         f.append("agate=threshold=0.008:range=0.08:ratio=4:attack=1:release=220:detection=rms")
     f += ["equalizer=f=300:t=q:w=1:g=-4",
@@ -746,7 +746,8 @@ def build_stream_command(
         extra_filters=extra_filters, stream=True,
     ))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-           "-fflags", "+nobuffer+genpts", "-threads", "2"]
+           "-fflags", "+nobuffer+genpts+flush_packets", "-flags", "low_delay",
+           "-avioflags", "direct", "-threads", "2"]
     if loop:
         # Native, gapless looping — no stream-end round trip, no re-processing.
         cmd += ["-stream_loop", "-1"]
