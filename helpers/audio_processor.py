@@ -255,7 +255,10 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # last brick-wall replaced by a hard clip -> max loudness, may distort.
     loud = max(0, min(200, int(loud or 0)))
     crunch = max(0, min(200, int(crunch or 0)))
-    overdrive = loud > 100 or crunch > 100
+    # LOUD 101..200 no longer hard-clips (that square-wave clip WAS the
+    # 'khar khar' at the default loud=120); it pushes the warm tanh stage
+    # harder instead.  Only CRUNCH > 100 keeps the deliberate hard clip.
+    overdrive = crunch > 100
     # HEADROOM FOR TELEGRAM 200 % VOLUME (record_19 analysis):
     # when an ADMIN sets the relay to 200 % participant volume (x2 = +6 dB)
     # a stream peaking at -1 dBFS reached the VC at +5/+6 dBFS and clipped.
@@ -306,19 +309,27 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f.append("agate=threshold=0.012:range=0.01:ratio=4:attack=3:release=180:knee=4:detection=rms")
     f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 10.0, high=40.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=10:r=0.0002:l=1:p=0.9")
+        f.append("speechnorm=e=10:r=0.0002:l=1:p=0.9:t=0.02")
     f.append("acompressor=threshold=0.12:ratio=4:attack=4:release=90:makeup=2:knee=3")
     f += ["equalizer=f=140:t=q:w=0.9:g=5",      # chest / dam (body)
           "equalizer=f=380:t=q:w=1.2:g=-3",     # mud / boxiness cut
-          "equalizer=f=1800:t=q:w=1.4:g=2.5",   # word intelligibility
-          "equalizer=f=3200:t=q:w=1.2:g=3",     # presence (was +11 harsh)
+          "equalizer=f=1800:t=q:w=1.4:g=3",     # word intelligibility
+          "equalizer=f=2900:t=q:w=1.0:g=6",     # presence: cuts through the fight (was +11 harsh)
           "equalizer=f=7000:t=q:w=1.5:g=-2"]    # tame hiss / sibilance
     open_mode = ceiling_db > -3.0
     if open_mode:
         ceiling_db = max(ceiling_db, -0.5)
         limit = 10 ** (ceiling_db / 20.0)
         pre_limit = min(0.99, limit * 10 ** (2.0 / 20.0))
-        drive = _env_db("LIVE_MIC_DRIVE_DB", 22.0, high=28.0, low=0.0)
+        drive = _env_db("LIVE_MIC_DRIVE_DB", 22.0, high=40.0, low=0.0)
+        # DENSITY (loud without noise): 3-band compressor evens out low /
+        # mid / presence so every word hits hard.  Safe here because the
+        # gate + denoise above already removed the hiss between words.
+        if _has_filter("mcompand"):
+            f.append("mcompand=0.005\\,0.1 6 -60/-60\\,-45/-45\\,-30/-22\\,0/-16 250 "
+                     "| 0.003\\,0.06 6 -60/-60\\,-45/-45\\,-30/-20\\,0/-14 3000 "
+                     "| 0.002\\,0.04 6 -60/-60\\,-45/-45\\,-30/-22\\,0/-17 20000")
+            f.append(f"volume={_db(_env_db('LIVE_MIC_DENSITY_DB', 12.0, high=20.0, low=0.0))}dB")
     else:
         drive = _env_db("LIVE_MIC_DRIVE_DB", 18.0, high=28.0, low=0.0)
     if crunch > 0:
@@ -332,27 +343,33 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
         # Above 100 less is pulled back -> the distortion stays loud.
         f.append(f"volume={_db(-cdb * (0.6 if crunch <= 100 else 0.3))}dB")
-    drive += min(loud, 100) * 0.08 + max(0, loud - 100) * 0.12  # clean up to +8 dB, overdrive +12 dB more
+    drive += min(loud, 100) * 0.03   # loudness from LOUD comes via the warm push below (keeps the gaps quiet)
     if overdrive:
         # FATNE DE: full-scale ceiling, levelling limiter then a hard clip
         # at 0 dBFS instead of the clean brick-wall.  Peaks get chopped
         # (distortion) but the average level is the highest possible.
         f += [f"volume={_db(12.0 + 1.0 + drive)}dB",
               "alimiter=limit=0.999:level=false:attack=5:release=80",
-              f"volume={_db(min(12.0, (max(loud, crunch) - 100) * 0.12))}dB"]
+              f"volume={_db(min(12.0, (crunch - 100) * 0.12))}dB"]
         # Crackle guard: Opus overshoots ~0.5 dB -> clip at -0.5 dBFS, not 0.
         if _has_filter("asoftclip"):
             f.append("asoftclip=type=hard:threshold=0.944")
         else:
             f.append("alimiter=limit=0.944:level=false:attack=0.1:release=2")
         return apply_sync_and_presence(",".join(f), boost=False)
+    # Silence guard: right before the big loudness drive the voice sits
+    # ~50 dB above the leftover hiss, so a clean expander keeps the gaps
+    # truly silent no matter how hard the voice is pushed.
+    if _has_filter("agate"):
+        f.append("agate=threshold=0.004:range=0.004:ratio=6:attack=2:release=160:knee=3:detection=rms")
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=3:release=35"]
     # Warm tape-style saturation: denser, "damdar" voice without the harsh
     # square-wave crackle (input is already clean + gated, so no hiss grit).
     if _has_filter("asoftclip"):
-        f += ["volume=4dB", "asoftclip=type=tanh:oversample=4", "volume=4dB"]
+        sat = 10.0 + min(loud, 100) * 0.06 + max(0, loud - 100) * 0.08  # LOUD 0..200 -> +10..+24 dB push
+        f += [f"volume={_db(sat)}dB", "asoftclip=type=tanh:oversample=4", "volume=6dB"]
     f += [
           # Stage 2: fast brick-wall at the ceiling (no clipping, Opus-safe).
           f"alimiter=limit={limit:.3f}:level=false:attack=0.5:release=15"]
@@ -611,9 +628,14 @@ def build_ffmpeg_filter(
         "aformat=channel_layouts=stereo",
         # Pehle pan=0.71 se stereo mono me collapse (-3 dB) hota tha. Ab
         # asli stereo rehta hai (mono file dono kaan me full level).
-        ("dynaudnorm=f=30:g=5:p=0.98:m=35:r=0.96:s=0" if low_lat
-         else "dynaudnorm=f=120:g=15:p=0.96:m=20:r=0.98:s=0"),
+        ("dynaudnorm=f=30:g=5:p=0.98:m=12:r=0.96:s=0" if low_lat
+         else "dynaudnorm=f=120:g=15:p=0.96:m=10:r=0.98:s=0"),
     ]
+    # CLARITY: gentle expander BEFORE the levellers so a recording's hiss /
+    # room noise between words is not pumped up to full scale (it used to
+    # land at ~-2 dBFS = "khar khar" under every voice note).
+    if _has_filter("agate"):
+        filters.insert(4, "agate=threshold=0.006:range=0.08:ratio=3:attack=5:release=250:knee=4:detection=rms")
 
     if bass_value:
         filters.append(f"equalizer=f=80:t=q:w=1.2:g={_db(min(8.0, bass_value * 0.12))}")
@@ -626,12 +648,21 @@ def build_ffmpeg_filter(
     # Presence shift: kaan ki sabse sensitive band -> bina phate tez.
     filters.append("equalizer=f=3300:t=q:w=0.9:g=3.5")
 
+    # ------------------------------------------------------------------
+    # PLAYBACK v8 — LOUD + CLEAR (gain budget fix).
+    # The old tail stacked ~100 dB of gain (makeup 12 + 24 dB + 4.5 + 28 dB
+    # + 30 dB into a HARD clip).  Measured: 78 % of samples clipped (square
+    # wave) and the hiss between words sat at -2 dBFS = "khar khar".  Now
+    # the gain is budgeted: one glue compressor, one leveller, a slow
+    # limiter, warm oversampled tanh saturation for density/"dam", and the
+    # final brick-wall.  Words stay just as loud, the noise stays down.
+    # ------------------------------------------------------------------
     ratio = min(6.0, 3.0 + boost_value * 0.3)
-    threshold = max(0.05, 0.20 - boost_value * 0.015)
-    makeup = min(12.0, boost_value * 1.0 + 3.0)
+    threshold = max(0.06, 0.18 - boost_value * 0.012)
+    makeup = min(6.0, boost_value * 0.5 + 2.0)
     filters.append(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
-        f"attack=1.0:release=40:makeup={makeup:.1f}:knee=2"
+        f"attack=3:release=60:makeup={makeup:.1f}:knee=3"
     )
 
     if use_echo and echo_value:
@@ -642,42 +673,23 @@ def build_ffmpeg_filter(
             f"{decay:.2f}|{decay * 0.5:.2f}"
         )
 
-    filters.append(f"volume={_db(max(6.0, min(24.0, 8.0 + volume_to_db(vol) * 0.35 + _legacy_gain_to_db(gain_value) * 0.6)))}dB")
+    filters.append(f"volume={_db(max(0.0, min(8.0, 2.0 + volume_to_db(vol) * 0.12 + _legacy_gain_to_db(gain_value) * 0.2)))}dB")
 
     if extra_filters:
         filters.append(extra_filters)
 
-    # ROOT FIX "audio normal play ho raha hai":
-    #   * loudnorm (I=-12, dynamic) pulled the boosted signal back DOWN ~14 dB;
-    #   * asoftclip=type=atan has no make-up gain and cut another ~10 dB.
-    # Together they undid every boost stage, so playback came out at the
-    # same level as the raw file.  Now: dense leveller -> second glue
-    # compressor -> loudness drive -> ONE brick-wall limiter (no level loss).
     if _has_filter("speechnorm"):
-        filters.append("speechnorm=e=12:r=0.001:l=1:p=0.95:t=0.01")
-    filters.append("acompressor=threshold=0.20:ratio=10:attack=0.3:release=25:makeup=4.5:knee=2")
-    # LOUDER PLAYBACK: +6 dB more drive into the limiter than before.
-    filters.append(f"volume={_db(min(28.0, 16.0 + extra_loud_db() * 0.50))}dB")
-    filters.append("alimiter=level_in=1:limit=0.98:attack=0.5:release=20:level=false:asc=1")
-    # PLAYBACK MAX-DENSITY STAGE (same trick as the live-mic bridge):
-    # phase rotator shrinks peaks, then a +PLAY_DRIVE_DB push into a hard
-    # clip, de-alias lowpass and a final brick-wall below 0 dBFS.  Peak stays
-    # safe (no Opus crackle) while the average level - what the ear hears as
-    # "aawaz" - rises several dB.
-    if _has_filter("allpass"):
-        filters += ["allpass=f=200:t=q:w=0.7", "allpass=f=800:t=q:w=0.7",
-                    "allpass=f=2000:t=q:w=0.7"]
-    drive = _env_db("PLAY_DRIVE_DB", 30.0, high=34.0, low=0.0)
+        filters.append("speechnorm=e=4:r=0.0005:l=1:p=0.9:t=0.05")
+    filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=2:knee=2")
+    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 10.0, high=24.0, low=0.0))}dB")
+    filters.append("alimiter=level_in=1:limit=0.98:attack=4:release=50:level=false")
+    # Warm density stage: oversampled tanh = heavy "damdar" tone, no
+    # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
+    drive = _env_db("PLAY_DRIVE_DB", 12.0, high=20.0, low=0.0)
     if drive and _has_filter("asoftclip"):
-        # v5: 2-stage clip (har stage ke baad de-alias) -> zyada dense/tez.
-        first = min(drive, 8.0)
-        filters.append(f"volume={_db(first)}dB")
-        filters.append("asoftclip=type=hard:threshold=0.95")
-        filters.append("lowpass=f=15500")
-        if drive > first:
-            filters.append(f"volume={_db(drive - first)}dB")
-            filters.append("asoftclip=type=tanh:threshold=0.95")
-            filters.append("lowpass=f=15000")
+        filters.append(f"volume={_db(drive)}dB")
+        filters.append("asoftclip=type=tanh:oversample=4")
+        filters.append("volume=4dB")
     filters.append("alimiter=level_in=1:level_out=1:limit=0.944:attack=0.1:release=8:level=false")
     if vol > VOLUME_CLEAN_MAX:
         # PLAYBACK OVERDRIVE (.vol 1001-2000): up to +18 dB more into a hard
