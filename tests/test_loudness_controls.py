@@ -34,8 +34,25 @@ class LoudnessControls(unittest.TestCase):
         # Loud but CLEAN: the gaps between words must stay well below the
         # voice (old chain pumped the hiss up to voice level = "khar khar").
         pk, rms = measure(build_live_mic_filter(loud=120))
-        self.assertLessEqual(pk, -0.45)
-        self.assertGreaterEqual(rms, -6.0)
+        self.assertLessEqual(pk, -1.5)          # Opus headroom: no clip in VC
+        self.assertGreaterEqual(rms, -16.0)     # still loud
+        # record_21: crest 4 dB = square-wave clipping ("glitch").  Speech
+        # must keep >= 7 dB between average and peak.
+        self.assertGreaterEqual(pk - rms, 7.0)
+
+    def test_live_mic_quiet_phone_not_gated(self):
+        # Old double gate muted a -20 dBFS phone completely (stutter/glitch).
+        voice = ("aevalsrc='(0.5*sin(2*PI*150*t)+0.3*sin(2*PI*300*t)+0.15*sin(2*PI*900*t))"
+                 "*(0.3+0.7*abs(sin(2*PI*2.5*t)))':s=48000:d=4")
+        for lvl in (-6, -20, -32):
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", voice, "-af",
+                                f"volume={lvl + 8}dB," + build_live_mic_filter(-1.0, loud=120)
+                                + ",astats=measure_overall=Peak_level+RMS_level+Flat_factor:measure_perchannel=0",
+                                "-f", "null", "-"], capture_output=True, text=True)
+            rms = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
+            flat = float(re.findall(r"Flat factor: (\S+)", r.stderr)[-1])
+            self.assertGreater(rms, -16.0, f"input {lvl} dBFS too quiet")
+            self.assertLess(flat, 1.0, f"input {lvl} dBFS clipped flat")
         noisy = ("anoisesrc=d=2:c=white:a=0.002")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", noisy, "-af",
                             build_live_mic_filter() + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
