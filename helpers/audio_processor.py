@@ -282,50 +282,45 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         ceiling_db = max(ceiling_db, -1.0)
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 16.0, high=18.0, low=0.0)
     # BANDWIDTH FIX (root cause of "aawaj bohot kam lagti hai"):
     #   old chain had DOUBLE highpass at 140 Hz + DOUBLE lowpass at 8 kHz.
     #   8 kHz cutoff removes all consonant/air energy (5-15 kHz) -> voice
     #   sounds muffled AND perceptually quieter.  Double 140 Hz highpass
     #   kills male voice warmth.  Now: single 85 Hz HP + single 14 kHz LP
     #   = full telephony-grade speech band, much louder and clearer.
+    # CLARITY FIX ("khar khar" root cause): the old chain stacked a +35 dB
+    # pre-amp, speechnorm e=48, compressor make-up, +11 dB @ 2.6 kHz, an
+    # exciter, mcompand +18 dB and ~26 dB drive into the limiters.  That is
+    # >100 dB of gain on the phone's noise floor, so hiss/room noise became
+    # as loud as the voice and the harsh EQ + exciter made it crackle.
+    # New chain: strong denoise + downward expander FIRST (noise never gets
+    # amplified), moderate levelling, a warm "damdar" EQ (chest body
+    # 120-180 Hz, mud cut, gentle presence) and all loudness from a dense
+    # two-stage limiter at the end -> louder AND clean words.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=85",
-         "lowpass=f=14000"]
+         "highpass=f=75:p=2",
+         "lowpass=f=11500"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=10:nf=-50:tn=1")
+        f.append("afftdn=nr=20:nf=-42:tn=1:om=o")
     if _has_filter("agate"):
-        f.append("agate=threshold=0.0004:range=0.002:ratio=20:attack=1:release=250:detection=peak")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 35.0, high=40.0, low=0.0))}dB")
+        f.append("agate=threshold=0.012:range=0.01:ratio=4:attack=3:release=180:knee=4:detection=rms")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 10.0, high=40.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=48:r=0.0005:l=1:p=0.95")
-    f.append("acompressor=threshold=0.035:ratio=14:attack=1:release=60:makeup=8:knee=4")
-    if _has_filter("agate"):
-        f.append("agate=threshold=0.008:range=0.08:ratio=4:attack=1:release=220:detection=rms")
-    f += ["equalizer=f=300:t=q:w=1:g=-4",
-          "equalizer=f=1200:t=q:w=1:g=3",
-          "equalizer=f=2600:t=q:w=0.9:g=11",
-          "equalizer=f=3800:t=q:w=1.2:g=5",
-          "equalizer=f=5500:t=q:w=1.5:g=3"]
-    if _has_filter("aexciter"):
-        f.append("aexciter=amount=0.9:drive=5.5:freq=3000:ceil=10000")
-    # NON-ADMIN GC ROOT FIX: without admin nobody can push the relay to
-    # 200 %, so the only loudness left is DENSITY.  Open mode (no admin
-    # boost) adds a 3-band compressor (every band pushed up evenly ->
-    # voice stays clear, no muddy bass pumping), a ceiling of -0.3 dBFS and
-    # +4 dB extra drive into the limiters.  Mean level ends ~3 dB under the
-    # peak: the loudest a clean voice can be inside Telegram's Opus.
+        f.append("speechnorm=e=10:r=0.0002:l=1:p=0.9")
+    f.append("acompressor=threshold=0.12:ratio=4:attack=4:release=90:makeup=2:knee=3")
+    f += ["equalizer=f=140:t=q:w=0.9:g=5",      # chest / dam (body)
+          "equalizer=f=380:t=q:w=1.2:g=-3",     # mud / boxiness cut
+          "equalizer=f=1800:t=q:w=1.4:g=2.5",   # word intelligibility
+          "equalizer=f=3200:t=q:w=1.2:g=3",     # presence (was +11 harsh)
+          "equalizer=f=7000:t=q:w=1.5:g=-2"]    # tame hiss / sibilance
     open_mode = ceiling_db > -3.0
     if open_mode:
-        ceiling_db = max(ceiling_db, -0.3)
+        ceiling_db = max(ceiling_db, -0.5)
         limit = 10 ** (ceiling_db / 20.0)
-        pre_limit = min(0.995, limit * 10 ** (2.0 / 20.0))
-        drive += _env_db("LIVE_MIC_OPEN_EXTRA_DB", 10.0, high=12.0, low=0.0)
-        if _has_filter("mcompand"):
-            f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
-                     "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
-                     "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
-            f.append("volume=18dB")
+        pre_limit = min(0.99, limit * 10 ** (2.0 / 20.0))
+        drive = _env_db("LIVE_MIC_DRIVE_DB", 22.0, high=28.0, low=0.0)
+    else:
+        drive = _env_db("LIVE_MIC_DRIVE_DB", 18.0, high=28.0, low=0.0)
     if crunch > 0:
         # Push the voice into a tanh soft-clipper, then pull it back: adds
         # harmonics (gritty / "phati" awaaz) while the limiters stay in charge.
@@ -337,7 +332,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
         # Above 100 less is pulled back -> the distortion stays loud.
         f.append(f"volume={_db(-cdb * (0.6 if crunch <= 100 else 0.3))}dB")
-    drive += loud * 0.20               # up to +40 dB extra loudness
+    drive += min(loud, 100) * 0.08 + max(0, loud - 100) * 0.12  # clean up to +8 dB, overdrive +12 dB more
     if overdrive:
         # FATNE DE: full-scale ceiling, levelling limiter then a hard clip
         # at 0 dBFS instead of the clean brick-wall.  Peaks get chopped
@@ -350,13 +345,18 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
             f.append("asoftclip=type=hard:threshold=0.944")
         else:
             f.append("alimiter=limit=0.944:level=false:attack=0.1:release=2")
-        return apply_sync_and_presence(",".join(f))
+        return apply_sync_and_presence(",".join(f), boost=False)
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
-          f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=80",
+          f"alimiter=limit={pre_limit:.3f}:level=false:attack=3:release=35"]
+    # Warm tape-style saturation: denser, "damdar" voice without the harsh
+    # square-wave crackle (input is already clean + gated, so no hiss grit).
+    if _has_filter("asoftclip"):
+        f += ["volume=4dB", "asoftclip=type=tanh:oversample=4", "volume=4dB"]
+    f += [
           # Stage 2: fast brick-wall at the ceiling (no clipping, Opus-safe).
           f"alimiter=limit={limit:.3f}:level=false:attack=0.5:release=15"]
-    return apply_sync_and_presence(",".join(f))
+    return apply_sync_and_presence(",".join(f), boost=False)
 
 
 def build_ffmpeg_filter(
