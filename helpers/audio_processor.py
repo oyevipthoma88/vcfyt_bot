@@ -345,10 +345,11 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f += [f"volume={_db(12.0 + 1.0 + drive)}dB",
               "alimiter=limit=0.999:level=false:attack=5:release=80",
               f"volume={_db(min(12.0, (max(loud, crunch) - 100) * 0.12))}dB"]
+        # Crackle guard: Opus overshoots ~0.5 dB -> clip at -0.5 dBFS, not 0.
         if _has_filter("asoftclip"):
-            f.append("asoftclip=type=hard:threshold=1")
+            f.append("asoftclip=type=hard:threshold=0.944")
         else:
-            f.append("alimiter=limit=1:level=false:attack=0.1:release=2")
+            f.append("alimiter=limit=0.944:level=false:attack=0.1:release=2")
         return apply_sync_and_presence(",".join(f))
     f += [f"volume={_db(12.0 + ceiling_db + 1.0 + drive)}dB",
           # Stage 1: slow leveller-limiter (whole words dense, no pumping).
@@ -677,16 +678,20 @@ def build_ffmpeg_filter(
             filters.append(f"volume={_db(drive - first)}dB")
             filters.append("asoftclip=type=tanh:threshold=0.95")
             filters.append("lowpass=f=15000")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=0.1:release=8:level=false")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.944:attack=0.1:release=8:level=false")
     if vol > VOLUME_CLEAN_MAX:
         # PLAYBACK OVERDRIVE (.vol 1001-2000): up to +18 dB more into a hard
         # clip at 0 dBFS.  Louder than 1000; awaaz fat sakti hai (by choice).
         over = (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)
         filters.append(f"volume={_db(18.0 * over)}dB")
         if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=hard:threshold=1")
+            filters.append("asoftclip=type=hard:threshold=0.944")
         else:
-            filters.append("alimiter=limit=1:attack=0.1:release=2:level=false")
+            filters.append("alimiter=limit=0.944:attack=0.1:release=2:level=false")
+    elif vol < VOLUME_CLEAN_MAX:
+        # VOLUME FIX: limiter ke baad sab level same ho jaata tha, isliye
+        # .vol 0-999 ka koi asar nahi tha.  Ab 1000 = full, kam = sach me dheema.
+        filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
 
 async def process_audio_to_file(
@@ -732,14 +737,14 @@ async def process_audio_to_file(
         fallback = (
             "aresample=48000,"
             "dynaudnorm=f=150:g=15:p=0.95:m=100:r=0.9:s=0,"
-            "volume=36dB,",
+            "volume=36dB,"
             "acompressor=threshold=0.01:ratio=20:attack=1:release=50:"
             "makeup=24:knee=2,"
             "loudnorm=I=-5:LRA=1.0:TP=0.0,"
             "volume=12dB,"
             "alimiter=level_in=4:limit=0.99:attack=0.1:release=5:asc=1"
         )
-        code2, stderr2 = await _run(fallback)
+        code2, stderr2 = await _run(fallback)  # str now (stray comma made it a tuple)
         if code2 != 0 or not os.path.exists(output_path):
             try:
                 os.unlink(output_path)
