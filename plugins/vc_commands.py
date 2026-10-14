@@ -2026,15 +2026,24 @@ async def cmd_spare(bot: Client, msg: Message):
         await msg.reply_text(f"👋 Spare ID VC se nikal gayi: <code>{cid}</code>")
 
 
+@Client.on_message(HAS_USER & cmd_prefix(r"(target|settarget|tgt)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_target(bot: Client, msg: Message):
+    """.target <id/@user/link> — shortcut for .mic chat."""
+    parts = cmd_text(msg).split()
+    msg.text = " ".join([".mic", "chat", *parts[1:]])
+    await cmd_mic(bot, msg)
+
+
 @Client.on_message(HAS_USER & cmd_prefix(r"mic\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_mic(bot: Client, msg: Message):
     """Live Mic = VC Bridge (browser mic page aur direct live hata diye)."""
     parts = cmd_text(msg).split()
     action = parts[1].lower() if len(parts) > 1 else "help"
 
-    if action in {"chat", "setchat", "target"}:
-        if not await get_engine(msg):
-            return
+    if action in {"chat", "setchat", "target", "tgt"}:
+        # Target save karne ke liye engine start hona zaroori nahi.
+        if len(parts) < 3 and msg.chat and msg.chat.id < 0:
+            parts = parts[:2] + [str(msg.chat.id)]
         # Save a default group so `.mic on` works from bot DM — nothing is
         # ever typed in the group, other members won't know.
         if len(parts) < 3:
@@ -2045,11 +2054,14 @@ async def cmd_mic(bot: Client, msg: Message):
                 "\n\nSet karne ke liye (bot DM me): <code>.mic chat -100xxxxxxxx</code>\n"
                 "Username / invite link bhi chalega.")
             return
-        cid, _ = await target_chat(msg, parts[2])
+        from plugins.vc_bridge import resolve_group
+        cid, jref = await resolve_group(msg, parts[2], msg.from_user.id, "tgt")
         if not cid:
-            await mic_notify(msg, "❌ Group nahi mila. Chat ID / @username / invite link check karein.")
+            await mic_notify(msg, "❌ Group nahi mila. Chat ID / @username / invite link check karein.\n"
+                                  "Private group ho to spare ID ko pehle group me add karo.")
             return
         await db.set_app_value(f"mic_chat_{msg.from_user.id}", str(cid))
+        await db.set_app_value(f"mic_chat_ref_{msg.from_user.id}", jref or "")
         await mic_notify(msg, 
             f"✅ Mic target set: <code>{cid}</code>\n\nAb bot DM me sirf "
             "<code>.mic on</code> bhejo — aawaz isi group ki VC me jayegi.")

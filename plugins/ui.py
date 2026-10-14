@@ -167,6 +167,10 @@ def B(text: str, callback_data: str = None, style: str = None,
 
             pass
     emoji = _STYLE_EMOJI.get(style, "")
+    # Text pehle se emoji se shuru ho (ya premium icon ho) to prefix mat
+    # chipkao — warna "✅ 🎤" double emoji aata tha aur premium icon toot-ta tha.
+    if icon_custom_emoji_id or (text[:1] and not text[:1].isascii()):
+        emoji = ""
     if emoji and not text.startswith(tuple(_STYLE_EMOJI.values())):
         text = f"{emoji} {text}"
     button = _InlineKeyboardButton(text, **params)
@@ -291,11 +295,11 @@ def settings_kb() -> K:
     return K([
         [B("🔥 MAX LOUD (1 tap)", callback_data="set:max", style="success")],
         [B("🔉 Vol −", callback_data="set:relay:-100", style="primary"),
-         B("Vol + 🔊", callback_data="set:relay:100", style="primary")],
+         B("🔊 Vol +", callback_data="set:relay:100", style="primary")],
         [B("🎵 Bass −", callback_data="set:bass:-5", style="primary"),
-         B("Bass + 🎵", callback_data="set:bass:5", style="primary")],
+         B("🎵 Bass +", callback_data="set:bass:5", style="primary")],
         [B("💥 Boost −", callback_data="set:boost:-1", style="primary"),
-         B("Boost + 💥", callback_data="set:boost:1", style="primary")],
+         B("💥 Boost +", callback_data="set:boost:1", style="primary")],
         [B("🔁 Echo On/Off", callback_data="set:echo:toggle", style="primary"),
          B("🔄 Reset", callback_data="set:reset", style="danger")],
         [B("✅ Apply to playing song", callback_data="set:apply", style="success")],

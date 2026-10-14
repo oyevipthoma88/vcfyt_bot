@@ -179,6 +179,20 @@ async def resolve_group(msg, ref: str, uid: int, kind: str):
         except Exception:
             pass
     key = _join_key(ref)
+    inv = re.search(r"(?:joinchat/|\+)([A-Za-z0-9_-]{6,})", ref)
+    for c in (clients if inv else []):
+        # Invite link: member pehle se ho to join_chat "ALREADY" deta tha aur
+        # get_chat(link) fail hota tha — CheckChatInvite se asli ID nikalo.
+        try:
+            from pyrogram import raw, utils
+            r = await c.invoke(raw.functions.messages.CheckChatInvite(hash=inv.group(1)))
+            ch = getattr(r, "chat", None)
+            if ch is not None:
+                if isinstance(ch, raw.types.Channel):
+                    return utils.get_channel_id(ch.id), ref
+                return -ch.id, ref
+        except Exception:
+            pass
     for c in clients:
         for fn in ("join_chat", "get_chat"):
             try:
