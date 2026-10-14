@@ -103,12 +103,15 @@ async def edit_screen(message, text: str, reply_markup=None, **kwargs):
         try:
             return await message.edit_caption(text, reply_markup=reply_markup)
         except RPCError:
+            # Send the new screen FIRST, delete the old one only on success
+            # (old bug: message deleted, then send failed -> blank chat).
+            sent = await message._client.send_message(
+                message.chat.id, text, reply_markup=reply_markup, **kwargs)
             try:
                 await message.delete()
             except Exception:
                 pass
-            return await message._client.send_message(
-                message.chat.id, text, reply_markup=reply_markup, **kwargs)
+            return sent
 
 async def safe_answer(cq, text: str = "", **kwargs):
     try:

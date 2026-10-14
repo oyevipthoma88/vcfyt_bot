@@ -24,6 +24,28 @@ async def _restyle_or_fallback(client, message, markup):
         pass
 
 
+async def _call_premium(fn, args, kwargs, idx, key):
+    """Send with premium text emoji; if Telegram rejects the entities
+    (ENTITY_TEXT_INVALID) retry once with plain emoji so nothing vanishes."""
+    from helpers.custom_emoji import plain_text
+    raw_args, raw_kwargs = args, dict(kwargs)
+    if len(args) > idx:
+        args = (*args[:idx], _quote_text(args[idx]), *args[idx + 1:])
+    elif key in kwargs:
+        kwargs = dict(kwargs); kwargs[key] = _quote_text(kwargs[key])
+    try:
+        return await fn(*args, **kwargs)
+    except Exception as exc:
+        if "ENTITY_TEXT_INVALID" not in str(exc) and "ENTITIES_TOO_LONG" not in str(exc) \
+                and "DOCUMENT_INVALID" not in str(exc):
+            raise
+        if len(raw_args) > idx:
+            raw_args = (*raw_args[:idx], plain_text(raw_args[idx]), *raw_args[idx + 1:])
+        elif key in raw_kwargs:
+            raw_kwargs[key] = plain_text(raw_kwargs[key])
+        return await fn(*raw_args, **raw_kwargs)
+
+
 class StyledBotClient(Client):
 
     async def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, *args, **kwargs):
@@ -54,11 +76,7 @@ class StyledBotClient(Client):
     async def send_message(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")
         kwargs["reply_markup"] = _transport_markup(markup)
-        if len(args) > 1:
-            args = (*args[:1], _quote_text(args[1]), *args[2:])
-        elif "text" in kwargs:
-            kwargs["text"] = _quote_text(kwargs["text"])
-        message = await super().send_message(*args, **kwargs)
+        message = await _call_premium(super().send_message, args, kwargs, 1, 'text')
         if markup:
             await _restyle_or_fallback(self, message, markup)
         return message
@@ -66,9 +84,7 @@ class StyledBotClient(Client):
     async def send_photo(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")
         kwargs["reply_markup"] = _transport_markup(markup)
-        if "caption" in kwargs:
-            kwargs["caption"] = _quote_text(kwargs["caption"])
-        message = await super().send_photo(*args, **kwargs)
+        message = await _call_premium(super().send_photo, args, kwargs, 99, "caption")
         if markup:
             await _restyle_or_fallback(self, message, markup)
         return message
@@ -76,9 +92,7 @@ class StyledBotClient(Client):
     async def send_animation(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")
         kwargs["reply_markup"] = _transport_markup(markup)
-        if "caption" in kwargs:
-            kwargs["caption"] = _quote_text(kwargs["caption"])
-        message = await super().send_animation(*args, **kwargs)
+        message = await _call_premium(super().send_animation, args, kwargs, 99, "caption")
         if markup:
             await _restyle_or_fallback(self, message, markup)
         return message
@@ -86,11 +100,7 @@ class StyledBotClient(Client):
     async def edit_message_text(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")
         kwargs["reply_markup"] = _transport_markup(markup)
-        if len(args) > 2:
-            args = (*args[:2], _quote_text(args[2]), *args[3:])
-        elif "text" in kwargs:
-            kwargs["text"] = _quote_text(kwargs["text"])
-        message = await super().edit_message_text(*args, **kwargs)
+        message = await _call_premium(super().edit_message_text, args, kwargs, 2, 'text')
         if markup:
             await _restyle_or_fallback(self, message, markup)
         return message
@@ -98,9 +108,7 @@ class StyledBotClient(Client):
     async def edit_message_caption(self, *args, **kwargs):
         markup = kwargs.get("reply_markup")
         kwargs["reply_markup"] = _transport_markup(markup)
-        if "caption" in kwargs:
-            kwargs["caption"] = _quote_text(kwargs["caption"])
-        message = await super().edit_message_caption(*args, **kwargs)
+        message = await _call_premium(super().edit_message_caption, args, kwargs, 99, "caption")
         if markup:
             await _restyle_or_fallback(self, message, markup)
         return message

@@ -78,7 +78,6 @@ ICONS = {
     "🎶": "5206421491503088521",
     "📘": "5406631276042002796",
     "⚠": "5436113877181941026",
-    "☰": "5231200819986047254",
     "✨": "5429153655045507054",
 }
 
@@ -129,7 +128,9 @@ def premium_text(value):
         return value
 
     def _wrap(chunk: str) -> str:
-        return _TEXT_RE.sub(lambda m: f'<emoji id="{ICONS[m.group(1)]}">{m.group(1)}</emoji>', chunk)
+        # Keep the variation selector inside the entity: Telegram rejects
+        # custom-emoji entities whose text isn't a full emoji (ENTITY_TEXT_INVALID).
+        return _TEXT_RE.sub(lambda m: f'<emoji id="{ICONS[m.group(1)]}">{m.group(0)}</emoji>', chunk)
 
     out, pos = [], 0
     for m in _SKIP_RE.finditer(value):
@@ -138,3 +139,11 @@ def premium_text(value):
         pos = m.end()
     out.append(_wrap(value[pos:]))
     return "".join(out)
+
+
+_TAG_RE = _re.compile(r'<emoji id="\d+">(.*?)</emoji>', _re.S)
+
+
+def plain_text(value):
+    """Remove premium emoji tags (fallback when Telegram rejects them)."""
+    return _TAG_RE.sub(r"\1", value) if isinstance(value, str) else value

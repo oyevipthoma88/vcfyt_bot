@@ -329,9 +329,11 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     f += ["equalizer=f=140:t=q:w=0.9:g=3",      # chest / dam (body)
           "equalizer=f=380:t=q:w=1.2:g=-3",     # mud / boxiness cut
           "equalizer=f=1800:t=q:w=1.4:g=2",     # word intelligibility
-          "equalizer=f=3000:t=q:w=1.0:g=4",     # presence: cuts through the fight
+          "equalizer=f=3000:t=q:w=1.0:g=5",     # presence: cuts through the fight
+          # v10: second gentle leveller = denser words (louder to the ear)
+          "acompressor=threshold=0.1:ratio=4:attack=4:release=90:makeup=2:knee=6",
           "equalizer=f=7000:t=q:w=1.5:g=-2"]    # tame hiss / sibilance
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 10.0, high=16.0, low=0.0)
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 12.0, high=18.0, low=0.0)
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -343,14 +345,14 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f.append(f"volume={_db(-cdb * (0.8 if crunch <= 100 else 0.6))}dB")
     drive += min(loud, 200) * 0.02    # LOUD 0..200 -> +0..+4 dB
     # Opus overshoots ~0.5-1 dB after encoding -> keep 1 dB extra headroom.
-    out_limit = 10 ** ((ceiling_db - 1.0) / 20.0)
+    out_limit = 10 ** ((ceiling_db - 0.6) / 20.0)  # v10: 0.4 dB more peak
     pre_limit = min(0.95, out_limit * 10 ** (1.5 / 20.0))
     f += [f"volume={_db(drive)}dB",
           # Stage 1: slow leveller (whole words dense, no pumping).
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=60"]
     if _has_filter("asoftclip") and not overdrive:
         # Warm, mild saturation that is pulled back - adds density, not fuzz.
-        f += ["volume=2dB", "asoftclip=type=tanh:oversample=4", "volume=2dB"]
+        f += ["volume=3dB", "asoftclip=type=tanh:oversample=4", "volume=3dB"]
     # Stage 2: single fast brick-wall at the ceiling (clip-free).
     f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=1:release=40")
     return apply_sync_and_presence(",".join(f), boost=False)
