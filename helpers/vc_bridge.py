@@ -283,7 +283,9 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
             f.append("asoftclip=type=hard:threshold=0.95")
             f.append("lowpass=f=6800:p=2")
         # Final ceiling (Opus decoder ~1 dB overshoot karta hai).
-        f.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=4:level=false")
+        # v12: Volume 25-30 -> ceiling ramps 0.98 -> 1.0 (0 dBFS, last step).
+        lim = 0.98 + max(0, min(6, d - 24)) / 6 * 0.02
+        f.append(f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=0.1:release=4:level=false")
     elif d:
         # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
         f.append(f"volume={min(d, 9)}dB")

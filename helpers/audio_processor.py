@@ -346,6 +346,9 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     drive += min(loud, 200) * 0.02    # LOUD 0..200 -> +0..+4 dB
     # Opus overshoots ~0.5-1 dB after encoding -> keep 1 dB extra headroom.
     out_limit = 10 ** ((ceiling_db - 0.6) / 20.0)  # v10: 0.4 dB more peak
+    # v12: loud 121..200 ramps the final ceiling up to 0 dBFS.
+    br = max(0.0, min(1.0, (loud - 120) / 80.0))
+    out_limit = min(1.0, out_limit + (1.0 - out_limit) * br)
     pre_limit = min(0.95, out_limit * 10 ** (1.5 / 20.0))
     f += [f"volume={_db(drive)}dB",
           # Stage 1: slow leveller (whole words dense, no pumping).
@@ -362,10 +365,10 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f += ["lowpass=f=9500:p=2", f"volume={_db(warm)}dB",
               "asoftclip=type=tanh:oversample=4", f"volume={_db(warm * 0.6)}dB"]
     # Stage 2: single fast brick-wall at the ceiling (clip-free).
-    if _has_filter("asoftclip"):
+    if _has_filter("asoftclip") and out_limit < 0.95:
         # v11 anti "khar khar": round the peaks off smoothly just under the
         # ceiling so the brick-wall below almost never flat-tops (square wave).
-        f.append(f"asoftclip=type=alg:threshold={out_limit * 1.1:.3f}:oversample=4")
+        f.append(f"asoftclip=type=alg:threshold={min(0.999, out_limit * 1.1):.3f}:oversample=4")
     f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=1:release=40")
     return apply_sync_and_presence(",".join(f), boost=False)
 
