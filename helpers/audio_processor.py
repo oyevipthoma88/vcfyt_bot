@@ -352,8 +352,20 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
           f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=60"]
     if _has_filter("asoftclip") and not overdrive:
         # Warm, mild saturation that is pulled back - adds density, not fuzz.
-        f += ["volume=3dB", "asoftclip=type=tanh:oversample=4", "volume=3dB"]
+        # v11: push is tunable (LIVE_MIC_WARMTH_DB).  Anti "khar khar": the
+        # tanh harmonics above ~9 kHz are what sounds like fizz/crackle, so
+        # they are filtered right after the clipper, and a de-esser tames
+        # harsh S/T before the push.
+        warm = _env_db("LIVE_MIC_WARMTH_DB", 8.0, high=9.0, low=0.0)
+        if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
+            f.append("deesser=i=0.4:m=0.5:f=0.5:s=o")
+        f += ["lowpass=f=9500:p=2", f"volume={_db(warm)}dB",
+              "asoftclip=type=tanh:oversample=4", f"volume={_db(warm * 0.6)}dB"]
     # Stage 2: single fast brick-wall at the ceiling (clip-free).
+    if _has_filter("asoftclip"):
+        # v11 anti "khar khar": round the peaks off smoothly just under the
+        # ceiling so the brick-wall below almost never flat-tops (square wave).
+        f.append(f"asoftclip=type=alg:threshold={out_limit * 1.1:.3f}:oversample=4")
     f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=1:release=40")
     return apply_sync_and_presence(",".join(f), boost=False)
 
@@ -538,7 +550,7 @@ def build_ffmpeg_filter(
         if _has_filter("aexciter"):
             # This FFmpeg build requires aexciter ceil >= 9999 Hz.
             filters.append("aexciter=amount=0.12:drive=1.8:freq=3500:ceil=10000")
-        if _has_filter("deesser"):
+        if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
             filters.append("deesser=i=0.20:m=0.35:f=0.50")
         else:
             filters.append("equalizer=f=7600:t=q:w=2.2:g=-3.00")
