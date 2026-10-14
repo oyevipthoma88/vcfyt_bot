@@ -1,0 +1,128 @@
+{
+  "name": "VC Audio Bot",
+  "description": "Multi-user Telegram Voice Chat Audio Bot \u2014 in-bot login, high volume/bass/echo/boost, live mic boost, full button UI.",
+  "keywords": [
+    "telegram",
+    "bot",
+    "voice-chat",
+    "pyrogram",
+    "pytgcalls"
+  ],
+  "env": {
+    "API_ID": {
+      "description": "Telegram API ID \u2014 get from https://my.telegram.org",
+      "required": true
+    },
+    "API_HASH": {
+      "description": "Telegram API Hash \u2014 get from https://my.telegram.org",
+      "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Bot token from @BotFather on Telegram",
+      "required": true
+    },
+    "OWNER_ID": {
+      "description": "Primary Telegram owner ID (numeric). Get it from @userinfobot",
+      "required": false
+    },
+    "OWNER_IDS": {
+      "description": "Additional owner IDs, comma/semicolon separated. At least one of OWNER_ID or OWNER_IDS is required.",
+      "required": false
+    },
+    "LOG_CHANNEL": {
+      "description": "Log channel/group ID. Default -1004303404961. Add the bot as admin there.",
+      "required": false,
+      "value": "-1004303404961"
+    },
+    "STRING_SESSION": {
+      "description": "Optional owner Pyrogram string session. Generate with @Session_generator_1bot or just /login inside the bot.",
+      "required": false
+    },
+    "MONGO_URI": {
+      "description": "MongoDB Atlas connection URI (recommended for persistent storage). Free tier: mongodb.com/atlas",
+      "required": false
+    },
+    "DEFAULT_VOLUME": {
+      "description": "Practical playback volume scale 0-1000. Default: 1000",
+      "required": false,
+      "value": "1000"
+    },
+    "DEFAULT_ECHO": {
+      "description": "Enable echo by default. Keep false for the clearest voice playback.",
+      "required": false,
+      "value": "false"
+    },
+    "HEROKU_APP_NAME": {
+      "description": "Your Heroku app name. Only a last-resort fallback \u2014 modern Heroku domains have a random suffix, so prefer LIVE_MIC_BASE_URL.",
+      "required": false
+    },
+    "LIVE_MIC_BASE_URL": {
+      "description": "RECOMMENDED: the exact URL Heroku shows under Settings \u2192 Domains / Open app (e.g. https://my-vc-bot-1a2b3c4d5e6f.herokuapp.com). Used for live mic links.",
+      "required": false
+    },
+    "START_PIC": {
+      "description": "Optional Telegram file_id or public image URL used by /start.",
+      "required": false
+    },
+    "DEFAULT_ECHO_LEVEL": {
+      "description": "Echo strength 0-10. Default: 2 (only used when echo is enabled)",
+      "required": false,
+      "value": "2"
+    },
+    "DEFAULT_BOOST": {
+      "description": "Loudness boost stage 0-10. Strong default: 9",
+      "required": false,
+      "value": "9"
+    },
+    "LIVE_BOOST_DEFAULT": {
+      "description": "Live mic participant volume 1-20000 (20000 = 200% max)",
+      "required": false,
+      "value": "20000"
+    },
+    "RELAY_DEFAULT_VOLUME": {
+      "description": "Relay playback volume 0-1000. Strong real-audio default: 1000",
+      "required": false,
+      "value": "1000"
+    },
+    "RELAY_DEFAULT_GAIN": {
+      "description": "Relay playback gain 0-400. Strong real-audio default: 300",
+      "required": false,
+      "value": "300"
+    },
+    "RELAY_DEFAULT_BASS": {
+      "description": "Relay bass 0-100. Keep moderate for clear speech.",
+      "required": false,
+      "value": "8"
+    },
+    "RELAY_DEFAULT_TREBLE": {
+      "description": "Relay treble/presence 0-100. Higher values improve intelligibility.",
+      "required": false,
+      "value": "62"
+    },
+    "MAX_ACTIVE_SESSIONS": {
+      "description": "Max simultaneous user sessions in memory. Default 50 for Standard 2x dyno (1024MB).",
+      "required": false,
+      "value": "50"
+    },
+    "SESSION_IDLE_TIMEOUT": {
+      "description": "Seconds of inactivity before an idle user session is auto-stopped. Default 1800 (30 min).",
+      "required": false,
+      "value": "1800"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    },
+    {
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
+    }
+  ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "stack": "heroku-24"
+}

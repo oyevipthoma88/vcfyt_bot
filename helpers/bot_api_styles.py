@@ -1,0 +1,109 @@
+import asyncio
+import logging
+from typing import Any
+
+import aiohttp
+
+from config import Config
+
+logger = logging.getLogger("vcbot.bot_api_styles")
+_ICON_WARNED = False
+
+def has_native_styles(markup: Any) -> bool:
+    rows = getattr(markup, "inline_keyboard", None) or []
+    return any(getattr(button, "_bot_api_style", None)
+               or getattr(button, "_bot_api_icon", None)
+               for row in rows for button in row)
+
+def _button_payload(button: Any, icons: bool = True) -> dict:
+    text = button.text
+    for prefix in ("[PRIMARY] ", "[SUCCESS] ", "[DANGER] ", "🔹 ", "✅ ", "❌ "):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    data = {"text": text}
+    if getattr(button, "callback_data", None) is not None:
+        data["callback_data"] = (
+            button.callback_data.decode(errors="replace")
+            if isinstance(button.callback_data, bytes)
+            else button.callback_data
+        )
+    elif getattr(button, "url", None):
+        data["url"] = button.url
+    elif getattr(button, "web_app", None):
+        data["web_app"] = {"url": button.web_app.url}
+    elif getattr(button, "switch_inline_query", None) is not None:
+        data["switch_inline_query"] = button.switch_inline_query
+    elif getattr(button, "switch_inline_query_current_chat", None) is not None:
+        data["switch_inline_query_current_chat"] = button.switch_inline_query_current_chat
+    elif getattr(button, "copy_text", None):
+        ct = button.copy_text
+        data["copy_text"] = {"text": getattr(ct, "text", ct)}
+    elif getattr(button, "user_id", None) is not None:
+        data["user_id"] = button.user_id
+    style = getattr(button, "_bot_api_style", None)
+    if style:
+        data["style"] = style
+    icon = getattr(button, "_bot_api_icon", None)
+    if icon and icons:
+        from helpers.custom_emoji import strip_icon_emoji
+        data["icon_custom_emoji_id"] = str(icon)
+        # Sirf premium emoji dikhe — normal wala text se hatao.
+        data["text"] = strip_icon_emoji(data["text"])
+    return data
+
+def _strip_icons(payload: dict) -> bool:
+    found = False
+    for row in payload.get("inline_keyboard", []):
+        for btn in row:
+            if btn.pop("icon_custom_emoji_id", None):
+                found = True
+
+    return found
+
+def markup_payload(markup: Any, icons: bool = True) -> dict | None:
+    rows = getattr(markup, "inline_keyboard", None)
+    if not rows:
+        return None
+    return {"inline_keyboard": [[_button_payload(b, icons) for b in row] for row in rows]}
+
+async def apply_native_styles(message: Any, markup: Any) -> bool:
+    token = getattr(Config, "BOT_TOKEN", None)
+    payload = markup_payload(markup)
+    if not token or not payload or not getattr(message, "id", None):
+        return False
+    url = f"https://api.telegram.org/bot{token}/editMessageReplyMarkup"
+    body = {
+        "chat_id": message.chat.id,
+        "message_id": message.id,
+        "reply_markup": payload,
+    }
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=body) as response:
+                result = await response.json(content_type=None)
+                if response.status == 200 and result.get("ok"):
+                    return True
+                # Same keyboard already there = colours already correct.
+                if "not modified" in str(result.get("description", "")).lower():
+                    return True
+                # Premium emoji allowed nahi -> icons hata ke plain keyboard.
+                if response.status == 400 and _strip_icons(payload):
+                    # Telegram only shows premium button emoji when the BOT
+                    # OWNER has Telegram Premium (or the bot has a Fragment
+                    # username).  Log the exact reason once so it's visible.
+                    global _ICON_WARNED
+                    if not _ICON_WARNED:
+                        _ICON_WARNED = True
+                        logger.warning("Premium button emoji rejected by Telegram: %s "
+                                       "(bot owner needs Telegram Premium)", result.get("description"))
+                    body["reply_markup"] = markup_payload(markup, icons=False)
+                    async with session.post(url, json=body) as retry:
+                        again = await retry.json(content_type=None)
+                        if retry.status == 200 and again.get("ok"):
+                            return True
+                logger.warning("Bot API style patch skipped: %s", result)
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        logger.debug("Bot API style patch unavailable: %s", exc)
+    return False
