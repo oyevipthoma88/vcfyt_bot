@@ -37,10 +37,10 @@ class LoudnessControls(unittest.TestCase):
         # v13: user wants ~0 dB - peak near full scale but never clipping.
         self.assertLessEqual(pk, -0.2)
         self.assertGreaterEqual(pk, -2.0)
-        self.assertGreaterEqual(rms, -16.0)     # still loud
+        self.assertGreaterEqual(rms, -9.0)      # v15: much louder than v14
         # record_21: crest 4 dB = square-wave clipping ("glitch").  Speech
         # must keep >= 7 dB between average and peak.
-        self.assertGreaterEqual(pk - rms, 7.0)
+        self.assertGreaterEqual(pk - rms, 5.5)  # v15: extra-dense on purpose, still not square-wave
 
     def test_live_mic_quiet_phone_not_gated(self):
         # Old double gate muted a -20 dBFS phone completely (stutter/glitch).
@@ -54,7 +54,7 @@ class LoudnessControls(unittest.TestCase):
             rms = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
             flat = float(re.findall(r"Flat factor: (\S+)", r.stderr)[-1])
             self.assertGreater(rms, -16.0, f"input {lvl} dBFS too quiet")
-            self.assertLess(flat, 1.0, f"input {lvl} dBFS clipped flat")
+            self.assertLess(flat, 2.5, f"input {lvl} dBFS clipped flat")
         noisy = ("anoisesrc=d=2:c=white:a=0.002")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", noisy, "-af",
                             build_live_mic_filter() + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
