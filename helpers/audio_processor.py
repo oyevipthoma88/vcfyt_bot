@@ -312,28 +312,37 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # Now: one gentle expander, ONE levelling stage, moderate drive, a light
     # tanh warmth stage that is pulled back, and a single brick-wall at the
     # ceiling minus Opus headroom.  Loud, dense, and keeps ~9-12 dB crest.
+    # v13 "awaaz dab rahi hai" ROOT FIX:
+    #   * afftdn tn=1 (noise *tracking*) learned the continuous fight voice as
+    #     "noise" and kept subtracting it -> voice sounded buried / dabbi.
+    #     Now a fixed noise floor (tn=0) that never eats speech.
+    #   * v11/v12 stacked +14 dB drive, +8 dB into tanh and a further +4.8 dB
+    #     AFTER the tanh (meant as pull-back, but positive) into two limiters
+    #     -> ~25 dB of gain reduction, constant pumping: the voice "dabti"
+    #     every time it got loud.  Now moderate drive, gain-neutral warmth,
+    #     one compressor -> words stay punchy and clear.
+    #   * Presence/air (2.5 kHz + 5 kHz) back so consonants cut through.
+    #   * Final peak ~0 dBFS (-0.3 dB safety net), no flat-topped clipping.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=80:p=2",
-         "lowpass=f=12000"]
+         "highpass=f=90:p=2",
+         "lowpass=f=13000"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=12:nf=-50:tn=1")
+        f.append("afftdn=nr=10:nf=-55:tn=0")
     if _has_filter("agate"):
-        # Soft downward expander (range 0.06 = -24 dB, never full mute) at
-        # -54 dBFS: removes hiss between words without cutting quiet words.
-        f.append("agate=threshold=0.002:range=0.06:ratio=2:attack=5:release=250:knee=6:detection=rms")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 6.0, high=20.0, low=0.0))}dB")
+        # Very soft expander (-20 dB max, never mutes) only below -56 dBFS.
+        f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 4.0, high=20.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # Lifts quiet phones up to +24 dB, never boosts loud ones (p=0.7).
-        f.append("speechnorm=e=16:r=0.0005:l=1:p=0.7")
-    f.append("acompressor=threshold=0.18:ratio=3:attack=6:release=120:makeup=1:knee=4")
-    f += ["equalizer=f=140:t=q:w=0.9:g=3",      # chest / dam (body)
-          "equalizer=f=380:t=q:w=1.2:g=-3",     # mud / boxiness cut
-          "equalizer=f=1800:t=q:w=1.4:g=2",     # word intelligibility
-          "equalizer=f=3000:t=q:w=1.0:g=5",     # presence: cuts through the fight
-          # v10: second gentle leveller = denser words (louder to the ear)
-          "acompressor=threshold=0.1:ratio=4:attack=4:release=90:makeup=2:knee=6",
-          "equalizer=f=7000:t=q:w=1.5:g=-2"]    # tame hiss / sibilance
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 12.0, high=18.0, low=0.0)
+        # Lifts quiet phones up to ~+21 dB, leaves loud ones alone.
+        f.append("speechnorm=e=12:r=0.0005:l=1:p=0.75")
+    f += ["equalizer=f=130:t=q:w=0.9:g=3",      # chest / dam (body)
+          "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
+          "equalizer=f=2500:t=q:w=1.2:g=4",     # presence: words cut through
+          "equalizer=f=5000:t=q:w=1.5:g=2",     # clarity / consonants
+          "equalizer=f=8500:t=q:w=1.5:g=-2",    # tame hiss / sibilance
+          # ONE smooth leveller (no double compressor pumping).
+          "acompressor=threshold=0.125:ratio=3:attack=5:release=80:makeup=2:knee=6"]
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 8.0, high=18.0, low=0.0)
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -343,32 +352,25 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         else:
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
         f.append(f"volume={_db(-cdb * (0.8 if crunch <= 100 else 0.6))}dB")
-    drive += min(loud, 200) * 0.02    # LOUD 0..200 -> +0..+4 dB
-    # Opus overshoots ~0.5-1 dB after encoding -> keep 1 dB extra headroom.
-    out_limit = 10 ** ((ceiling_db - 0.6) / 20.0)  # v10: 0.4 dB more peak
-    # v12: loud 121..200 ramps the final ceiling up to 0 dBFS.
-    br = max(0.0, min(1.0, (loud - 120) / 80.0))
-    out_limit = min(1.0, out_limit + (1.0 - out_limit) * br)
-    pre_limit = min(0.95, out_limit * 10 ** (1.5 / 20.0))
-    f += [f"volume={_db(drive)}dB",
-          # Stage 1: slow leveller (whole words dense, no pumping).
-          f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=60"]
+    drive += min(loud, 200) * 0.015   # LOUD 0..200 -> +0..+3 dB
+    # Final ceiling: -0.3 dBFS (~0 dB) unless admin headroom is respected.
+    if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1":
+        out_db = ceiling_db - 0.6
+    else:
+        out_db = _env_db("LIVE_MIC_OUT_DB", -0.3, high=0.0, low=-12.0)
+    out_limit = min(1.0, 10 ** (out_db / 20.0))
+    pre_limit = min(0.97, out_limit * 10 ** (-0.3 / 20.0))
+    f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip") and not overdrive:
-        # Warm, mild saturation that is pulled back - adds density, not fuzz.
-        # v11: push is tunable (LIVE_MIC_WARMTH_DB).  Anti "khar khar": the
-        # tanh harmonics above ~9 kHz are what sounds like fizz/crackle, so
-        # they are filtered right after the clipper, and a de-esser tames
-        # harsh S/T before the push.
-        warm = _env_db("LIVE_MIC_WARMTH_DB", 8.0, high=9.0, low=0.0)
+        # Gain-neutral warmth: +3 dB into tanh, -3 dB out = density, no fizz.
+        warm = _env_db("LIVE_MIC_WARMTH_DB", 3.0, high=9.0, low=0.0)
         if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
             f.append("deesser=i=0.4:m=0.5:f=0.5:s=o")
-        f += ["lowpass=f=9500:p=2", f"volume={_db(warm)}dB",
-              "asoftclip=type=tanh:oversample=4", f"volume={_db(warm * 0.6)}dB"]
-    # Stage 2: single fast brick-wall at the ceiling (clip-free).
-    if _has_filter("asoftclip") and out_limit < 0.95:
-        # v11 anti "khar khar": round the peaks off smoothly just under the
-        # ceiling so the brick-wall below almost never flat-tops (square wave).
-        f.append(f"asoftclip=type=alg:threshold={min(0.999, out_limit * 1.1):.3f}:oversample=4")
+        f += [f"volume={_db(warm)}dB", "asoftclip=type=tanh:oversample=4",
+              f"volume={_db(-warm)}dB", "lowpass=f=12500"]
+    # Stage 1: slow leveller (whole words dense, no pumping).
+    f.append(f"alimiter=limit={pre_limit:.3f}:level=false:attack=4:release=60")
+    # Stage 2: one fast brick-wall safety net at the ceiling (clip-free).
     f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=1:release=40")
     return apply_sync_and_presence(",".join(f), boost=False)
 
