@@ -350,14 +350,15 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         # e=6 (was 12): enough lift for the user's voice, but no longer
         # pumps leftover background/bleed up to voice level.
         f.append("speechnorm=e=6:r=0.0005:l=1:p=0.75")
-    f += ["equalizer=f=130:t=q:w=0.9:g=3",      # chest / dam (body)
+    f += ["equalizer=f=130:t=q:w=0.9:g=4",      # chest / dam (body)
           "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
-          "equalizer=f=2500:t=q:w=1.2:g=4",     # presence: words cut through
+          "equalizer=f=2500:t=q:w=1.2:g=6",     # presence: words cut through
+          "equalizer=f=3600:t=q:w=1.4:g=3",     # v15 piercing punch over the other fighter
           "equalizer=f=5000:t=q:w=1.5:g=2",     # clarity / consonants
           "equalizer=f=8500:t=q:w=1.5:g=-2",    # tame hiss / sibilance
           # ONE smooth leveller (no double compressor pumping).
-          "acompressor=threshold=0.125:ratio=3:attack=5:release=80:makeup=2:knee=6"]
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 11.0, high=18.0, low=0.0)  # v14: +3 dB, bleed is gated now
+          "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=4:knee=4"]  # v15 harder
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 13.0, high=18.0, low=0.0)  # v14: +3 dB, bleed is gated now
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -378,11 +379,11 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip") and not overdrive:
         # Gain-neutral warmth: +3 dB into tanh, -3 dB out = density, no fizz.
-        warm = _env_db("LIVE_MIC_WARMTH_DB", 3.0, high=9.0, low=0.0)
+        warm = _env_db("LIVE_MIC_WARMTH_DB", 7.0, high=12.0, low=0.0)  # v15 overdrive
         if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
             f.append("deesser=i=0.4:m=0.5:f=0.5:s=o")
         f += [f"volume={_db(warm)}dB", "asoftclip=type=tanh:oversample=4",
-              f"volume={_db(-warm)}dB", "lowpass=f=12500"]
+              f"volume={_db(-warm * 0.5)}dB", "lowpass=f=12500"]  # v15: keep half the saturation gain
     # Stage 1: slow leveller (whole words dense, no pumping).
     f.append(f"alimiter=limit={pre_limit:.3f}:level=false:attack=4:release=60")
     # Stage 2: one fast brick-wall safety net at the ceiling (clip-free).
