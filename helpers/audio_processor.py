@@ -329,12 +329,27 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     if _has_filter("afftdn"):
         f.append("afftdn=nr=10:nf=-55:tn=0")
     if _has_filter("agate"):
-        # Very soft expander (-20 dB max, never mutes) only below -56 dBFS.
-        f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
+        # v14 "sirf meri awaaz" (record_22): the recording had NO silence at
+        # all - RMS sat at -4/-6 dBFS for 50 s.  The phone mic was hearing the
+        # other fighter from the speaker (+ room) and the chain lifted that
+        # bleed to full level, so his voice came through the relay too.
+        # CLOSE-VOICE GATE: the user's own mouth-on-mic voice is 15-30 dB
+        # louder than speaker bleed, so everything under LIVE_MIC_GATE_DB
+        # (default -38 dBFS, raw input) is pushed down 40 dB.  Long release
+        # + knee keep word tails smooth (no v9 stutter).  0 = gate off.
+        gate_db = _env_db("LIVE_MIC_GATE_DB", -38.0, high=0.0, low=-70.0)
+        if gate_db < -0.5:
+            thr = 10 ** (gate_db / 20.0)
+            f.append(f"agate=threshold={thr:.5f}:range=0.01:ratio=8:attack=1:"
+                     "release=350:knee=4:detection=peak")
+        else:
+            f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
     f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 4.0, high=20.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
         # Lifts quiet phones up to ~+21 dB, leaves loud ones alone.
-        f.append("speechnorm=e=12:r=0.0005:l=1:p=0.75")
+        # e=6 (was 12): enough lift for the user's voice, but no longer
+        # pumps leftover background/bleed up to voice level.
+        f.append("speechnorm=e=6:r=0.0005:l=1:p=0.75")
     f += ["equalizer=f=130:t=q:w=0.9:g=3",      # chest / dam (body)
           "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
           "equalizer=f=2500:t=q:w=1.2:g=4",     # presence: words cut through
@@ -342,7 +357,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
           "equalizer=f=8500:t=q:w=1.5:g=-2",    # tame hiss / sibilance
           # ONE smooth leveller (no double compressor pumping).
           "acompressor=threshold=0.125:ratio=3:attack=5:release=80:makeup=2:knee=6"]
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 8.0, high=18.0, low=0.0)
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 11.0, high=18.0, low=0.0)  # v14: +3 dB, bleed is gated now
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
