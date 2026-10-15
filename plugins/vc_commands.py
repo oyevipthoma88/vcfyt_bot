@@ -775,6 +775,50 @@ async def cmd_micblink(bot: Client, msg: Message):
     )
 
 
+@Client.on_message(HAS_USER & cmd_prefix(r"(quiet|unquiet)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_quiet(bot: Client, msg: Message):
+    """Other fighter ki awaaz 1% kar do (.quiet) / wapas 100% (.unquiet).
+
+    Telegram's per-participant volume: as a VC admin it applies for EVERYONE
+    in the call; as a non-admin it applies for your own account only (what
+    you hear and what your phone recording captures).
+    Use: reply to his message with .quiet, or .quiet @user / <id> [chat].
+    """
+    uvc = await get_engine(msg)
+    if not uvc:
+        return
+    parts = cmd_text(msg).split()
+    undo = parts[0].lstrip(".!/").lower().startswith("unquiet")
+    target = None
+    rest = parts[1:]
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        target = msg.reply_to_message.from_user.id
+    elif rest:
+        who = rest.pop(0)
+        try:
+            target = int(who) if who.lstrip("-").isdigit() else (await uvc.client.get_users(who)).id
+        except Exception:
+            target = None
+    if not target:
+        await msg.reply_text("ℹ️ Use: us fighter ke message par reply karke <code>.quiet</code>, "
+                             "ya <code>.quiet @username</code>. Wapas: <code>.unquiet @username</code>")
+        return
+    cid = await need_chat(msg, rest[0] if rest else None)
+    if not cid:
+        return
+    ok = await uvc.set_participant_volume(cid, target, 10000 if undo else 1, quiet=True)
+    if not ok:
+        await msg.reply_text("❌ Volume nahi badla. Wo banda abhi VC me hai? Aapki ID VC me honi chahiye.")
+        return
+    if undo:
+        await msg.reply_text(f"🔊 <code>{target}</code> ki awaaz wapas 100%.")
+    else:
+        await msg.reply_text(
+            f"🔇 <code>{target}</code> ki awaaz <b>1%</b> kar di.\n"
+            "Aap VC admin ho to sabke liye dheemi hogi; admin nahi ho to sirf aapke "
+            "phone par (aap jo sunte ho / record karte ho).")
+
+
 @Client.on_message(HAS_USER & cmd_prefix(r"loud\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_loud(bot: Client, msg: Message):
     """Extra loudness on top of volume/boost (0-18 dB)."""
