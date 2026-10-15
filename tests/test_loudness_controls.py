@@ -62,6 +62,22 @@ class LoudnessControls(unittest.TestCase):
         floor = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
         self.assertLess(floor, -20.0)
 
+    def test_live_mic_cuts_other_fighter_bleed(self):
+        # record_22: the other fighter, heard from the phone speaker at
+        # ~-50 dBFS, must NOT come out of the relay; own voice stays loud.
+        voice = ("aevalsrc='(0.5*sin(2*PI*150*t)+0.3*sin(2*PI*300*t)+0.15*sin(2*PI*900*t))"
+                 "*(0.3+0.7*abs(sin(2*PI*2.5*t)))':s=48000:d=3")
+        out = {}
+        for name, lvl in (("own", -12), ("bleed", -50)):
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", voice, "-af",
+                                f"volume={lvl + 8}dB," + build_live_mic_filter(-1.0)
+                                + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
+                                "-f", "null", "-"], capture_output=True, text=True)
+            out[name] = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
+        self.assertGreater(out["own"], -16.0)
+        self.assertLess(out["bleed"], -45.0)
+        self.assertGreater(out["own"] - out["bleed"], 30.0)
+
     def test_playback_does_not_pump_hiss(self):
         # Pure background hiss through the playback chain must stay far
         # below the voice (old chain lifted it to ~-2 dBFS = "khar khar").
