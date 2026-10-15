@@ -34,7 +34,9 @@ class LoudnessControls(unittest.TestCase):
         # Loud but CLEAN: the gaps between words must stay well below the
         # voice (old chain pumped the hiss up to voice level = "khar khar").
         pk, rms = measure(build_live_mic_filter(loud=120))
-        self.assertLessEqual(pk, -1.5)          # Opus headroom: no clip in VC
+        # v13: user wants ~0 dB - peak near full scale but never clipping.
+        self.assertLessEqual(pk, -0.2)
+        self.assertGreaterEqual(pk, -2.0)
         self.assertGreaterEqual(rms, -16.0)     # still loud
         # record_21: crest 4 dB = square-wave clipping ("glitch").  Speech
         # must keep >= 7 dB between average and peak.
