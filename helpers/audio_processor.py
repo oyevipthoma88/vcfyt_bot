@@ -358,7 +358,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
           "equalizer=f=8500:t=q:w=1.5:g=-2",    # tame hiss / sibilance
           # ONE smooth leveller (no double compressor pumping).
           "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=4:knee=4"]  # v15 harder
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 13.0, high=18.0, low=0.0)  # v14: +3 dB, bleed is gated now
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 16.0, high=20.0, low=0.0)  # v14: +3 dB, bleed is gated now
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -373,21 +373,21 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1":
         out_db = ceiling_db - 0.6
     else:
-        out_db = _env_db("LIVE_MIC_OUT_DB", -0.3, high=0.0, low=-12.0)
+        out_db = _env_db("LIVE_MIC_OUT_DB", -0.8, high=0.0, low=-12.0)
     out_limit = min(1.0, 10 ** (out_db / 20.0))
     pre_limit = min(0.97, out_limit * 10 ** (-0.3 / 20.0))
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip") and not overdrive:
         # Gain-neutral warmth: +3 dB into tanh, -3 dB out = density, no fizz.
-        warm = _env_db("LIVE_MIC_WARMTH_DB", 7.0, high=12.0, low=0.0)  # v15 overdrive
+        warm = _env_db("LIVE_MIC_WARMTH_DB", 0.0, high=12.0, low=0.0)  # v15 overdrive
         if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
             f.append("deesser=i=0.4:m=0.5:f=0.5:s=o")
-        f += [f"volume={_db(warm)}dB", "asoftclip=type=tanh:oversample=4",
+        if warm > 0: f += [f"volume={_db(warm)}dB", "asoftclip=type=tanh:oversample=4",
               f"volume={_db(-warm * 0.5)}dB", "lowpass=f=12500"]  # v15: keep half the saturation gain
     # Stage 1: slow leveller (whole words dense, no pumping).
-    f.append(f"alimiter=limit={pre_limit:.3f}:level=false:attack=4:release=60")
+    f.append(f"alimiter=limit={pre_limit:.3f}:level=false:attack=5:release=120")
     # Stage 2: one fast brick-wall safety net at the ceiling (clip-free).
-    f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=1:release=40")
+    f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=2:release=80")
     return apply_sync_and_presence(",".join(f), boost=False)
 
 
@@ -696,16 +696,16 @@ def build_ffmpeg_filter(
     if _has_filter("speechnorm"):
         filters.append("speechnorm=e=4:r=0.0005:l=1:p=0.9:t=0.05")
     filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=2:knee=2")
-    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 10.0, high=24.0, low=0.0))}dB")
+    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 13.0, high=24.0, low=0.0))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=4:release=50:level=false")
     # Warm density stage: oversampled tanh = heavy "damdar" tone, no
     # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
-    drive = _env_db("PLAY_DRIVE_DB", 12.0, high=20.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 5.0, high=20.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         filters.append(f"volume={_db(drive)}dB")
         filters.append("asoftclip=type=tanh:oversample=4")
         filters.append("volume=4dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.944:attack=0.1:release=8:level=false")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.955:attack=1:release=60:level=false")
     if vol > VOLUME_CLEAN_MAX:
         # PLAYBACK OVERDRIVE (.vol 1001-2000): up to +18 dB more into a hard
         # clip at 0 dBFS.  Louder than 1000; awaaz fat sakti hai (by choice).
