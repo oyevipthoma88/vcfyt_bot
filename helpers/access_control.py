@@ -230,7 +230,7 @@ async def revoke_premium_all(user_id: int) -> bool:
     return ok
 
 
-async def redeem_coupon(user_id: int, code: str) -> dict:
+async def redeem_coupon(user_id: int, code: str, username: str = "", name: str = "") -> dict:
     """Redeem a coupon code. Returns {"ok": bool, "message": str, "plan": str}."""
     code = (code or "").strip().upper()
     if not code:
@@ -261,6 +261,10 @@ async def redeem_coupon(user_id: int, code: str) -> dict:
         except Exception:
             pass
         return {"ok": False, "message": f"Unknown plan: {plan_id}", "plan": plan_id}
+    try:
+        await db.log_redeem(code, plan_id, user_id, username, name)
+    except Exception:
+        pass
     label = next((p[1] for p in PAYMENT_PLANS if p[0] == plan_id), plan_id)
     return {"ok": True, "message": f"✅ Premium mil gaya! Plan: {label} Until: {until_iso}",
             "plan": plan_id}
