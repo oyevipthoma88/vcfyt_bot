@@ -140,7 +140,7 @@ async def cmd_help_topic(bot: Client, msg: Message):
 _KNOWN_EXTRA = {"start", "login", "logout", "mystatus", "settings", "help", "redeem",
                 "referral", "owner", "users", "stats", "broadcast", "restart", "ban",
                 "unban", "setsource", "clearsource", "setprice", "grant", "revoke",
-                "pending", "addcoupon", "delcoupon", "listcoupons", "setqr", "clearqr",
+                "pending", "addcoupon", "delcoupon", "listcoupons", "redeemlogs", "setqr", "clearqr",
                 "addfsub", "delfsub", "listfsub", "clearfsub", "fyt", "fight"}
 _DOT_WORD = re.compile(r"^\.([a-zA-Z]{2,15})\b")
 
