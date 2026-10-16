@@ -355,7 +355,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
           "equalizer=f=2500:t=q:w=1.2:g=6",     # presence: words cut through
           "equalizer=f=3600:t=q:w=1.4:g=3",     # v15 piercing punch over the other fighter
           "equalizer=f=5000:t=q:w=1.5:g=2",     # clarity / consonants
-          "equalizer=f=8500:t=q:w=1.5:g=-2",    # tame hiss / sibilance
+          "equalizer=f=7500:t=q:w=1.5:g=-3",    # v16 anti khar-khar notch (harsh 7-8 kHz fizz)
           # ONE smooth leveller (no double compressor pumping).
           "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=4:knee=4"]  # v15 harder
     drive = _env_db("LIVE_MIC_DRIVE_DB", 14.0, high=20.0, low=0.0)  # v14: +3 dB, bleed is gated now
