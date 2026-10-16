@@ -700,7 +700,7 @@ def build_ffmpeg_filter(
     filters.append("alimiter=level_in=1:limit=0.98:attack=4:release=50:level=false")
     # Warm density stage: oversampled tanh = heavy "damdar" tone, no
     # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
-    drive = _env_db("PLAY_DRIVE_DB", 11.5, high=20.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 13.5, high=20.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         filters.append(f"volume={_db(drive)}dB")
         filters.append("asoftclip=type=tanh:oversample=4")
