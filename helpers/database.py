@@ -129,6 +129,12 @@ class Database:
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS redeem_logs (
+                code TEXT, plan_id TEXT, user_id INTEGER,
+                username TEXT, name TEXT, redeemed_at TEXT
+            )
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS payment_requests (
                 request_id TEXT PRIMARY KEY,
                 user_id    INTEGER NOT NULL,
@@ -698,6 +704,28 @@ class Database:
                 (code,),
             )
 
+
+    async def log_redeem(self, code, plan_id, user_id, username="", name=""):
+        ts = datetime.now(timezone.utc).isoformat()
+        doc = {"code": code, "plan_id": plan_id, "user_id": user_id,
+               "username": username or "", "name": name or "", "redeemed_at": ts}
+        if self._use_mongo:
+            await self._mongo.redeem_logs.insert_one(doc)
+        else:
+            self._sql("INSERT INTO redeem_logs VALUES (?,?,?,?,?,?)",
+                      (code, plan_id, user_id, username or "", name or "", ts))
+
+    async def redeem_logs(self, code: str = None, limit: int = 50) -> list:
+        if self._use_mongo:
+            q = {"code": code.upper()} if code else {}
+            return await self._mongo.redeem_logs.find(q).sort("redeemed_at", -1).to_list(limit)
+        if code:
+            rows = self._sql("SELECT * FROM redeem_logs WHERE code=? ORDER BY redeemed_at DESC LIMIT ?",
+                             (code.upper(), limit), fetch=True)
+        else:
+            rows = self._sql("SELECT * FROM redeem_logs ORDER BY redeemed_at DESC LIMIT ?",
+                             (limit,), fetch=True)
+        return [dict(r) for r in rows] if rows else []
 
     async def all_coupons(self) -> list:
         if self._use_mongo:
