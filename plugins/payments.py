@@ -7,6 +7,7 @@ Owner commands:
   .addcoupon <code> <plan_id> [max_uses]  — create coupon
   .delcoupon <code>            — delete coupon
   .listcoupons                 — list all coupons
+  .redeemlogs [code]           — kisne kaunsa coupon redeem kiya
   .setqr (reply to photo)      — set QR code image
   .clearqr                     — remove QR code
   .pending                     — list pending payment requests
@@ -289,6 +290,25 @@ async def cmd_listcoupons(bot: Client, msg: Message):
     await msg.reply_text("📋 <b>All Coupons</b>\n" + "\n".join(lines))
 
 
+@Client.on_message(HAS_USER & dm_cmd("redeemlogs") & filters.private)
+async def cmd_redeemlogs(bot: Client, msg: Message):
+    """Owner: kis user ne kaunsa coupon redeem kiya. .redeemlogs [code]"""
+    if not Config.is_owner(msg.from_user.id):
+        return
+    parts = cmd_text(msg).split(maxsplit=1)
+    logs = await db.redeem_logs(parts[1] if len(parts) > 1 else None)
+    if not logs:
+        await msg.reply_text("📋 Abhi tak koi redeem log nahi hai.")
+        return
+    import html
+    lines = []
+    for r in logs:
+        who = f"@{r['username']}" if r.get("username") else html.escape(r.get("name") or "-")
+        lines.append(f"• <code>{r['code']}</code> — {r['plan_id']}\n"
+                     f"   👤 {who} (<code>{r['user_id']}</code>) 🕒 {str(r['redeemed_at'])[:16]}")
+    await msg.reply_text("🎟️ <b>Redeem Logs</b>\n" + "\n".join(lines))
+
+
 @Client.on_message(HAS_USER & dm_cmd("setqr") & filters.private)
 async def cmd_setqr(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
@@ -343,7 +363,9 @@ async def cmd_redeem(bot: Client, msg: Message):
     if len(parts) < 2:
         await msg.reply_text("Usage: <code>.redeem &lt;coupon_code&gt;</code>")
         return
-    result = await redeem_coupon(msg.from_user.id, parts[1])
+    u = msg.from_user
+    result = await redeem_coupon(u.id, parts[1], u.username or "",
+                                 " ".join(x for x in (u.first_name, u.last_name) if x))
     await msg.reply_text(result["message"])
 
 
