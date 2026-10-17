@@ -56,8 +56,10 @@ LOUD_PRESETS = {
     "fight": {"drive": 26, "bass": 0, "presence": 10, "clip": "hard", "crunch": 5},
     # ULTRA: sabse zyada — aawaz phategi, par sabse tez.
     "ultra": {"drive": 30, "bass": 0, "presence": 10, "clip": "hard", "crunch": 10},
+    # v22 GOD: koi daba na sake -> max density, 0 dBFS par lock.
+    "god": {"drive": 40, "bass": 0, "presence": 10, "clip": "hard", "crunch": 10},
 }
-LOUD_LIMITS = {"drive": (0, 30), "bass": (0, 10), "presence": (0, 10),
+LOUD_LIMITS = {"drive": (0, 40), "bass": (0, 10), "presence": (0, 10),
                "crunch": (0, 10), "echo": (0, 5), "gate": (0, 1)}
 # v3 key: purane saved settings (drive 20 / bass 15) wapas bass-heavy chain na laayein.
 _LOUD_KEY = "bridge_loud5_{}"
@@ -85,7 +87,7 @@ def apply_preset(cfg: Optional[dict], name: str) -> dict:
 def drive_db(level: int) -> int:
     """Final clip push in dB (0-30 -> 0-30 dB above the limiter ceiling).
     16-30 = FIGHT zone: zyada tez + awaaz thodi phatne lagti hai (by design)."""
-    return max(0, min(30, int(level)))
+    return max(0, min(40, int(level)))
 
 
 # Soft gate (FFmpeg side): AGC ke baad bachi hui halki hiss dabata hai.
@@ -112,7 +114,7 @@ class PcmAgc:
     SPEECH_X = 3.2               # noise floor se +10 dB upar = awaaz
     ATTACK = 0.6                 # gain ghatane ki speed (per frame)
     RELEASE = 0.15               # gain badhane ki speed (per frame, ~+6 dB / 60 ms)
-    HOLD = 16                    # frames (~160 ms) gate khula rehta hai
+    HOLD = 45                    # v22 anti-duck: ~450 ms (saans/pause me mic band nahi) gate khula rehta hai
     # Pause = poori khamoshi.  Duck -46 dB bhi kaafi nahi tha: aage ki chain
     # (compressor + multiband + clip) halki hiss ko bhi wapas 0 dB kar deti
     # thi.  Isliye hold ke baad ~60 ms fade aur phir exact 0.
