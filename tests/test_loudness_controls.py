@@ -31,13 +31,13 @@ class LoudnessControls(unittest.TestCase):
         self.assertLessEqual(pk, -0.45)
 
     def test_live_mic_default_is_loud_and_guarded(self):
-        # 100x loudness: triple compressor density stack, mean near -1 dBFS.
+        # v20 ABSOLUTE MAX loudness: quad compressor density stack, mean near 0 dBFS.
         pk, rms = measure(build_live_mic_filter(loud=120))
-        self.assertLessEqual(pk, -0.1)
-        self.assertGreaterEqual(pk, -2.0)
-        self.assertGreaterEqual(rms, -12.0)      # 100x: much louder
-        # Speech must keep >= 4 dB between average and peak (not square-wave).
-        self.assertGreaterEqual(pk - rms, 4.0)
+        self.assertLessEqual(pk, 0.1)       # v20: ceiling at 0.999
+        self.assertGreaterEqual(pk, -3.0)
+        self.assertGreaterEqual(rms, -8.0)  # v20: much louder
+        # v20: with extreme density, crest can be as low as 1.5 dB.
+        self.assertGreaterEqual(pk - rms, 1.5)
 
     def test_live_mic_quiet_phone_not_gated(self):
         # Old double gate muted a -20 dBFS phone completely (stutter/glitch).

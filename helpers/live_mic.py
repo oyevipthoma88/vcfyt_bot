@@ -2008,12 +2008,17 @@ async function toggleMic() {
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            const pre = audioCtx.createGain(); pre.gain.value = 8.0; // v19: +18 dB phone pre-gain — mic signal ko server pe maximum strong bhejo
+            const pre = audioCtx.createGain(); pre.gain.value = 12.0; // v20: +22 dB phone pre-gain — mic signal ko server pe absolute max strong bhejo
+
+            // v20: phone-side compressor for density BEFORE sending to server.
+            const cmp = audioCtx.createDynamicsCompressor();
+            cmp.threshold.value=-24; cmp.knee.value=6; cmp.ratio.value=3;
+            cmp.attack.value=0.003; cmp.release.value=0.08;
 
             const lim = audioCtx.createDynamicsCompressor();
-            lim.threshold.value=-3; lim.knee.value=8; lim.ratio.value=10;
+            lim.threshold.value=-1; lim.knee.value=10; lim.ratio.value=8;
             lim.attack.value=0.002; lim.release.value=0.06;
-            source.connect(hp); hp.connect(pre); pre.connect(lim);
+            source.connect(hp); hp.connect(pre); pre.connect(cmp); cmp.connect(lim);
             nPre = pre; nComp = lim;
             source = lim;
         } catch(e){ nComp=nPre=null; }
