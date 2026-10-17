@@ -105,7 +105,7 @@ class PcmAgc:
     wapas full kar deta tha -> pause me bhi full volume hiss.
     """
 
-    TARGET = 0.63 * 32767        # ~ -4 dBFS RMS (louder input into FFmpeg)
+    TARGET = 0.85 * 32767        # v21: ~-1.4 dBFS RMS -> har shabd 0 dB ke paas
     MAX_GAIN = 3000.0            # +70 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
     FLOOR = 0.00018 * 32767      # ~ -75 dBFS: neeche = digital khamoshi
@@ -284,15 +284,15 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
             f.append("lowpass=f=6800:p=2")
         # Final ceiling (Opus decoder ~1 dB overshoot karta hai).
         # v12: Volume 25-30 -> ceiling ramps 0.98 -> 1.0 (0 dBFS, last step).
-        lim = 0.98 + max(0, min(6, d - 24)) / 6 * 0.02
+        lim = 1.0  # v21: hamesha exact 0 dBFS
         f.append(f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=0.1:release=4:level=false")
     elif d:
         # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
         f.append(f"volume={min(d, 9)}dB")
         f.append("asoftclip=type=tanh:threshold=0.97")
-        f.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.3:release=6:level=false")
+        f.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=0.3:release=6:level=false")
     else:
-        f.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=0.3:release=6:level=false")
+        f.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=0.3:release=6:level=false")
     return ",".join(f)
 
 
