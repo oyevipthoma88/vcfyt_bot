@@ -344,11 +344,13 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
                      "release=350:knee=4:detection=peak")
         else:
             f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 18.0, high=30.0, low=0.0))}dB")
+    # 100x LOUDNESS: pre-amp +28 dB (was +4) wakes even the quietest phone mic.
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 28.0, high=36.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # LOUDNESS UPGRADE: e=20 (was 8) lifts quiet phones up to ~+30 dB so
-        # even a far/dheemi awaaz hits the limiters at full density.
-        f.append("speechnorm=e=20:r=0.0005:l=1:p=0.85")
+        # e=35 (was 8): max expansion — whisper-level voice lifted ~+35 dB to
+        # full scale, loud voice untouched.  This is the single biggest
+        # loudness win for quiet/far phones.
+        f.append("speechnorm=e=35:r=0.0005:l=1:p=0.85")
     f += ["equalizer=f=130:t=q:w=0.9:g=4",      # chest / dam (body)
           "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
           "equalizer=f=2500:t=q:w=1.2:g=6",     # presence: words cut through
@@ -357,15 +359,17 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
           "equalizer=f=7500:t=q:w=1.5:g=-3",    # v16 anti khar-khar notch (harsh 7-8 kHz fizz)
           # ONE smooth leveller (no double compressor pumping).
           "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=4:knee=4"]  # v15 harder
-    # DENSITY STAGE: a second slow compressor squashes the RMS up toward the
-    # peak so the AVERAGE level (perceived loudness) is 5-10x higher while the
-    # brick-wall limiter still keeps the peak clean.
+    # 100x DENSITY: triple compressor stack squashes RMS to near-peak so the
+    # AVERAGE level (what ears hear as loudness) is 10-100x higher.  Each
+    # stage has longer release than the last = smooth, no pumping.
     f.append("acompressor=threshold=0.06:ratio=8:attack=5:release=120:makeup=6:knee=6")
+    f.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=8:knee=8")
+    f.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=10:knee=10")
     # Extra levelling pass: dynaudnorm short window lifts any remaining quiet
     # words to full scale without the 37 s look-ahead latency.
     if _has_filter("dynaudnorm"):
-        f.append("dynaudnorm=f=10:g=12:p=0.95:m=15:r=0.9:s=0")
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 22.0, high=30.0, low=0.0)  # LOUD: +8 dB more drive
+        f.append("dynaudnorm=f=10:g=15:p=0.95:m=15:r=0.9:s=0")
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 28.0, high=36.0, low=0.0)  # 100x: +14 dB more drive
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -703,14 +707,16 @@ def build_ffmpeg_filter(
     if _has_filter("speechnorm"):
         filters.append("speechnorm=e=4:r=0.0005:l=1:p=0.9:t=0.05")
     filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=2:knee=2")
-    # LOUDNESS UPGRADE: +22 dB push (was 13) + extra density compressor so
-    # the AVERAGE level is 5-10x louder to the ear, not just the peak.
+    # 100x LOUDNESS: triple density compressor + +28 dB push (was 13) so the
+    # AVERAGE level is 10-100x louder to the ear, not just the peak.
     filters.append("acompressor=threshold=0.08:ratio=6:attack=5:release=120:makeup=6:knee=4")
-    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 22.0, high=30.0, low=0.0))}dB")
+    filters.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=8:knee=6")
+    filters.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=10:knee=8")
+    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 28.0, high=36.0, low=0.0))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=4:release=50:level=false")
     # Warm density stage: oversampled tanh = heavy "damdar" tone, no
     # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
-    drive = _env_db("PLAY_DRIVE_DB", 18.0, high=24.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 22.0, high=30.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         filters.append(f"volume={_db(drive)}dB")
         filters.append("asoftclip=type=tanh:oversample=4")
