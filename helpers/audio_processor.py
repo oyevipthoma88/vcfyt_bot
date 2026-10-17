@@ -383,9 +383,9 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1":
         out_db = ceiling_db - 0.6
     else:
-        out_db = _env_db("LIVE_MIC_OUT_DB", -0.01, high=0.0, low=-12.0)
-    out_limit = min(0.999, 10 ** (out_db / 20.0))
-    pre_limit = min(0.998, out_limit * 10 ** (-0.1 / 20.0))
+        out_db = _env_db("LIVE_MIC_OUT_DB", 0.0, high=0.0, low=-12.0)
+    out_limit = min(1.0, 10 ** (out_db / 20.0))
+    pre_limit = min(0.999, out_limit * 10 ** (-0.1 / 20.0))
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip") and not overdrive:
         # v20: more warmth = more saturation density = louder to the ear
@@ -750,7 +750,7 @@ def build_ffmpeg_filter(
         filters.append(f"volume={_db(drive)}dB")
         filters.append("asoftclip=type=tanh:oversample=4")
         filters.append("volume=4dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.948:attack=1:release=60:level=false")
+    filters.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=1:release=60:level=false")
     if vol > VOLUME_CLEAN_MAX:
         # PLAYBACK OVERDRIVE (.vol 1001-2000): up to +18 dB more into a hard
         # clip at 0 dBFS.  Louder than 1000; awaaz fat sakti hai (by choice).
