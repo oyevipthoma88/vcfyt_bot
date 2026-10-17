@@ -282,7 +282,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # USER CHOICE: admin ho ya non-admin, awaaz hamesha FULL.  The admin
     # -6.5 dB headroom is skipped unless LIVE_MIC_RESPECT_ADMIN=1.
     if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") != "1":
-        ceiling_db = max(ceiling_db, -1.0)
+        ceiling_db = max(ceiling_db, -0.3)  # v17: full broadcast ceiling
     limit = 10 ** (ceiling_db / 20.0)
     pre_limit = min(0.99, limit * 10 ** (2.5 / 20.0))
     # BANDWIDTH FIX (root cause of "aawaj bohot kam lagti hai"):
