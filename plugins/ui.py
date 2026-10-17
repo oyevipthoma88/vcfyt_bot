@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from pyrogram import filters as _filters
 from pyrogram.types import InlineKeyboardButton as _InlineKeyboardButton
 from pyrogram.types import InlineKeyboardMarkup as K
-from pyrogram.errors import RPCError
+from pyrogram.errors import RPCError, MessageNotModified
 
 from config import Config
 
@@ -96,12 +96,17 @@ _STYLE_EMOJI = {
 async def edit_screen(message, text: str, reply_markup=None, **kwargs):
     try:
         return await message.edit_text(text, reply_markup=reply_markup, **kwargs)
+    except MessageNotModified:
+        # Same screen (e.g. slider already at its limit) -> not an error.
+        return message
     except (RPCError, TypeError, AttributeError):
         if not any(getattr(message, kind, None) for kind in
                    ("photo", "video", "animation", "document", "audio")):
             raise
         try:
             return await message.edit_caption(text, reply_markup=reply_markup)
+        except MessageNotModified:
+            return message
         except RPCError:
             # Send the new screen FIRST, delete the old one only on success
             # (old bug: message deleted, then send failed -> blank chat).
@@ -114,6 +119,10 @@ async def edit_screen(message, text: str, reply_markup=None, **kwargs):
             return sent
 
 async def safe_answer(cq, text: str = "", **kwargs):
+    # Telegram rejects callback answers over 200 chars -> button looked dead.
+    text = str(text or "")
+    if len(text) > 200:
+        text = text[:199] + "…"
     try:
         return await cq.answer(text, **kwargs)
     except RPCError as exc:
