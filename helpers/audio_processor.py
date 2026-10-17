@@ -337,38 +337,41 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         # louder than speaker bleed, so everything under LIVE_MIC_GATE_DB
         # (default -38 dBFS, raw input) is pushed down 40 dB.  Long release
         # + knee keep word tails smooth (no v9 stutter).  0 = gate off.
-        gate_db = _env_db("LIVE_MIC_GATE_DB", -48.0, high=0.0, low=-70.0)
+        gate_db = _env_db("LIVE_MIC_GATE_DB", -36.0, high=0.0, low=-70.0)
         if gate_db < -0.5:
             thr = 10 ** (gate_db / 20.0)
             f.append(f"agate=threshold={thr:.5f}:range=0.003:ratio=8:attack=1:"
                      "release=350:knee=4:detection=peak")
         else:
             f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
-    # v20 ABSOLUTE MAX: pre-amp +44 dB — maximum possible without clipping the input stage.
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 44.0, high=48.0, low=0.0))}dB")
+    # v21 ROOT FIX "live mic awaaz nahi / dheemi":
+    #   v20 used speechnorm e=80, compressor ratio=30 and knee=10/12.  FFmpeg
+    #   rejects these (e max 50, ratio max 20, knee max 8) and the live chain
+    #   was never sanitized -> FFmpeg exited instantly -> restarts / silence.
+    #   v20 also used loudnorm (3 s look-ahead = huge live delay) and
+    #   extrastereo (no effect on a mono mic).  All removed.
+    # v21 MAX LOUD chain (all values inside FFmpeg ranges):
+    #   pre-amp -> speechnorm (max valid expansion) -> body/presence EQ ->
+    #   two compressors (density) -> drive into tanh saturation -> hard clip
+    #   at the ceiling -> fast brick-wall.  Average level sits ~1-3 dB under
+    #   the peak = maximum perceived loudness.  Some grit is accepted.
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 24.0, high=30.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # e=80: absolute max expansion — whisper lifted ~+80 dB to full scale.
-        f.append("speechnorm=e=80:r=0.0003:l=1:p=0.88")
-    # v20: double speechnorm for extreme levelling
-    if _has_filter("speechnorm"):
-        f.append("speechnorm=e=40:r=0.0005:l=1:p=0.90")
-    f += ["equalizer=f=130:t=q:w=0.9:g=6",      # v20: +2 dB more chest / dam (body)
+        f.append("speechnorm=e=50:r=0.0005:l=1:p=0.95")
+    f += ["equalizer=f=130:t=q:w=0.9:g=5",      # chest / dam (body)
           "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
-          "equalizer=f=2500:t=q:w=1.2:g=8",     # v20: +2 dB more presence
-          "equalizer=f=3600:t=q:w=1.4:g=5",     # v20: +2 dB more piercing punch
-          "equalizer=f=5000:t=q:w=1.5:g=4",     # v20: +2 dB more clarity / consonants
-          "equalizer=f=7500:t=q:w=1.5:g=-3",    # anti khar-khar notch
-          # ONE smooth leveller (no double compressor pumping).
-          "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=8:knee=4"]  # v20: +2dB more makeup
-    # v20 ABSOLUTE MAX DENSITY: quad compressor stack — four stages
-    f.append("acompressor=threshold=0.06:ratio=10:attack=5:release=120:makeup=10:knee=6")
-    f.append("acompressor=threshold=0.04:ratio=14:attack=8:release=200:makeup=12:knee=8")
-    f.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=14:knee=10")
-    f.append("acompressor=threshold=0.01:ratio=30:attack=12:release=400:makeup=16:knee=12")  # v20: 4th stage
-    # Extra levelling pass: dynaudnorm maxed out
-    if _has_filter("dynaudnorm"):
-        f.append("dynaudnorm=f=10:g=25:p=0.99:m=20:r=0.95:s=0")  # v20: g=25, p=0.99
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 44.0, high=48.0, low=0.0)  # v20: +4 dB more drive
+          "equalizer=f=2500:t=q:w=1.2:g=6",     # presence (cuts through)
+          "equalizer=f=3600:t=q:w=1.4:g=4",     # punch
+          "equalizer=f=5000:t=q:w=1.5:g=3",     # consonant clarity
+          "equalizer=f=7500:t=q:w=1.5:g=-3"]    # anti khar-khar notch
+    if _has_filter("agate"):
+        # Post-gate BEFORE the make-up gain: speechnorm lifts own voice to
+        # ~-1 dBFS but residual bleed/hiss only to ~-40 dBFS -> cut it here
+        # so the compressors (makeup x6, x12) never pump it up.
+        f.append("agate=threshold=0.05:range=0.001:ratio=8:attack=1:"
+                 "release=300:knee=4:detection=peak")
+    f += ["acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=6:knee=4",
+          "acompressor=threshold=0.05:ratio=20:attack=1:release=80:makeup=12:knee=8"]
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -378,33 +381,20 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         else:
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
         f.append(f"volume={_db(-cdb * (0.8 if crunch <= 100 else 0.6))}dB")
-    drive += min(loud, 200) * 0.015   # LOUD 0..200 -> +0..+3 dB
-    # v20: ceiling at absolute max — 0.999 = -0.01 dBFS
     if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1":
         out_db = ceiling_db - 0.6
     else:
-        out_db = _env_db("LIVE_MIC_OUT_DB", 0.0, high=0.0, low=-12.0)
-    out_limit = min(1.0, 10 ** (out_db / 20.0))
-    pre_limit = min(0.999, out_limit * 10 ** (-0.1 / 20.0))
+        out_db = _env_db("LIVE_MIC_OUT_DB", -0.1, high=0.0, low=-12.0)
+    out_limit = min(0.999, 10 ** (out_db / 20.0))
+    # LOUD 0..200 -> drive +12..+24 dB into the saturator.
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 12.0, high=30.0, low=0.0) + min(loud, 200) * 0.06
     f.append(f"volume={_db(drive)}dB")
-    if _has_filter("asoftclip") and not overdrive:
-        # v20: more warmth = more saturation density = louder to the ear
-        warm = _env_db("LIVE_MIC_WARMTH_DB", 10.0, high=14.0, low=0.0)  # v20: +4 dB more warmth
-        if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
-            f.append("deesser=i=0.4:m=0.5:f=0.5:s=o")
-        if warm > 0: f += [f"volume={_db(warm)}dB", "asoftclip=type=tanh:oversample=4",
-              f"volume={_db(-warm * 0.2)}dB", "lowpass=f=12500"]  # v20: keep 80% of saturation gain
-    # v20: stereo widener maxed for psychoacoustic loudness
-    if _has_filter("extrastereo"):
-        f.append("extrastereo=m=2.0")  # v20: m=2.0 (was 1.5)
-    # v20: extra loudness boost via loudnorm if available (one-pass)
-    if _has_filter("loudnorm"):
-        f.append("loudnorm=I=-5:LRA=1.0:TP=-0.01")
-    # Stage 1: slow leveller (whole words dense, no pumping).
-    f.append(f"alimiter=limit={pre_limit:.3f}:level=false:attack=4:release=60")
-    # Stage 2: one fast brick-wall safety net at the ceiling (clip-free).
-    f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=1:release=40")
-    return apply_sync_and_presence(",".join(f), boost=False)
+    if _has_filter("asoftclip"):
+        f.append("asoftclip=type=tanh:oversample=4")
+        f.append(f"volume={_db(20 * __import__('math').log10(out_limit) + 1.5)}dB")
+        f.append(f"asoftclip=type=hard:threshold={out_limit:.3f}")
+    f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=0.1:release=20")
+    return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False))
 
 
 def build_ffmpeg_filter(
