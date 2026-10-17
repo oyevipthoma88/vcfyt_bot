@@ -1192,8 +1192,7 @@ async def cb_vc(bot, cq):
     elif action == "resume":
         await safe_answer(cq, "▶ Resumed" if await uvc.resume(cid) else "Paused nahi tha")
     elif action == "skip":
-        await uvc.skip(cid)
-        await safe_answer(cq, "⏭ Skipped")
+        await safe_answer(cq, "⏭ Skipped" if await uvc.skip(cid) else "Kuch chal nahi raha")
     elif action == "stop":
         await uvc.leave(cid, reason="Stopped from button")
         await safe_answer(cq, "⏹ Stopped")
