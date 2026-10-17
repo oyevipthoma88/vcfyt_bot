@@ -734,18 +734,18 @@ def build_ffmpeg_filter(
         filters.append(extra_filters)
 
     if _has_filter("speechnorm"):
-        filters.append("speechnorm=e=4:r=0.0005:l=1:p=0.9:t=0.05")
+        filters.append("speechnorm=e=8:r=0.0005:l=1:p=0.9:t=0.05")
     filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=2:knee=2")
     # 100x LOUDNESS: triple density compressor + +28 dB push (was 13) so the
     # AVERAGE level is 10-100x louder to the ear, not just the peak.
     filters.append("acompressor=threshold=0.08:ratio=6:attack=5:release=120:makeup=6:knee=4")
     filters.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=8:knee=6")
     filters.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=10:knee=8")
-    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 28.0, high=36.0, low=0.0))}dB")
+    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 35.0, high=42.0, low=0.0))}dB")
     filters.append("alimiter=level_in=1:limit=0.98:attack=4:release=50:level=false")
     # Warm density stage: oversampled tanh = heavy "damdar" tone, no
     # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
-    drive = _env_db("PLAY_DRIVE_DB", 22.0, high=30.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 28.0, high=36.0, low=0.0)
     if drive and _has_filter("asoftclip"):
         filters.append(f"volume={_db(drive)}dB")
         filters.append("asoftclip=type=tanh:oversample=4")
@@ -757,9 +757,9 @@ def build_ffmpeg_filter(
         over = (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)
         filters.append(f"volume={_db(18.0 * over)}dB")
         if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=hard:threshold=0.944")
+            filters.append("asoftclip=type=hard:threshold=1.0")
         else:
-            filters.append("alimiter=limit=0.944:attack=0.1:release=2:level=false")
+            filters.append("alimiter=limit=1.0:attack=0.1:release=2:level=false")
     elif vol < VOLUME_CLEAN_MAX:
         # VOLUME FIX: limiter ke baad sab level same ho jaata tha, isliye
         # .vol 0-999 ka koi asar nahi tha.  Ab 1000 = full, kam = sach me dheema.
