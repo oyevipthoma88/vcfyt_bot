@@ -919,7 +919,7 @@ class UserVC:
         st.loop, st.loop_left = bool(on), (count if on else -1)
         return st
 
-    async def _on_stream_end(self, chat_id: int):
+    async def _on_stream_end(self, chat_id: int, manual_skip: bool = False):
         if chat_id in self._stopped_chats:
             return
         st = self.chats.get(chat_id)
@@ -951,7 +951,7 @@ class UserVC:
             # gets streamed, so either file is enough to loop.
             have_processed = bool(st.processed_file and os.path.exists(st.processed_file))
             have_source = bool(st.current_file and os.path.exists(st.current_file))
-            if st.loop and (have_processed or have_source):
+            if not manual_skip and st.loop and (have_processed or have_source):
                 if st.loop_left > 0:
                     st.loop_left -= 1
                 if st.loop_left != 0:
@@ -1680,7 +1680,8 @@ class UserVC:
     async def skip(self, chat_id: int) -> bool:
         if chat_id not in self.chats:
             return False
-        await self._on_stream_end(chat_id)
+        # Manual skip must move to the next track even when Loop is ON.
+        await self._on_stream_end(chat_id, manual_skip=True)
         return True
 
     def queue_clear(self, chat_id: int) -> int:
