@@ -337,7 +337,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         # louder than speaker bleed, so everything under LIVE_MIC_GATE_DB
         # (default -38 dBFS, raw input) is pushed down 40 dB.  Long release
         # + knee keep word tails smooth (no v9 stutter).  0 = gate off.
-        gate_db = _env_db("LIVE_MIC_GATE_DB", -38.0, high=0.0, low=-70.0)
+        gate_db = _env_db("LIVE_MIC_GATE_DB", -48.0, high=0.0, low=-70.0)
         if gate_db < -0.5:
             thr = 10 ** (gate_db / 20.0)
             f.append(f"agate=threshold={thr:.5f}:range=0.003:ratio=8:attack=1:"
@@ -345,12 +345,12 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         else:
             f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
     # 100x LOUDNESS: pre-amp +28 dB (was +4) wakes even the quietest phone mic.
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 28.0, high=36.0, low=0.0))}dB")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 34.0, high=40.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # e=35 (was 8): max expansion — whisper-level voice lifted ~+35 dB to
+        # e=45 (was 35): max expansion — whisper-level voice lifted ~+45 dB to
         # full scale, loud voice untouched.  This is the single biggest
         # loudness win for quiet/far phones.
-        f.append("speechnorm=e=35:r=0.0005:l=1:p=0.85")
+        f.append("speechnorm=e=45:r=0.0005:l=1:p=0.85")
     f += ["equalizer=f=130:t=q:w=0.9:g=4",      # chest / dam (body)
           "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
           "equalizer=f=2500:t=q:w=1.2:g=6",     # presence: words cut through
@@ -369,7 +369,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # words to full scale without the 37 s look-ahead latency.
     if _has_filter("dynaudnorm"):
         f.append("dynaudnorm=f=10:g=15:p=0.95:m=15:r=0.9:s=0")
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 28.0, high=36.0, low=0.0)  # 100x: +14 dB more drive
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 34.0, high=40.0, low=0.0)  # v18: +6 dB more drive for max loudness
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper

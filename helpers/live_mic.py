@@ -2008,8 +2008,8 @@ async function toggleMic() {
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            const pre = audioCtx.createGain(); pre.gain.value = 2.5; // v16: kam pre-gain = phone pe clip nahi, server tez karta hai
- // +14 dB: enough to wake the mic without square-clipping (server adds the loudness)
+            const pre = audioCtx.createGain(); pre.gain.value = 5.0; // v18: +14 dB phone pre-gain — mic signal ko server pe robust bhejo
+
             const lim = audioCtx.createDynamicsCompressor();
             lim.threshold.value=-6; lim.knee.value=6; lim.ratio.value=12;
             lim.attack.value=0.002; lim.release.value=0.06;
