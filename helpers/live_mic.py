@@ -199,7 +199,7 @@ class LiveMicSession:
                 return default
         if self._admin_boost:
             return _env("LIVE_MIC_CEILING_DB", -6.5)
-        return _env("LIVE_MIC_OPEN_CEILING_DB", -1.0)
+        return _env("LIVE_MIC_OPEN_CEILING_DB", -0.3)
 
     async def _apply_ceiling(self) -> None:
         """Swap FFmpeg (VC stream stays alive) when the needed ceiling changed."""
