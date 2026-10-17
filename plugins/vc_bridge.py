@@ -99,6 +99,7 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
         return K([
             [B("💥 MAX", callback_data="brl:p:max", style="danger"),
              B("☢️ ULTRA", callback_data="brl:p:ultra", style="danger")],
+            [B("👑 GOD (sabse tez)", callback_data="brl:p:god", style="danger")],
             [B("🎛 Fine tune", callback_data="brv:tune", style="primary"),
              B("⚙️ Groups / ID", callback_data="brv:setup", style="primary")],
             [B("👥 Extra Spare ID (aur tez)", callback_data="mic:acct", style="success")],
