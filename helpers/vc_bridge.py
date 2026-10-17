@@ -114,7 +114,8 @@ class PcmAgc:
     SPEECH_X = 3.2               # noise floor se +10 dB upar = awaaz
     ATTACK = 0.6                 # gain ghatane ki speed (per frame)
     RELEASE = 0.15               # gain badhane ki speed (per frame, ~+6 dB / 60 ms)
-    HOLD = 45                    # v22 anti-duck: ~450 ms (saans/pause me mic band nahi) gate khula rehta hai
+    HOLD = 60  # v23: ~600 ms anti-duck
+    _OLD_HOLD = 45                    # v22 anti-duck: ~450 ms (saans/pause me mic band nahi) gate khula rehta hai
     # Pause = poori khamoshi.  Duck -46 dB bhi kaafi nahi tha: aage ki chain
     # (compressor + multiband + clip) halki hiss ko bhi wapas 0 dB kar deti
     # thi.  Isliye hold ke baad ~60 ms fade aur phir exact 0.
@@ -174,7 +175,7 @@ class PcmAgc:
             rms = float(np.sqrt(np.mean(x * x))) + 1e-9
             g0, g1, att = self._next_gain(rms)
             y = x * (np.linspace(g0 * att[0], g1 * att[1], x.size, dtype=np.float32))
-            lim = 29000.0
+            lim = 31000.0  # v23: zyada level
             over = np.abs(y) > lim
             if over.any():
                 y[over] = np.sign(y[over]) * (lim + np.tanh((np.abs(y[over]) - lim) / 3767.0) * 3767.0)
@@ -225,6 +226,10 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
     if focus:
         f.append("equalizer=f=2500:t=q:w=1.2:g=5")
         f.append("equalizer=f=3600:t=q:w=1:g=4")
+    else:
+        # v23: hamesha razor presence ON (kaan ka sabse sensitive band).
+        f.append("equalizer=f=2500:t=q:w=1.2:g=3")
+        f.append("equalizer=f=3600:t=q:w=1:g=2.5")
     f.append("lowpass=f=7500")
     # [1] word leveller — e=6 (+15 dB max): pehle e=50 (+34 dB) pause ki hiss
     # ko bhi full kar deta tha.
