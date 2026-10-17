@@ -344,13 +344,12 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
                      "release=350:knee=4:detection=peak")
         else:
             f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
-    # 100x LOUDNESS: pre-amp +28 dB (was +4) wakes even the quietest phone mic.
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 34.0, high=40.0, low=0.0))}dB")
+    # v19 MAX LOUDNESS: pre-amp +40 dB wakes even the quietest phone mic.
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 40.0, high=44.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        # e=45 (was 35): max expansion — whisper-level voice lifted ~+45 dB to
-        # full scale, loud voice untouched.  This is the single biggest
-        # loudness win for quiet/far phones.
-        f.append("speechnorm=e=45:r=0.0005:l=1:p=0.85")
+        # e=60: extreme expansion — whisper-level voice lifted ~+60 dB to
+        # full scale, loud voice untouched.  Maximum loudness for quiet/far phones.
+        f.append("speechnorm=e=60:r=0.0005:l=1:p=0.85")
     f += ["equalizer=f=130:t=q:w=0.9:g=4",      # chest / dam (body)
           "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
           "equalizer=f=2500:t=q:w=1.2:g=6",     # presence: words cut through
@@ -358,18 +357,17 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
           "equalizer=f=5000:t=q:w=1.5:g=2",     # clarity / consonants
           "equalizer=f=7500:t=q:w=1.5:g=-3",    # v16 anti khar-khar notch (harsh 7-8 kHz fizz)
           # ONE smooth leveller (no double compressor pumping).
-          "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=4:knee=4"]  # v15 harder
-    # 100x DENSITY: triple compressor stack squashes RMS to near-peak so the
-    # AVERAGE level (what ears hear as loudness) is 10-100x higher.  Each
-    # stage has longer release than the last = smooth, no pumping.
-    f.append("acompressor=threshold=0.06:ratio=8:attack=5:release=120:makeup=6:knee=6")
-    f.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=8:knee=8")
-    f.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=10:knee=10")
+          "acompressor=threshold=0.1:ratio=4.5:attack=2:release=60:makeup=6:knee=4"]  # v19: +2dB makeup
+    # v19 MAX DENSITY: triple compressor stack squashes RMS to near-peak so the
+    # AVERAGE level is 10-100x higher.  Each stage has longer release = smooth.
+    f.append("acompressor=threshold=0.06:ratio=8:attack=5:release=120:makeup=8:knee=6")
+    f.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=10:knee=8")
+    f.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=12:knee=10")
     # Extra levelling pass: dynaudnorm short window lifts any remaining quiet
     # words to full scale without the 37 s look-ahead latency.
     if _has_filter("dynaudnorm"):
-        f.append("dynaudnorm=f=10:g=15:p=0.95:m=15:r=0.9:s=0")
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 34.0, high=40.0, low=0.0)  # v18: +6 dB more drive for max loudness
+        f.append("dynaudnorm=f=10:g=20:p=0.97:m=15:r=0.9:s=0")  # v19: g=20, p=0.97 for more lift
+    drive = _env_db("LIVE_MIC_DRIVE_DB", 40.0, high=44.0, low=0.0)  # v19: +6 dB more drive
     if crunch > 0:
         # Deliberate grit: push into tanh, then pull back.
         cdb = crunch * 0.12            # up to +24 dB into the clipper
@@ -380,13 +378,13 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
             f.append("alimiter=limit=0.5:level=false:attack=0.1:release=5")
         f.append(f"volume={_db(-cdb * (0.8 if crunch <= 100 else 0.6))}dB")
     drive += min(loud, 200) * 0.015   # LOUD 0..200 -> +0..+3 dB
-    # Final ceiling: -0.3 dBFS (~0 dB) unless admin headroom is respected.
+    # v19: ceiling at absolute max (0.99) for maximum loudness
     if os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1":
         out_db = ceiling_db - 0.6
     else:
-        out_db = _env_db("LIVE_MIC_OUT_DB", -0.15, high=0.0, low=-12.0)
-    out_limit = min(0.955, 10 ** (out_db / 20.0))
-    pre_limit = min(0.925, out_limit * 10 ** (-0.3 / 20.0))
+        out_db = _env_db("LIVE_MIC_OUT_DB", -0.05, high=0.0, low=-12.0)
+    out_limit = min(0.995, 10 ** (out_db / 20.0))
+    pre_limit = min(0.99, out_limit * 10 ** (-0.2 / 20.0))
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip") and not overdrive:
         # Gain-neutral warmth: +3 dB into tanh, -3 dB out = density, no fizz.
@@ -394,7 +392,10 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
             f.append("deesser=i=0.4:m=0.5:f=0.5:s=o")
         if warm > 0: f += [f"volume={_db(warm)}dB", "asoftclip=type=tanh:oversample=4",
-              f"volume={_db(-warm * 0.5)}dB", "lowpass=f=12500"]  # v15: keep half the saturation gain
+              f"volume={_db(-warm * 0.3)}dB", "lowpass=f=12500"]  # v19: keep 70% of saturation gain
+    # v19: stereo widener for psychoacoustic loudness on phone speakers
+    if _has_filter("extrastereo"):
+        f.append("extrastereo=m=1.5")
     # Stage 1: slow leveller (whole words dense, no pumping).
     f.append(f"alimiter=limit={pre_limit:.3f}:level=false:attack=4:release=60")
     # Stage 2: one fast brick-wall safety net at the ceiling (clip-free).
