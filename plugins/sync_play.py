@@ -254,6 +254,7 @@ async def cmd_syncplay(bot: Client, msg: Message):
         ok = [e for e, err in fired if err is None]
         failed += [(e, err) for e, err in fired if err is not None]
         _ACTIVE[uid] = {"cid": cid, "engines": ok, "wav": wav, "started": time.time()}
+        await _ghost_apply(uid, cid)
         _cleanup_source(path)
         lines = [f"✅ <b>SYNC PLAY</b> — {len(ok)} IDs ek saath",
                  f"🎯 GC: <code>{cid}</code>",
@@ -265,7 +266,7 @@ async def cmd_syncplay(bot: Client, msg: Message):
         await stat.edit_text("\n".join(lines))
 
 
-@Client.on_message(HAS_USER & cmd_prefix(r"(syncstop|syncleave)\b", flags=re.IGNORECASE)
+@Client.on_message(HAS_USER & cmd_prefix(r"(syncstop)\b", flags=re.IGNORECASE)
                    & (filters.group | filters.private))
 async def cmd_syncstop(bot: Client, msg: Message):
     uid = msg.from_user.id
@@ -306,7 +307,7 @@ async def cmd_syncmain(bot: Client, msg: Message):
     cid, _ = await _target(uid)
     await msg.reply_text(
         "👥 <b>Sync IDs</b>\n"
-        + "\n".join(f"• {_name(e)}" for e in engines) +
+        + "\n".join(f"{i}. {_name(e)}" for i, e in enumerate(engines, 1)) +
         f"\n\nMain ID shamil: <b>{'ON' if inc else 'OFF'}</b> (<code>.syncmain on|off</code>)\n"
         f"Target: <code>{cid or 'set nahi'}</code>\n"
         "Spare IDs add: <code>.spare</code>")
@@ -319,7 +320,9 @@ SYNC_HELP = (
     "2️⃣ <code>.synctarget -100xxxx</code> — fight GC set karo\n"
     "3️⃣ Recording reply karke <code>.syncplay</code>\n"
     "   → har ID same pal me same audio bajayegi\n"
-    "4️⃣ <code>.syncstop</code> band  |  <code>.syncleave</code> VC chhodo\n\n"
+    "4️⃣ <code>.syncstop</code> band  |  <code>.syncleave</code> VC chhodo\n"
+    "   <code>.syncleave 2</code> sirf ID #2 nikle  |  <code>.synconly 1</code> sirf #1 rahe\n"
+    "👻 <code>.syncghost on</code> — sab IDs ka mic OFF dikhe, awaaz chale\n\n"
     "🎤 Live mic bhi sab spare IDs se same awaaz me jaata hai: <code>.mic on</code>\n"
     "👤 Phone se main ID se VC sun rahe ho to: <code>.syncmain off</code>\n"
     "➕ Spare IDs: <code>.spare</code> (max 5)"
@@ -339,3 +342,99 @@ async def cb_sync_menu(bot: Client, cq):
              B("🏠 Home", callback_data="menu:home", style="primary")]])
     await safe_answer(cq)
     await edit_screen(cq.message, text, reply_markup=kb)
+
+
+async def _ghost_apply(uid: int, cid: int) -> None:
+    """Ghost ON ho to har sync ID ka mic icon OFF (muted) dikhe, awaaz chalti rahe."""
+    try:
+        from plugins.ghost_mic import is_ghost_chat, _safe_mute, _engine
+        if is_ghost_chat(cid):
+            await _safe_mute(_engine(uid), cid, True, uid)
+    except Exception as exc:
+        logger.debug("sync ghost apply failed: %r", exc)
+
+
+async def _list_for(uid: int):
+    ent = _ACTIVE.get(uid)
+    if ent:
+        return ent["cid"], ent["engines"]
+    return (await _target(uid))[0], await collect_engines(uid, await _include_main(uid))
+
+
+def _pick(engines, nums):
+    out = []
+    for n in nums:
+        try:
+            i = int(n) - 1
+        except ValueError:
+            continue
+        if 0 <= i < len(engines):
+            out.append(engines[i])
+    return out
+
+
+@Client.on_message(HAS_USER & cmd_prefix(r"(syncleave|synconly|synckick)\b", flags=re.IGNORECASE)
+                   & (filters.group | filters.private))
+async def cmd_syncleave(bot: Client, msg: Message):
+    """.syncleave        -> sab IDs VC chhodein
+       .syncleave 2 3    -> sirf ID #2, #3 nikle (baaki bajti rahein)
+       .synconly 1       -> sirf ID #1 rahe, baaki sab nikal jayein"""
+    uid = msg.from_user.id
+    parts = cmd_text(msg).split()
+    name = parts[0].lstrip("./!").lower()
+    nums = parts[1:]
+    cid, engines = await _list_for(uid)
+    if not cid or not engines:
+        await msg.reply_text("⚠️ Koi sync ID active nahi hai.")
+        return
+    if name == "synconly":
+        keep = _pick(engines, nums)
+        if not keep:
+            await msg.reply_text("Usage: <code>.synconly 1</code>  (number <code>.syncids</code> me dekho)")
+            return
+        go = [e for e in engines if e not in keep]
+    else:
+        go = _pick(engines, nums) if nums else list(engines)
+        keep = [e for e in engines if e not in go]
+        if nums and not go:
+            await msg.reply_text("❌ Galat number. <code>.syncids</code> me list dekho.")
+            return
+
+    async def _one(eng):
+        try:
+            await eng.leave(cid, reason="Sync leave")
+        except Exception as exc:
+            logger.debug("sync leave failed: %r", exc)
+
+    await asyncio.gather(*(_one(e) for e in go))
+    if keep:
+        _ACTIVE[uid] = {**(_ACTIVE.get(uid) or {}), "cid": cid, "engines": keep}
+    else:
+        _ACTIVE.pop(uid, None)
+    lines = ["👋 VC se nikli:"] + [f"• {_name(e)}" for e in go]
+    if keep:
+        lines += ["", "🟢 Abhi bhi VC me:"] + [f"{i}. {_name(e)}" for i, e in enumerate(keep, 1)]
+    await msg.reply_text("\n".join(lines))
+
+
+@Client.on_message(HAS_USER & cmd_prefix(r"syncghost\b", flags=re.IGNORECASE)
+                   & (filters.group | filters.private))
+async def cmd_syncghost(bot: Client, msg: Message):
+    """.syncghost on|off — TARGET GC me saari sync IDs ka mic OFF dikhe, awaaz chalti rahe.
+    (.ghostmic private group me chalane se private group pakad leta tha.)"""
+    uid = msg.from_user.id
+    parts = cmd_text(msg).split()
+    on = len(parts) < 2 or parts[1].lower() in ("on", "1", "haan")
+    from plugins.ghost_mic import _start, _stop, _engine
+    uvc = _engine(uid)
+    cid, engines = await _list_for(uid)
+    if not uvc or not cid:
+        await msg.reply_text("❌ Pehle login + <code>.synctarget</code> set karo.")
+        return
+    if on:
+        await _start(uid, uvc, cid, "hold")
+        await msg.reply_text(f"👻 Sync Ghost ON — {len(engines)} IDs ka mic OFF dikhega, "
+                             "awaaz bajti rahegi.\nOff: <code>.syncghost off</code>")
+    else:
+        await _stop(uid, uvc, cid)
+        await msg.reply_text("❌ Sync Ghost OFF — mic icon normal.")
