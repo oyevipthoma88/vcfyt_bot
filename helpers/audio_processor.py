@@ -955,7 +955,7 @@ def build_fake_screen_command(
         pre = _prerender_ss_base(img, width, height)
         if pre:
             # -stream_loop -1 cleanly loops input; on pipe close FFmpeg exits instantly (0.1s).
-            cmd += ["-stream_loop", "-1", "-framerate", str(fps), "-i", pre]
+            cmd += ["-loop", "1", "-framerate", str(fps), "-i", pre]
             base = "setsar=1"
         else:
             cmd += ["-loop", "1", "-framerate", str(fps), "-i", img]
@@ -970,7 +970,7 @@ def build_fake_screen_command(
     # Taskbar height is needed by the custom-photo branch below too — it was
     # defined later, so `.ss on` with a replied photo crashed (UnboundLocalError).
     bh = max(28, H // 16)
-    parts = [base]
+    parts = [base, "format=yuv420p"]
     use_default = (img == _SS_DEFAULT)
     # NOTE: inside drawbox, `t` in x/y/w/h means *thickness*, not time — the
     # old meters/cursor were therefore frozen.  Animation is done with the
