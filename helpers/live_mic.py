@@ -52,16 +52,16 @@ RECONNECT_GRACE_SECONDS = 240.0
 # silence) pushed more than real-time into the pipeline, so latency grew until
 # Telegram dropped the userbot from the voice chat.
 FRAME_MS = 20
-JITTER_MAX_MS = 800
+JITTER_MAX_MS = 500
 # Playout starts only once this much audio is queued, and after an underrun
 # we re-buffer back to it.  Without this every tiny network hiccup inserted
 # 20 ms holes of silence mid-word = the choppy "atak atak" voice.
-JITTER_TARGET_MS = 120
+JITTER_TARGET_MS = 60
 # Each underrun grows the prebuffer (adaptive) so a user on a bad network
 # stutters once, not every few seconds.
-JITTER_TARGET_MAX_MS = 400
+JITTER_TARGET_MAX_MS = 240
 # Beyond this, latency is creeping up: drop 1 sample per ~100 (inaudible).
-JITTER_HIGH_MS = 360
+JITTER_HIGH_MS = 200
 
 
 # Loudness comes from the levelling + limiter stages, not from piling on
@@ -262,7 +262,7 @@ class LiveMicSession:
         if self._proc_keeper_fd is not None:
             try:
                 import fcntl
-                fcntl.fcntl(self._proc_keeper_fd, 1031, 8192)  # F_SETPIPE_SZ
+                fcntl.fcntl(self._proc_keeper_fd, 1031, 4096)  # F_SETPIPE_SZ
             except Exception:
                 pass
 
