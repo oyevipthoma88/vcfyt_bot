@@ -1,3 +1,4 @@
+import os
 """VC Bridge — private VC se target VC me live aawaz relay.
 
 Flow::
@@ -455,6 +456,19 @@ class VCBridge:
             x.queue_pcm(data)
             x._received_bytes += len(data)
             x._first_pcm.set()
+        # ZERO-OFFSET LOCK: every extra ID must sit at the exact same playout
+        # position as the main ID.  Each session runs its own pacer (trim /
+        # underrun / late join), so buffers drift apart by tens of ms ->
+        # "aage-piche" echo.  Whenever an extra's queue differs from the
+        # main queue by > 2 ms, copy the main queue byte-for-byte.
+        if self.extras and s._raw_fd is not None:
+            tol = max(2, int(s._frame_bytes // 10)) & ~1   # ~2 ms
+            for x in self.extras:
+                if x._closed or x._raw_fd is None or x._restarting:
+                    continue
+                if abs(len(x._buf) - len(s._buf)) > tol:
+                    x._buf = bytearray(s._buf)
+                    x._jitter_target_ms = s._jitter_target_ms
 
     async def start(self, settings: dict) -> None:
         from helpers import live_mic
@@ -522,8 +536,12 @@ class VCBridge:
         bridge = self
 
         def _build_with_loud():
+            # SYNC MODE (default): every extra ID sends the EXACT same chain
+            # as the main ID -> identical awaaz, coherent sum in listeners.
+            # MULTI_LAYER=1 restores the old 1-7 kHz presence layer.
+            layer = os.environ.get("MULTI_LAYER", "0") == "1"
             return build_bridge_filter(bridge.loud, bridge.preset,
-                                       focus=bridge.focus, layer=True)
+                                       focus=bridge.focus, layer=layer)
 
         for relay in list(self.extra_relays):
             if self._closed:
