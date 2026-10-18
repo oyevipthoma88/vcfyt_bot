@@ -1,99 +1,190 @@
 # plugins/ghost_mic.py
-# Ghost Mic — mic icon OFF, audio ON (Live Mic + Playback dono ke liye)
+# Ghost Mic v3 — mic icon OFF, existing audio stream UNTOUCHED.
+# IMPORTANT: no LiveMicSession / no _attach_stream / no calls.play().
+# Sirf raw EditGroupCallParticipant se icon mute hota hai.
 import asyncio
 import logging
-import re
 
 from pyrogram import Client, filters
+
 from helpers.vc_manager import session_manager
 
 logger = logging.getLogger("vcbot.ghost_mic")
 
-_ghost_live = {}       # uid -> LiveMicSession
-_ghost_playback = {}   # uid -> bool
-
-GHOST_CMD = filters.regex(
-    r"^[./!]ghostmic(?:@\w+)?\b",
-    flags=re.IGNORECASE,
-)
+# uid -> {"cid": int, "task": Task, "mode": "hold"|"blink"|"pulse"}
+_GHOST = {}
 
 
-# ---------------- engine ----------------
-async def _get_engine(uid: int):
-    uvc = session_manager.users.get(uid)
-    if uvc:
-        return uvc
+# ---------------------------------------------------------------- helpers
+def _engine(uid):
     try:
-        return await session_manager.get(uid)
+        return session_manager.users.get(uid)
     except Exception:
         return None
 
 
-def _pick_chat(uvc, msg, arg=None):
+def _state(uvc, cid):
+    try:
+        return uvc.chats.get(cid)
+    except Exception:
+        return None
+
+
+def _pick_cid(uvc, msg, arg=None):
     if arg:
         try:
             return int(arg)
         except (TypeError, ValueError):
             pass
-
     chat = getattr(msg, "chat", None)
-    if chat and getattr(chat, "type", None) in ("group", "supergroup"):
+    if chat is not None and getattr(chat, "type", None) in ("group", "supergroup"):
         return chat.id
-
-    for cid, st in (getattr(uvc, "chats", {}) or {}).items():
-        if getattr(st, "mic_enabled", False) or getattr(st, "is_playing", False):
-            return int(cid)
-
-    for attr in ("default_gc", "default_chat", "last_chat"):
-        value = getattr(uvc, attr, None)
-        if value:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                pass
+    try:
+        for cid, st in (uvc.chats or {}).items():
+            if getattr(st, "is_playing", False) or getattr(st, "current_file", None):
+                return int(cid)
+    except Exception:
+        pass
     return None
 
 
-# ---------------- live relay ----------------
-async def _start_live(uid: int, uvc, cid: int):
-    from helpers.live_mic import LiveMicSession
+def _has_audio(uvc, cid):
+    st = _state(uvc, cid)
+    if st and (getattr(st, "is_playing", False) or getattr(st, "current_file", None)):
+        return True
+    try:
+        from helpers.live_mic import is_active_for_chat
+        return bool(is_active_for_chat(cid))
+    except Exception:
+        return False
 
-    relay = LiveMicSession(uid, uvc, cid, settings={})
 
-    for fn_name in ("_attach_stream", "_ensure_relay_peer", "_release_stale_calls"):
-        fn = getattr(relay, fn_name, None)
-        if not fn:
-            continue
-        try:
-            await fn()
-        except Exception as exc:
-            logger.warning("ghost live %s failed: %s", fn_name, exc)
+async def _safe_mute(uvc, cid, muted=True):
+    """Raw API only — PyTgCalls ka stream bilkul touch nahi hota."""
+    try:
+        return bool(await uvc._edit_self(cid, muted=muted))
+    except Exception as exc:
+        logger.debug("ghost mute failed: %r", exc)
+        return False
 
-    await uvc._edit_self(cid, muted=True)
 
-    _ghost_live[uid] = relay
-    _ghost_playback[uid] = True
-
-    # LiveMicSession background me auto-unmute karta hai, isliye mute ko
-    # kuch der tak re-assert karte hain — icon OFF hi rahe.
-    async def _hold_mute():
-        for delay in (0.5, 1.5, 3.0, 6.0, 12.0, 20.0):
-            await asyncio.sleep(delay)
-            if uid not in _ghost_live:
-                return
+async def _loop(uid, uvc, cid, mode):
+    while _GHOST.get(uid, {}).get("cid") == cid:
+        st = _state(uvc, cid)
+        if st is not None:
             try:
-                await uvc._edit_self(cid, muted=True)
+                st.ghost_mute = True
             except Exception:
                 pass
 
-    relay._ghost_hold_task = asyncio.create_task(_hold_mute())
-    return relay
+        if mode == "blink":
+            await _safe_mute(uvc, cid, True)
+            await asyncio.sleep(2)
+            await _safe_mute(uvc, cid, False)
+            await asyncio.sleep(2)
+
+        elif mode == "pulse":
+            # Jugaad: 0.9s muted + 0.18s unmuted.
+            # Icon zyadatar OFF dikhega, audio ko flow windows milengi.
+            await _safe_mute(uvc, cid, True)
+            await asyncio.sleep(0.9)
+            await _safe_mute(uvc, cid, False)
+            await asyncio.sleep(0.18)
+
+        else:
+            await _safe_mute(uvc, cid, True)
+            await asyncio.sleep(4)
 
 
-# ---------------- .ghostmic command ----------------
+async def _start(uid, uvc, cid, mode="hold"):
+    await _stop(uid, uvc, cid=None, unmute=False)
+    st = _state(uvc, cid)
+    if st is not None:
+        try:
+            st.ghost_mute = True
+        except Exception:
+            pass
+    await _safe_mute(uvc, cid, True)
+    _GHOST[uid] = {
+        "cid": cid,
+        "mode": mode,
+        "task": asyncio.create_task(_loop(uid, uvc, cid, mode)),
+    }
+    return True
+
+
+async def _stop(uid, uvc, cid=None, unmute=True):
+    ent = _GHOST.pop(uid, None)
+    if ent:
+        task = ent.get("task")
+        if task:
+            try:
+                task.cancel()
+            except Exception:
+                pass
+        cid = cid or ent.get("cid")
+    if cid:
+        st = _state(uvc, cid)
+        if st is not None:
+            try:
+                st.ghost_mute = False
+            except Exception:
+                pass
+        if unmute:
+            await _safe_mute(uvc, cid, False)
+    return bool(ent)
+
+
+# ---------------------------------------------------------------- guards
+def _install_guards():
+    """
+    Ghost mute ko admin-mute mat samjho (warna playback pause + live mic stop),
+    aur 'Queue empty' wala leave ghost mode me block karo.
+    """
+    from helpers import vc_manager as vm
+
+    user_vc = getattr(vm, "UserVC", None)
+    if user_vc is None or getattr(user_vc, "_ghost_guards", False):
+        return
+
+    if hasattr(user_vc, "apply_mute_state"):
+        original_apply = user_vc.apply_mute_state
+
+        def _apply(self, chat_id, muted_by_admin):
+            st = self.chats.get(chat_id)
+            if muted_by_admin and getattr(st, "ghost_mute", False):
+                logger.info("Ghost: admin-mute transition ignored in %s", chat_id)
+                return
+            return original_apply(self, chat_id, muted_by_admin)
+
+        user_vc.apply_mute_state = _apply
+
+    if hasattr(user_vc, "leave"):
+        original_leave = user_vc.leave
+
+        async def _leave(self, chat_id, *args, **kwargs):
+            st = self.chats.get(chat_id)
+            reason = kwargs.get("reason")
+            if reason is None and args:
+                reason = args[0]
+            if getattr(st, "ghost_mute", False) and "queue" in str(reason).lower():
+                logger.info("Ghost: blocked VC leave in %s (%s)", chat_id, reason)
+                return
+            return await original_leave(self, chat_id, *args, **kwargs)
+
+        user_vc.leave = _leave
+
+    user_vc._ghost_guards = True
+    logger.info("Ghost: VC guards installed")
+
+
+_install_guards()
+
+
+# ---------------------------------------------------------------- command
 @Client.on_message(
     filters.text
-    & GHOST_CMD
+    & filters.regex(r"^[./!]ghostmic(?:@\w+)?\b", flags=2)
     & (filters.group | filters.private)
 )
 async def ghost_mic_cmd(bot, msg):
@@ -102,203 +193,103 @@ async def ghost_mic_cmd(bot, msg):
     action = parts[1].lower() if len(parts) > 1 else "status"
     arg = parts[2] if len(parts) > 2 else None
 
-    uvc = await _get_engine(uid)
+    uvc = _engine(uid)
     if not uvc:
         await msg.reply_text(
-            "❌ Pehle login karo.\nBot ke DM me `/login` bhejo, phir `.ghostmic on` karo."
+            "❌ Pehle login karo.\nBot ke DM me `/login` bhejo, phir `.ghostmic on`."
         )
         return
 
-    cid = _pick_chat(uvc, msg, arg)
+    cid = _pick_cid(uvc, msg, arg)
 
-    if action == "on":
-        if uid in _ghost_live:
-            await msg.reply_text("⚠️ Ghost mode pehle se ON hai. Band karne ke liye `.ghostmic off`.")
-            return
+    if action in ("on", "blink", "pulse"):
         if not cid:
             await msg.reply_text(
-                "❌ Chat ID nahi mila.\nGroup me `.ghostmic on` bhejo, "
-                "ya DM me `.ghostmic on <chat_id>` use karo."
+                "❌ Chat ID nahi mila.\nGroup me bhejo, ya `.ghostmic on <chat_id>`."
             )
             return
-        try:
-            await _start_live(uid, uvc, cid)
-            await msg.reply_text(
-                "✅ **Ghost Mode ON**\n\n"
-                "• Mic icon OFF (strictly muted)\n"
-                "• Live mic audio relay se ja raha hai\n"
-                "• `.play` par bhi mic OFF rahega\n"
-                f"• Chat: `{cid}`\n\n"
-                "Band: `.ghostmic off`"
+        mode = {"on": "hold", "blink": "blink", "pulse": "pulse"}[action]
+        await _start(uid, uvc, cid, mode)
+        audio = _has_audio(uvc, cid)
+        note = ""
+        if not audio:
+            note = (
+                "\n\n⚠️ Is chat me koi audio stream active nahi hai — "
+                "sirf mic icon mute hoga, sunne ko kuch nahi hoga."
             )
-        except Exception as exc:
-            logger.exception("ghost on failed")
-            await msg.reply_text(f"❌ Ghost ON fail: {exc}")
+        await msg.reply_text(
+            f"👻 Ghost Mode ON (`{mode}`)\n\n"
+            f"• Mic icon OFF (raw Telegram mute)\n"
+            f"• Music/live stream ko chhua nahi gaya\n"
+            f"• Chat: `{cid}`{note}\n\n"
+            "Off: `.ghostmic off`"
+        )
         return
 
     if action == "off":
-        relay = _ghost_live.pop(uid, None)
-        _ghost_playback.pop(uid, None)
-
-        if relay:
-            task = getattr(relay, "_ghost_hold_task", None)
-            if task:
-                task.cancel()
-            try:
-                await relay.set_tg_mute(False)
-            except Exception:
-                pass
-
-        if cid:
-            try:
-                await uvc._edit_self(cid, muted=False)
-            except Exception:
-                pass
-
-        await msg.reply_text("❌ **Ghost Mode OFF** — mic icon wapas ON.")
-        return
-
-    if action == "blink":
-        relay = _ghost_live.get(uid)
-        if not relay:
-            await msg.reply_text("⚠️ Pehle `.ghostmic on` karo, phir `.ghostmic blink`.")
-            return
-
-        await msg.reply_text("✨ **Blink ON** — mic icon on/off hoga, audio continuous rahega.")
-
-        async def _blink():
-            while uid in _ghost_live:
-                try:
-                    await uvc._edit_self(cid, muted=True)
-                    await asyncio.sleep(2)
-                    await uvc._edit_self(cid, muted=False)
-                    await asyncio.sleep(2)
-                except Exception:
-                    break
-
-        old = getattr(relay, "_ghost_blink_task", None)
-        if old and not old.done():
-            old.cancel()
-        relay._ghost_blink_task = asyncio.create_task(_blink())
-        return
-
-    if action == "status":
-        live = uid in _ghost_live
-        play = bool(_ghost_playback.get(uid))
+        was = await _stop(uid, uvc, cid)
         await msg.reply_text(
-            f"👻 **Ghost Status**\n\n"
-            f"• Live relay: `{'ON' if live else 'OFF'}`\n"
-            f"• Playback mute: `{'ON' if play else 'OFF'}`\n"
-            f"• Chat: `{cid or '—'}`\n\n"
-            "Commands: `.ghostmic on|off|blink|status [chat_id]`"
+            "❌ Ghost Mode OFF — mic icon wapas ON."
+            if was else "⚠️ Ghost mode pehle se OFF tha."
         )
         return
 
-    await msg.reply_text("Usage: `.ghostmic on|off|blink|status [chat_id]`")
+    if action == "status":
+        ent = _GHOST.get(uid)
+        if not ent:
+            await msg.reply_text("👻 Ghost Mode: OFF")
+            return
+        cid2 = ent["cid"]
+        await msg.reply_text(
+            f"👻 Ghost Mode: ON (`{ent['mode']}`)\n"
+            f"Chat: `{cid2}`\n"
+            f"Audio active: `{'YES' if _has_audio(uvc, cid2) else 'NO'}`"
+        )
+        return
+
+    await msg.reply_text("Usage: `.ghostmic on|off|blink|pulse|status [chat_id]`")
 
 
-# ---------------- Playback card button: gm:play:<cid> ----------------
+# ---------------------------------------------------------------- playback button
 @Client.on_callback_query(filters.regex(r"^gm:play:(-?\d+)$"))
 async def cb_ghost_play(bot, cq):
     uid = cq.from_user.id
     cid = int(cq.matches[0].group(1))
-
-    uvc = await _get_engine(uid)
+    uvc = _engine(uid)
     if not uvc:
         await cq.answer("❌ Pehle login karo.", show_alert=True)
         return
-
-    _ghost_playback[uid] = True
-    try:
-        ok = await uvc._edit_self(cid, muted=True)
-        await cq.answer("👻 Ghost Mic ON — mic OFF, audio ON" if ok else "⚠️ Mute apply nahi hua", show_alert=not ok)
-    except Exception as exc:
-        await cq.answer(f"❌ {exc}", show_alert=True)
+    await _start(uid, uvc, cid, "hold")
+    await cq.answer("👻 Ghost Mic ON — mic OFF, music ON")
 
 
-# ---------------- Live Mic card button: gm:live ----------------
+# ---------------------------------------------------------------- live mic button
 @Client.on_callback_query(filters.regex(r"^gm:live(?::(-?\d+))?$"))
 async def cb_ghost_live(bot, cq):
     uid = cq.from_user.id
-
-    # Toggle OFF
-    if uid in _ghost_live:
-        relay = _ghost_live.pop(uid, None)
-        _ghost_playback.pop(uid, None)
-        if relay:
-            task = getattr(relay, "_ghost_hold_task", None)
-            if task:
-                task.cancel()
-            try:
-                await relay.set_tg_mute(False)
-            except Exception:
-                pass
-        await cq.answer("❌ Ghost Mic OFF — mic icon wapas ON")
-        return
-
-    uvc = await _get_engine(uid)
+    uvc = _engine(uid)
     if not uvc:
         await cq.answer("❌ Pehle login karo.", show_alert=True)
+        return
+
+    if uid in _GHOST:
+        await _stop(uid, uvc)
+        await cq.answer("❌ Ghost Mic OFF")
         return
 
     cid = None
     m = cq.matches[0].group(1) if cq.matches else None
     if m:
-        try:
-            cid = int(m)
-        except ValueError:
-            cid = None
-
+        cid = int(m)
     if not cid:
-        for chat_id, st in (getattr(uvc, "chats", {}) or {}).items():
-            if getattr(st, "mic_enabled", False) or getattr(st, "is_playing", False):
-                cid = int(chat_id)
-                break
-
+        message = getattr(cq, "message", None)
+        if message is not None and getattr(message.chat, "type", None) in ("group", "supergroup"):
+            cid = message.chat.id
     if not cid:
-        await cq.answer("❌ Pehle VC start karo / `.mic on` karo.", show_alert=True)
+        cid = _pick_cid(uvc, getattr(cq, "message", None))
+    if not cid:
+        await cq.answer("❌ Pehle target chat set karo / VC start karo.", show_alert=True)
         return
 
-    try:
-        await _start_live(uid, uvc, cid)
-        await cq.answer("👻 Ghost Mic ON — mic OFF, audio ON")
-    except Exception as exc:
-        logger.exception("ghost live button failed")
-        await cq.answer(f"❌ {exc}", show_alert=True)
-
-
-# ---------------- Playback ke baad mute enforce ----------------
-def _patch_play():
-    try:
-        from helpers.vc_manager import UserVC
-
-        if getattr(UserVC, "_ghost_play_patched", False):
-            return
-
-        original = UserVC.play
-
-        async def _wrapped(self, *args, **kwargs):
-            result = await original(self, *args, **kwargs)
-            try:
-                uid = getattr(self, "owner_id", None)
-                if uid in _ghost_playback:
-                    cid = kwargs.get("chat_id") or kwargs.get("cid")
-                    if cid is None:
-                        for value in args:
-                            if isinstance(value, int):
-                                cid = value
-                                break
-                    if cid:
-                        await self._edit_self(int(cid), muted=True)
-            except Exception:
-                pass
-            return result
-
-        UserVC.play = _wrapped
-        UserVC._ghost_play_patched = True
-        logger.info("Ghost mic: UserVC.play patched")
-    except Exception as exc:
-        logger.warning("Ghost mic: play patch failed: %s", exc)
-
-
-_patch_play()
+    await _start(uid, uvc, cid, "hold")
+    await cq.answer("👻 Ghost Mic ON — mic OFF, audio ON")
