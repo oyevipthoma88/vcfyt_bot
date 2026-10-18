@@ -198,7 +198,7 @@ async def _loop(uid, uvc, cid, mode):
         for eng in _user_engines(uid, uvc):
             _calm_state(_state(eng, cid))
             _install_raw_watch(eng)
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
         if _GHOST.get(uid, {}).get("cid") != cid:
             break
         await _safe_mute(uvc, cid, True, uid)

@@ -175,6 +175,23 @@ async def _process_once(uid: int, path: str) -> str:
         treble=s.get("treble"))
 
 
+async def _boost_all(engines, cid) -> None:
+    """LOUD JUGAD: har ID baaki sab IDs (aur khud) ko 200% volume deti hai.
+    Jo ID group admin hai uska 200% sab listeners ke liye lagta hai, isliye
+    ek bhi admin ID ho to poori VC me sync awaaz +6 dB tez sunai deti hai.
+    Telegram naye participant ko 100% pe reset karta hai -> retry."""
+    ids = [getattr(e, "account_id", None) for e in engines]
+    ids = [i for i in ids if i]
+    for delay in (0.5, 2.0, 5.0):
+        await asyncio.sleep(delay)
+        for eng in engines:
+            for aid in ids:
+                try:
+                    await eng.set_participant_volume(cid, aid, 20000, quiet=True)
+                except Exception:
+                    pass
+
+
 def _name(eng) -> str:
     return str(getattr(eng, "account_name", None) or getattr(eng, "label", "ID"))
 
@@ -238,6 +255,17 @@ async def cmd_syncplay(bot: Client, msg: Message):
         if not engines:
             await stat.edit_text("❌ Koi logged-in ID nahi mili. Pehle /login + spare IDs add karo.")
             return
+        if not await db.get_app_value(f"sync_auto_gc_{uid}"):
+            async def _bg_group():
+                try:
+                    gcid, inv, j, f = await auto_sync_group(bot, uid)
+                    await msg.reply_text(
+                        f"🎁 <b>{SYNC_GROUP_TITLE}</b> auto ban gaya ({len(j)} IDs andar).\n"
+                        f"🔗 Join link: {inv}\n<i>Aage se commands yahin chalao.</i>",
+                        disable_web_page_preview=True)
+                except Exception as exc:
+                    logger.debug("auto sync group failed: %r", exc)
+            asyncio.create_task(_bg_group())
         await stat.edit_text(f"🔗 Sync: {len(engines)} IDs VC join kar rahi hain…")
         joined = await _join_all(engines, cid, ref)
         ready = [e for e, err in joined if err is None]
@@ -255,6 +283,7 @@ async def cmd_syncplay(bot: Client, msg: Message):
         failed += [(e, err) for e, err in fired if err is not None]
         _ACTIVE[uid] = {"cid": cid, "engines": ok, "wav": wav, "started": time.time()}
         await _ghost_apply(uid, cid)
+        asyncio.create_task(_boost_all(ok, cid))
         _cleanup_source(path)
         lines = [f"✅ <b>SYNC PLAY</b> — {len(ok)} IDs ek saath",
                  f"🎯 GC: <code>{cid}</code>",
@@ -313,10 +342,111 @@ async def cmd_syncmain(bot: Client, msg: Message):
         "Spare IDs add: <code>.spare</code>")
 
 
+SYNC_GROUP_TITLE = "Apex Multiple ID Aura🥵🎤"
+
+
+async def auto_sync_group(bot, uid: int):
+    """Private control group: main ID banata hai, saari spare IDs + bot ko
+    andar laata hai, aur user ko direct join link deta hai.
+    Returns (chat_id, invite_link, joined_names, failed_names)."""
+    engines = await collect_engines(uid, True)
+    if not engines:
+        raise RuntimeError("Koi logged-in ID nahi mili. Pehle /login karo.")
+    owner = engines[0]
+    oc = getattr(owner, "client", None)
+    if oc is None:
+        raise RuntimeError("Main ID connected nahi hai.")
+    cid = None
+    saved = await db.get_app_value(f"sync_auto_gc_{uid}")
+    if saved:
+        try:
+            await oc.get_chat(int(saved))
+            cid = int(saved)
+        except Exception:
+            cid = None
+    if cid is None:
+        chat = await oc.create_supergroup(SYNC_GROUP_TITLE, "Apex multi-ID sync control room")
+        cid = chat.id
+        await db.set_app_value(f"sync_auto_gc_{uid}", str(cid))
+    try:
+        await oc.set_chat_title(cid, SYNC_GROUP_TITLE)
+    except Exception:
+        pass
+    try:
+        invite = (await oc.create_chat_invite_link(cid, creates_join_request=False)).invite_link
+    except Exception:
+        invite = await oc.export_chat_invite_link(cid)
+
+    joined, failed = [_name(owner)], []
+
+    async def _join(eng):
+        c = getattr(eng, "client", None)
+        if c is None:
+            return eng, False
+        try:
+            await c.get_chat_member(cid, "me")
+            return eng, True
+        except Exception:
+            pass
+        try:
+            await c.join_chat(invite)
+            return eng, True
+        except Exception as exc:
+            if "USER_ALREADY_PARTICIPANT" in str(exc):
+                return eng, True
+            logger.debug("sync group join failed: %r", exc)
+            return eng, False
+
+    for eng, ok in await asyncio.gather(*(_join(e) for e in engines[1:])):
+        (joined if ok else failed).append(_name(eng))
+
+    # Bot ko bhi add karo (commands isi group me chalenge) + admin.
+    try:
+        me = bot.me or await bot.get_me()
+        try:
+            await oc.add_chat_members(cid, me.username or me.id)
+        except Exception as exc:
+            if "USER_ALREADY_PARTICIPANT" not in str(exc):
+                logger.debug("sync group bot add failed: %r", exc)
+        try:
+            from pyrogram.types import ChatPrivileges
+            await oc.promote_chat_member(cid, me.id, ChatPrivileges(
+                can_manage_chat=True, can_delete_messages=True,
+                can_manage_video_chats=True, can_invite_users=True))
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return cid, invite, joined, failed
+
+
+@Client.on_message(HAS_USER & cmd_prefix(r"(syncgroup|allgroup|autogroup|playallgroup)\b", flags=re.IGNORECASE)
+                   & (filters.group | filters.private))
+async def cmd_syncgroup(bot: Client, msg: Message):
+    uid = msg.from_user.id
+    stat = await msg.reply_text("🔄 <b>Apex Multiple ID Aura</b> group ban raha hai, saari IDs add ho rahi hain…")
+    try:
+        cid, invite, joined, failed = await auto_sync_group(bot, uid)
+    except Exception as exc:
+        await stat.edit_text(f"❌ Auto group nahi bana:\n<code>{str(exc)[:300]}</code>\n\n"
+                             "Khud group banake IDs add karo, phir wahan <code>.syncplay</code> chalao.")
+        return
+    lines = [f"✅ <b>{SYNC_GROUP_TITLE}</b> ready!", "",
+             f"🆔 Group: <code>{cid}</code>",
+             f"🔗 <b>Join link:</b> {invite}", "",
+             f"👥 Andar IDs ({len(joined)}): " + ", ".join(joined)]
+    if failed:
+        lines.append(f"⚠️ Add nahi hui ({len(failed)}): " + ", ".join(failed)
+                     + "\n   → ye link un IDs se khud open karke join kar lo.")
+    lines += ["", "👉 Link se aap bhi join karo (aur koi extra ID ho to wo bhi).",
+              "Phir: <code>.synctarget -100xxxx</code> → recording reply karke <code>.syncplay</code>"]
+    await stat.edit_text("\n".join(lines), disable_web_page_preview=True)
+
+
 SYNC_HELP = (
     "🔗 <b>SYNC PLAY</b> — saari IDs, ek awaaz, 0 delay\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    "1️⃣ Private group banao: main ID + spare IDs + ye bot add karo\n"
+    "1️⃣ <code>.syncgroup</code> — bot khud group banayega + saari IDs add + link dega\n"
     "2️⃣ <code>.synctarget -100xxxx</code> — fight GC set karo\n"
     "3️⃣ Recording reply karke <code>.syncplay</code>\n"
     "   → har ID same pal me same audio bajayegi\n"
