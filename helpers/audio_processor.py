@@ -118,6 +118,36 @@ def apply_sync_and_presence(chain: str, boost: bool = True) -> str:
         parts.append(f"asetnsamples=n={AUDIO_FRAME_SAMPLES}:p=0")
     return ",".join(parts)
 
+# ---------------------------------------------------------------------------
+# ULTRA LOUD TAIL ("max hai phir bhi kam lagti hai" jugad)
+#
+# Peak already sits at 0 dBFS, so more gain alone only clips.  Perceived
+# loudness is won back by:
+#   1. cutting sub-bass (< hp Hz) that eats peak headroom but Telegram's
+#      Opus voice codec / phone speakers barely reproduce -> ~3-4 dB freed;
+#   2. pushing the 2-4 kHz band (ear's most sensitive region, Fletcher-Munson);
+#   3. one more fast density compressor + drive into a hard clip, so the
+#      AVERAGE (RMS) level rises to within ~2 dB of the peak.
+# Disable with ULTRA_LOUD=0.  Tune drive with ULTRA_LOUD_DB (0..12).
+# ---------------------------------------------------------------------------
+def ultra_loud_enabled() -> bool:
+    return (os.environ.get("ULTRA_LOUD", "0") or "0").strip() not in ("0", "off", "false")
+
+
+def ultra_loud_tail(hp: int = 110) -> list:
+    if not ultra_loud_enabled():
+        return []
+    drive = _env_db("ULTRA_LOUD_DB", 6.0, high=12.0, low=0.0)
+    out = [f"highpass=f={int(hp)}:p=2",
+           "equalizer=f=2800:t=q:w=1.3:g=4",
+           "acompressor=threshold=0.125:ratio=8:attack=0.5:release=40:makeup=2:knee=2",
+           f"volume={_db(drive)}dB"]
+    if _has_filter("asoftclip"):
+        out.append("asoftclip=type=hard:threshold=0.98")
+    out.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.1:release=8:level=false")
+    return out
+
+
 def _sanitize_ffmpeg_filter(value: str) -> str:
     value = re.sub(r"(?i)(knee=)0(?:\.0+)?(?![\d.])", r"\g<1>1", value)
     value = re.sub(r"(?i)(attack=)0(?:\.0+)?(?![\d.])", r"\g<1>0.1", value)
