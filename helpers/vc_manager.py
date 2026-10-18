@@ -1403,7 +1403,10 @@ class UserVC:
         # viewers saw a blurry / "loading" screen.  Send it at native 720p
         # and 24+ fps so the encoder reaches full quality within a second.
         ss_w, ss_h = min(Config.SS_WIDTH, 1280), min(Config.SS_HEIGHT, 720)
-        ss_fps = max(10, min(15, Config.SS_FPS))
+        # SHARP SS: screen content needs few frames.  At 15 fps Telegram's
+        # low start bitrate is split over 15 pictures/s -> whole screen blurry
+        # for the first seconds.  8 fps = ~2x bits per frame -> crisp quickly.
+        ss_fps = max(5, min(10, Config.SS_FPS))
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",

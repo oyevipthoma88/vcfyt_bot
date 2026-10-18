@@ -1,5 +1,5 @@
 # plugins/ghost_mic.py
-# Ghost Mic v7 — Root fix: Keep mic steady OFF, zero blink, keep audio transmitting.
+# Ghost Mic v10 — mic icon steady OFF (no blink at all), audio keeps playing.
 import asyncio
 import logging
 
@@ -174,31 +174,73 @@ async def _safe_mute(uvc, cid, muted=True, uid=None):
     return ok
 
 
-async def _loop(uid, uvc, cid, mode):
-    while _GHOST.get(uid, {}).get("cid") == cid:
-        st = _state(uvc, cid)
-        if st is not None:
-            try:
-                st.ghost_mute = True
-                st.mic_blink = False
-                st.mic_blink_secs = 0
-            except Exception:
-                pass
+def _calm_state(st):
+    if st is None:
+        return
+    try:
+        st.ghost_mute = True
+        st.mic_blink = False
+        st.mic_blink_secs = 0
+    except Exception:
+        pass
 
-        if mode == "blink":
-            await _safe_mute(uvc, cid, True, uid)
-            await asyncio.sleep(2)
-            await _safe_mute(uvc, cid, False, uid)
-            await asyncio.sleep(2)
-        elif mode == "pulse":
-            await _safe_mute(uvc, cid, True, uid)
-            await asyncio.sleep(0.9)
-            await _safe_mute(uvc, cid, False, uid)
-            await asyncio.sleep(0.18)
-        else:
-            # hold mode: mic steady OFF (muted) — zero blinking, audio continues
-            await _safe_mute(uvc, cid, True, uid)
-            await asyncio.sleep(5)
+
+async def _loop(uid, uvc, cid, mode):
+    """Ghost v10: mic icon STEADY OFF.
+
+    Old blink/pulse modes toggled the mic every 0.2-2 s and even the hold
+    mode re-sent a mute edit every 5 s.  Every edit makes Telegram clients
+    re-render the participant row = visible flicker / "blink".  Now we only
+    send a mute when Telegram reports the mic actually came ON (raw update
+    handler below) plus a slow safety re-check.  All modes = steady OFF.
+    """
+    while _GHOST.get(uid, {}).get("cid") == cid:
+        for eng in _user_engines(uid, uvc):
+            _calm_state(_state(eng, cid))
+            _install_raw_watch(eng)
+        await asyncio.sleep(20)
+        if _GHOST.get(uid, {}).get("cid") != cid:
+            break
+        await _safe_mute(uvc, cid, True, uid)
+
+
+# ---- instant re-mute: react to Telegram's own participant updates ----
+_WATCHED = set()
+
+
+def _install_raw_watch(eng):
+    client = getattr(eng, "client", None)
+    if client is None or id(client) in _WATCHED:
+        return
+    try:
+        from pyrogram.handlers import RawUpdateHandler
+        from pyrogram.raw.types import UpdateGroupCallParticipants
+    except Exception:
+        return
+
+    async def _on_raw(c, update, users, chats):
+        if not _GHOST_CALLS or not isinstance(update, UpdateGroupCallParticipants):
+            return
+        try:
+            call_id = int(getattr(update.call, "id", 0) or 0)
+        except Exception:
+            return
+        cid = _GHOST_CALLS.get(call_id)
+        if cid is None:
+            return
+        for p in getattr(update, "participants", []) or []:
+            if getattr(p, "is_self", False) and not getattr(p, "muted", True) \
+                    and not getattr(p, "left", False):
+                try:
+                    await eng._edit_self(cid, muted=True)
+                except Exception:
+                    pass
+
+    try:
+        client.add_handler(RawUpdateHandler(_on_raw), group=-77)
+        _WATCHED.add(id(client))
+    except Exception as exc:
+        logger.debug("ghost raw watch failed: %r", exc)
 
 
 async def _start(uid, uvc, cid, mode="hold"):
@@ -213,7 +255,11 @@ async def _start(uid, uvc, cid, mode="hold"):
         except Exception:
             pass
 
+    mode = "hold"  # blink/pulse removed: mic hamesha steady OFF
     _GHOST[uid] = {"cid": cid, "mode": mode, "task": None}
+    for eng in _user_engines(uid, uvc):
+        _calm_state(_state(eng, cid))
+        _install_raw_watch(eng)
     await _safe_mute(uvc, cid, True, uid)
     _GHOST[uid]["task"] = asyncio.create_task(_loop(uid, uvc, cid, mode))
     return True
@@ -230,12 +276,16 @@ async def _stop(uid, uvc, cid=None, unmute=True):
                 pass
         cid = cid or ent.get("cid")
     if cid:
-        st = _state(uvc, cid)
-        if st is not None:
-            try:
-                st.ghost_mute = False
-            except Exception:
-                pass
+        # Clear the flag on EVERY engine (main + spare/relay/sync IDs).  Only
+        # the main ID was cleared before, so is_ghost_chat() stayed True via
+        # the relay's state and the mic was stuck muted after ".ghostmic off".
+        for eng in (_user_engines(uid, uvc) if uid is not None else [uvc]):
+            st = _state(eng, cid)
+            if st is not None:
+                try:
+                    st.ghost_mute = False
+                except Exception:
+                    pass
         if not any(e.get("cid") == cid for e in _GHOST.values()):
             for k in [k for k, v in _GHOST_CALLS.items() if v == cid]:
                 _GHOST_CALLS.pop(k, None)
@@ -573,7 +623,7 @@ async def ghost_mic_cmd(bot, msg):
                 "❌ Chat ID nahi mila.\nGroup me bhejo, ya `.ghostmic on <chat_id>`."
             )
             return
-        mode = {"on": "hold", "blink": "blink", "pulse": "pulse"}[action]
+        mode = "hold"
         await _start(uid, uvc, cid, mode)
         audio = _has_audio(uvc, cid)
         note = "" if audio else (

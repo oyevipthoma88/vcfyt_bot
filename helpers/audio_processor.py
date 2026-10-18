@@ -1016,7 +1016,10 @@ def build_fake_screen_command(
         meters = [(W - (5 - i) * (mw + 4) - 12, 2.3 + i * 0.41) for i in range(5)]
     seg_h = max(2, span // seg_n)
     for x, sp in meters:
-        lvl = f"(0.35+0.6*abs(sin(t*{sp:.2f})*cos(t*{sp * 0.53:.2f})))"
+        # Update meters only 3x/s (was every frame): fewer changing pixels =
+        # encoder spends its bitrate on sharpness instead of motion -> no blur.
+        q = "(floor(t*3)/3)"
+        lvl = f"(0.35+0.6*abs(sin({q}*{sp:.2f})*cos({q}*{sp * 0.53:.2f})))"
         for k in range(seg_n):
             y = top + span - (k + 1) * seg_h
             col = "0x3ddc84" if k < 6 else ("0xffd23f" if k < 8 else "0xff4040")

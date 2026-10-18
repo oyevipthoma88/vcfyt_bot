@@ -92,7 +92,7 @@ class Config:
     SCREEN_SHARE_ENABLED: bool = _bool("SCREEN_SHARE_ENABLED", True)
     SS_WIDTH: int = _int("SS_WIDTH", 1920)
     SS_HEIGHT: int = _int("SS_HEIGHT", 1080)
-    SS_FPS: int = _int("SS_FPS", 15)
+    SS_FPS: int = _int("SS_FPS", 8)
 
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)
