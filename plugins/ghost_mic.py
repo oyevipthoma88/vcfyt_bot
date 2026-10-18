@@ -131,7 +131,7 @@ async def _loop(uid, uvc, cid, mode):
         else:
             # hold mode: mic steady OFF (muted) — zero blinking, audio continues
             await _safe_mute(uvc, cid, True)
-            await asyncio.sleep(10)
+            await asyncio.sleep(3)
 
 
 async def _start(uid, uvc, cid, mode="hold"):
@@ -352,33 +352,58 @@ def _install_guards():
     except Exception as exc:
         logger.warning("Ghost v7: LiveMicSession guard failed: %s", exc)
 
-    # ---- 9) PyTgCalls BridgedClient.change_volume guard ----
+    # ---- 9) PyTgCalls client guards (ROOT FIX for "mic off but blink on") ----
+    # PyrogramClient OVERRIDES change_volume / set_call_status / join, so the
+    # old patch on the BridgedClient base class never ran.  pytgcalls kept
+    # sending muted=False on every volume change (live mic 200 %), every
+    # stream state change (play / pause / next track) and every join, and
+    # ghost mode re-muted up to 10 s later = the visible blink.  Patch the
+    # concrete class and force muted=True at the single request choke point.
     try:
-        from pytgcalls.mtproto.pyrogram_client import BridgedClient
-        if not getattr(BridgedClient, "_ghost_v7_guards", False):
-            orig_change_vol = BridgedClient.change_volume
+        import contextvars
+        from pyrogram.raw.functions.phone import (
+            EditGroupCallParticipant as _EGCP, JoinGroupCall as _JGC,
+        )
+        try:
+            from pytgcalls.mtproto.pyrogram_client import PyrogramClient as _PC
+        except Exception:
+            from pytgcalls.mtproto.pyrogram_client import BridgedClient as _PC
+        _ghost_ctx = contextvars.ContextVar("ghost_ctx", default=False)
 
-            async def _change_vol_v7(self, chat_id, volume, participant):
-                if is_ghost_chat(chat_id):
-                    input_call = await self.get_input_call(chat_id)
-                    from pyrogram.raw.types import InputGroupCall, InputGroupCallSlug
-                    from pyrogram.raw.functions.phone import EditGroupCallParticipant
-                    if isinstance(input_call, (InputGroupCall, InputGroupCallSlug)):
-                        await self._invoke(
-                            EditGroupCallParticipant(
-                                call=input_call,
-                                participant=participant,
-                                muted=True,
-                                volume=volume * 100,
-                            ),
-                        )
+        if not getattr(_PC, "_ghost_v8_guards", False):
+            orig_invoke = _PC._invoke
+
+            async def _invoke_v8(self, request, *a, **kw):
+                if _ghost_ctx.get() and isinstance(request, (_EGCP, _JGC)):
+                    try:
+                        request.muted = True
+                    except Exception:
+                        pass
+                return await orig_invoke(self, request, *a, **kw)
+
+            _PC._invoke = _invoke_v8
+
+            def _wrap(name):
+                orig = getattr(_PC, name, None)
+                if orig is None:
                     return
-                return await orig_change_vol(self, chat_id, volume, participant)
 
-            BridgedClient.change_volume = _change_vol_v7
-            BridgedClient._ghost_v7_guards = True
+                async def _guarded(self, chat_id, *a, **kw):
+                    if is_ghost_chat(chat_id):
+                        tok = _ghost_ctx.set(True)
+                        try:
+                            return await orig(self, chat_id, *a, **kw)
+                        finally:
+                            _ghost_ctx.reset(tok)
+                    return await orig(self, chat_id, *a, **kw)
+
+                setattr(_PC, name, _guarded)
+
+            for _n in ("change_volume", "set_call_status", "join_group_call"):
+                _wrap(_n)
+            _PC._ghost_v8_guards = True
     except Exception as exc:
-        logger.warning("Ghost v7: BridgedClient patch failed: %s", exc)
+        logger.warning("Ghost v8: PyTgCalls client patch failed: %s", exc)
 
     # ---- 10) leave guard ----
     if hasattr(user_vc, "leave"):
