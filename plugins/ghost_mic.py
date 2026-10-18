@@ -69,7 +69,7 @@ async def _start_live(uid: int, uvc, cid: int):
         except Exception as exc:
             logger.warning("ghost live %s failed: %s", fn_name, exc)
 
-    await relay.set_tg_mute(True)
+    await uvc._edit_self(cid, muted=True)
 
     _ghost_live[uid] = relay
     _ghost_playback[uid] = True
@@ -82,7 +82,7 @@ async def _start_live(uid: int, uvc, cid: int):
             if uid not in _ghost_live:
                 return
             try:
-                await relay.set_tg_mute(True)
+                await uvc._edit_self(cid, muted=True)
             except Exception:
                 pass
 
@@ -169,9 +169,9 @@ async def ghost_mic_cmd(bot, msg):
         async def _blink():
             while uid in _ghost_live:
                 try:
-                    await relay.set_tg_mute(True)
+                    await uvc._edit_self(cid, muted=True)
                     await asyncio.sleep(2)
-                    await relay.set_tg_mute(False)
+                    await uvc._edit_self(cid, muted=False)
                     await asyncio.sleep(2)
                 except Exception:
                     break
