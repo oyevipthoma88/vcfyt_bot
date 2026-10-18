@@ -557,6 +557,15 @@ async def ghost_mic_cmd(bot, msg):
         return
 
     cid = _pick_cid(uvc, msg, arg)
+    if not arg:
+        # Sync play chal raha ho to ghost TARGET GC par lage, private group par nahi.
+        try:
+            from plugins.sync_play import _ACTIVE
+            ent = _ACTIVE.get(uid)
+            if ent and ent.get("cid"):
+                cid = ent["cid"]
+        except Exception:
+            pass
 
     if action in ("on", "blink", "pulse"):
         if not cid:
