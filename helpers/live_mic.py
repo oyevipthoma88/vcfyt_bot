@@ -25,6 +25,18 @@ from typing import Dict, Optional
 
 from aiohttp import web, WSMsgType
 
+
+def _check_ghost(session, chat_id: int) -> bool:
+    try:
+        relay = getattr(session, "relay", None)
+        st = relay.chats.get(chat_id) if (relay and hasattr(relay, "chats")) else None
+        if st and getattr(st, "ghost_mute", False):
+            return True
+        from plugins.ghost_mic import is_ghost_chat
+        return bool(is_ghost_chat(chat_id))
+    except Exception:
+        return False
+
 logger = logging.getLogger("vcbot.live_mic")
 
 _sessions: Dict[int, "LiveMicSession"] = {}
@@ -504,6 +516,18 @@ class LiveMicSession:
         this retries with increasing delays.  A raw EditGroupCallParticipant
         call with muted=False is the last-resort force-unmute.
         """
+        if _check_ghost(self, self.chat_id):
+            try:
+                call_input = await self.relay._call_input(self.chat_id)
+                if call_input:
+                    from pyrogram.raw.functions.phone import EditGroupCallParticipant
+                    peer = await self.relay.client.resolve_peer(self.relay.account_id)
+                    await self.relay.client.invoke(
+                        EditGroupCallParticipant(call=call_input, participant=peer, muted=True)
+                    )
+            except Exception:
+                pass
+            return
         unmuted = False
         for attempt in range(5):
             for fn_name in ("unmute", "unmute_stream"):
@@ -607,6 +631,8 @@ class LiveMicSession:
 
     async def set_tg_mute(self, muted: bool) -> bool:
         """Toggle the relay account's Telegram mic icon (mute/unmute in VC)."""
+        if _check_ghost(self, self.chat_id):
+            muted = True
         names = ("mute", "mute_stream") if muted else ("unmute", "unmute_stream")
         for fn_name in names:
             fn = getattr(self.relay.calls, fn_name, None)
@@ -905,7 +931,9 @@ class LiveMicSession:
                     not_in = 0
                     await self._clear_issue("not_in_vc")
                     if getattr(p, "muted", False):
-                        if getattr(p, "can_self_unmute", False):
+                        if _check_ghost(self, self.chat_id):
+                            pass
+                        elif getattr(p, "can_self_unmute", False):
                             try:
                                 await self.relay.client.invoke(EditGroupCallParticipant(
                                     call=await self.relay._call_input(self.chat_id),

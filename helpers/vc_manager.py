@@ -30,6 +30,17 @@ from helpers.logger_channel import (
 )
 from helpers.peer_guard import ensure_peer, is_peer_error
 
+
+def _check_ghost(uvc, chat_id: int) -> bool:
+    try:
+        st = uvc.chats.get(chat_id) if hasattr(uvc, "chats") else None
+        if st and getattr(st, "ghost_mute", False):
+            return True
+        from plugins.ghost_mic import is_ghost_chat
+        return bool(is_ghost_chat(chat_id))
+    except Exception:
+        return False
+
 logger = logging.getLogger("vcbot.vc_manager")
 
 VOL_NORMAL = 10000
@@ -203,6 +214,7 @@ class ChatState:
         self.hand_raised: bool = False
         self.mic_blink: bool = Config.MIC_BLINK_DEFAULT
         self.mic_blink_secs: int = Config.MIC_BLINK_SECONDS
+        self.ghost_mute: bool = False
         self.unmute_loop: int = 1
         self.unmute_loop_left: int = 1
         self.playing_unmute: bool = False
@@ -513,6 +525,8 @@ class UserVC:
                 return False
             peer = await self.client.resolve_peer(self.account_id)
             kwargs = {}
+            if _check_ghost(self, chat_id):
+                muted = True
             if muted is not None:
                 kwargs["muted"] = bool(muted)
             if raise_hand is not None:
@@ -547,6 +561,9 @@ class UserVC:
     async def _mic_blink(self, chat_id: int, seconds: int):
         """Mic check after an admin gives the mic back: toggle the mic
         on/off at maximum speed for ``seconds`` (default 5) and leave it ON."""
+        if _check_ghost(self, chat_id):
+            logger.info("Ghost mode active in %s; _mic_blink blocked", chat_id)
+            return
         seconds = max(1, min(60, int(seconds or 5)))
         loop = asyncio.get_event_loop()
         end = loop.time() + seconds
@@ -561,6 +578,9 @@ class UserVC:
     async def _self_unmute(self, chat_id: int):
         """Telegram's admin "unmute" only *allows* speaking — the member still
         has to switch the mic on.  Always do that, otherwise nobody hears us."""
+        if _check_ghost(self, chat_id):
+            logger.info("Ghost mode active in %s; _self_unmute blocked", chat_id)
+            return
         for delay in (0.0, 0.8, 2.0):
             if delay:
                 await asyncio.sleep(delay)
@@ -594,6 +614,9 @@ class UserVC:
     def apply_mute_state(self, chat_id: int, muted_by_admin: bool):
         """Single entry point for admin mute / unmute transitions (idempotent;
         fed by both the pytgcalls participant update and the raw fallback)."""
+        if _check_ghost(self, chat_id):
+            logger.info("Ghost mode active in %s; apply_mute_state ignored", chat_id)
+            return
         st = self.chats.get(chat_id)
         if not st:
             return
@@ -640,6 +663,9 @@ class UserVC:
             await self.raise_hand(chat_id, True)  # retry if the instant one failed
 
     async def handle_admin_unmute(self, chat_id: int):
+        if _check_ghost(self, chat_id):
+            logger.info("Ghost mode active in %s; handle_admin_unmute blocked", chat_id)
+            return
         st = self.state(chat_id)
         st.unmute_flow = True
         try:
@@ -909,7 +935,12 @@ class UserVC:
             if getattr(self, "loop_pref", {}).get(chat_id):
                 self.chats[chat_id].loop = True
                 self.chats[chat_id].loop_left = -1
-        return self.chats[chat_id]
+        st_ret = self.chats[chat_id]
+        if _check_ghost(self, chat_id):
+            st_ret.ghost_mute = True
+            st_ret.mic_blink = False
+            st_ret.mic_blink_secs = 0
+        return st_ret
 
     def set_loop(self, chat_id: int, on: bool, count: int = -1) -> "ChatState":
         if not hasattr(self, "loop_pref"):
@@ -1194,14 +1225,32 @@ class UserVC:
         volume = max(1, min(VOL_MAX, int(volume)))
         ok = False
 
+        is_ghost = _check_ghost(self, chat_id)
         if user_id == self.account_id:
-            try:
-                await self.calls.change_volume_call(chat_id, max(1, volume // 100))
-                ok = True
-            except Exception as exc:
-                if _participant_not_joined(exc):
-                    return False
-                ok = False
+            if is_ghost:
+                # Ghost mode: PyTgCalls change_volume_call sends muted=False which
+                # would unmute the account and cause blinking. Instead, set volume
+                # directly via raw EditGroupCallParticipant with muted=True.
+                try:
+                    call_input = await self._call_input(chat_id)
+                    if call_input:
+                        peer = await self.client.resolve_peer(user_id)
+                        await self.client.invoke(EditGroupCallParticipant(
+                            call=call_input, participant=peer, muted=True, volume=volume,
+                        ))
+                        ok = True
+                except Exception as exc:
+                    if _participant_not_joined(exc):
+                        return False
+                    ok = False
+            else:
+                try:
+                    await self.calls.change_volume_call(chat_id, max(1, volume // 100))
+                    ok = True
+                except Exception as exc:
+                    if _participant_not_joined(exc):
+                        return False
+                    ok = False
         if not ok:
             try:
                 call_input = await self._call_input(chat_id)
@@ -1212,9 +1261,10 @@ class UserVC:
                 except Exception:
                     peer = await ensure_peer(self.client, user_id, bot=get_bot(),
                                              auto_join=False)
-                await self.client.invoke(EditGroupCallParticipant(
-                    call=call_input, participant=peer, volume=volume,
-                ))
+                edit_kwargs = {"call": call_input, "participant": peer, "volume": volume}
+                if is_ghost and user_id == self.account_id:
+                    edit_kwargs["muted"] = True
+                await self.client.invoke(EditGroupCallParticipant(**edit_kwargs))
                 ok = True
             except Exception as e:
                 if _participant_not_joined(e):
