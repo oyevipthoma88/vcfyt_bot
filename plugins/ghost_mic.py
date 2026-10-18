@@ -1,7 +1,6 @@
 # plugins/ghost_mic.py
-# Ghost Mic v3 — mic icon OFF, existing audio stream UNTOUCHED.
-# IMPORTANT: no LiveMicSession / no _attach_stream / no calls.play().
-# Sirf raw EditGroupCallParticipant se icon mute hota hai.
+# Ghost Mic v4 — mic icon steady OFF, audio stream untouched.
+# No LiveMicSession / no calls.play(). Sirf raw EditGroupCallParticipant.
 import asyncio
 import logging
 
@@ -60,7 +59,6 @@ def _has_audio(uvc, cid):
 
 
 async def _safe_mute(uvc, cid, muted=True):
-    """Raw API only — PyTgCalls ka stream bilkul touch nahi hota."""
     try:
         return bool(await uvc._edit_self(cid, muted=muted))
     except Exception as exc:
@@ -82,15 +80,11 @@ async def _loop(uid, uvc, cid, mode):
             await asyncio.sleep(2)
             await _safe_mute(uvc, cid, False)
             await asyncio.sleep(2)
-
         elif mode == "pulse":
-            # Jugaad: 0.9s muted + 0.18s unmuted.
-            # Icon zyadatar OFF dikhega, audio ko flow windows milengi.
             await _safe_mute(uvc, cid, True)
             await asyncio.sleep(0.9)
             await _safe_mute(uvc, cid, False)
             await asyncio.sleep(0.18)
-
         else:
             await _safe_mute(uvc, cid, True)
             await asyncio.sleep(4)
@@ -137,27 +131,57 @@ async def _stop(uid, uvc, cid=None, unmute=True):
 
 # ---------------------------------------------------------------- guards
 def _install_guards():
-    """
-    Ghost mute ko admin-mute mat samjho (warna playback pause + live mic stop),
-    aur 'Queue empty' wala leave ghost mode me block karo.
-    """
+    """Ghost mode me mute/unmute/blink/leave — sab ignore karo."""
     from helpers import vc_manager as vm
 
     user_vc = getattr(vm, "UserVC", None)
     if user_vc is None or getattr(user_vc, "_ghost_guards", False):
         return
 
+    def _ghost_active(self, chat_id):
+        st = self.chats.get(chat_id)
+        return bool(st and getattr(st, "ghost_mute", False))
+
     if hasattr(user_vc, "apply_mute_state"):
         original_apply = user_vc.apply_mute_state
 
         def _apply(self, chat_id, muted_by_admin):
-            st = self.chats.get(chat_id)
-            if muted_by_admin and getattr(st, "ghost_mute", False):
-                logger.info("Ghost: admin-mute transition ignored in %s", chat_id)
+            if _ghost_active(self, chat_id):
+                logger.info("Ghost: transition ignored in %s", chat_id)
                 return
             return original_apply(self, chat_id, muted_by_admin)
 
         user_vc.apply_mute_state = _apply
+
+    if hasattr(user_vc, "handle_admin_mute"):
+        original_mute = user_vc.handle_admin_mute
+
+        async def _hm(self, chat_id):
+            if _ghost_active(self, chat_id):
+                return
+            return await original_mute(self, chat_id)
+
+        user_vc.handle_admin_mute = _hm
+
+    if hasattr(user_vc, "handle_admin_unmute"):
+        original_unmute = user_vc.handle_admin_unmute
+
+        async def _hu(self, chat_id):
+            if _ghost_active(self, chat_id):
+                return
+            return await original_unmute(self, chat_id)
+
+        user_vc.handle_admin_unmute = _hu
+
+    if hasattr(user_vc, "_mic_blink"):
+        original_blink = user_vc._mic_blink
+
+        async def _blink(self, chat_id, seconds):
+            if _ghost_active(self, chat_id):
+                return
+            return await original_blink(self, chat_id, seconds)
+
+        user_vc._mic_blink = _blink
 
     if hasattr(user_vc, "leave"):
         original_leave = user_vc.leave
@@ -168,14 +192,14 @@ def _install_guards():
             if reason is None and args:
                 reason = args[0]
             if getattr(st, "ghost_mute", False) and "queue" in str(reason).lower():
-                logger.info("Ghost: blocked VC leave in %s (%s)", chat_id, reason)
+                logger.info("Ghost: blocked leave in %s", chat_id)
                 return
             return await original_leave(self, chat_id, *args, **kwargs)
 
         user_vc.leave = _leave
 
     user_vc._ghost_guards = True
-    logger.info("Ghost: VC guards installed")
+    logger.info("Ghost: guards installed (mute/unmute/blink/leave)")
 
 
 _install_guards()
@@ -211,15 +235,13 @@ async def ghost_mic_cmd(bot, msg):
         mode = {"on": "hold", "blink": "blink", "pulse": "pulse"}[action]
         await _start(uid, uvc, cid, mode)
         audio = _has_audio(uvc, cid)
-        note = ""
-        if not audio:
-            note = (
-                "\n\n⚠️ Is chat me koi audio stream active nahi hai — "
-                "sirf mic icon mute hoga, sunne ko kuch nahi hoga."
-            )
+        note = "" if audio else (
+            "\n\n⚠️ Is chat me koi audio active nahi hai — "
+            "sirf mic icon mute hoga, sunne ko kuch nahi hoga."
+        )
         await msg.reply_text(
             f"👻 Ghost Mode ON (`{mode}`)\n\n"
-            f"• Mic icon OFF (raw Telegram mute)\n"
+            f"• Mic icon steady OFF (raw Telegram mute)\n"
             f"• Music/live stream ko chhua nahi gaya\n"
             f"• Chat: `{cid}`{note}\n\n"
             "Off: `.ghostmic off`"
