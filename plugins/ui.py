@@ -240,7 +240,8 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     now = (f"vc:now:{active_chat_id}" if active_chat_id is not None else "vc:list:0")
     rows = [
         [B("🎤 Live Mic setup", callback_data="mic:panel", style="success")],
-        [B("▶️ Audio player", callback_data=now, style="primary")],
+        [B("▶️ Audio player", callback_data=now, style="primary"),
+         B("🔗 Sync Play", callback_data="sync:menu", style="success")],
         [B("☰ More", callback_data="menu:more", style="primary"),
          B("🎬 Video", callback_data="tut:video", style="primary")],
     ]
