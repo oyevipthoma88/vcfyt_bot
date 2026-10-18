@@ -77,7 +77,11 @@ def _pick_cid(uvc, msg, arg=None):
         except (TypeError, ValueError):
             pass
     chat = getattr(msg, "chat", None)
-    if chat is not None and getattr(chat, "type", None) in ("group", "supergroup"):
+    # pyrogram v2 ChatType is an Enum (ChatType.SUPERGROUP), never the plain
+    # string "supergroup" -> old check always failed and ghost mode often
+    # landed on the WRONG chat (mic kept blinking in the real one).
+    ctype = str(getattr(getattr(chat, "type", None), "value", getattr(chat, "type", "")) or "").lower()
+    if chat is not None and (ctype in ("group", "supergroup") or (getattr(chat, "id", 0) or 0) < 0):
         return chat.id
     try:
         for cid, st in (uvc.chats or {}).items():
@@ -99,12 +103,75 @@ def _has_audio(uvc, cid):
         return False
 
 
-async def _safe_mute(uvc, cid, muted=True):
+# InputGroupCall ids of every ghost chat (filled on .ghostmic on).  The
+# pyrogram-level guard below uses it to force muted=True on ANY self edit /
+# join request for that call — whichever code path (pytgcalls, live mic,
+# health checker, bridge, volume keeper) sends it.
+_GHOST_CALLS = {}  # call_id -> chat_id
+
+
+def _user_engines(uid, uvc):
+    """Main ID + every spare / relay ID of this user that may be streaming."""
+    out, seen = [], set()
+
+    def _add(e):
+        if e is None or id(e) in seen:
+            return
+        seen.add(id(e))
+        out.append(e)
+
+    _add(uvc)
     try:
-        return bool(await uvc._edit_self(cid, muted=muted))
-    except Exception as exc:
-        logger.debug("ghost mute failed: %r", exc)
-        return False
+        for e in (getattr(session_manager, "assistants", {}) or {}).values():
+            if getattr(e, "owner_id", getattr(e, "user_id", None)) == uid:
+                _add(e)
+    except Exception:
+        pass
+    try:
+        from helpers import live_mic
+        sess = live_mic._sessions.get(uid)
+        if sess is not None:
+            _add(getattr(sess, "relay", None))
+    except Exception:
+        pass
+    try:
+        from helpers import vc_bridge
+        b = vc_bridge._bridges.get(uid)
+        if b is not None:
+            _add(getattr(b, "relay", None))
+            for x in list(getattr(b, "extras", []) or []):
+                _add(getattr(x, "relay", None))
+    except Exception:
+        pass
+    try:
+        from plugins.sync_play import sync_engines
+        for e in sync_engines(uid):
+            _add(e)
+    except Exception:
+        pass
+    return out
+
+
+async def _remember_call(eng, cid):
+    try:
+        call = await eng._call_input(cid)
+        if call is not None and getattr(call, "id", None):
+            _GHOST_CALLS[int(call.id)] = cid
+    except Exception:
+        pass
+
+
+async def _safe_mute(uvc, cid, muted=True, uid=None):
+    engines = _user_engines(uid, uvc) if uid is not None else [uvc]
+    ok = False
+    for eng in engines:
+        if muted:
+            await _remember_call(eng, cid)
+        try:
+            ok = bool(await eng._edit_self(cid, muted=muted)) or ok
+        except Exception as exc:
+            logger.debug("ghost mute failed: %r", exc)
+    return ok
 
 
 async def _loop(uid, uvc, cid, mode):
@@ -119,19 +186,19 @@ async def _loop(uid, uvc, cid, mode):
                 pass
 
         if mode == "blink":
-            await _safe_mute(uvc, cid, True)
+            await _safe_mute(uvc, cid, True, uid)
             await asyncio.sleep(2)
-            await _safe_mute(uvc, cid, False)
+            await _safe_mute(uvc, cid, False, uid)
             await asyncio.sleep(2)
         elif mode == "pulse":
-            await _safe_mute(uvc, cid, True)
+            await _safe_mute(uvc, cid, True, uid)
             await asyncio.sleep(0.9)
-            await _safe_mute(uvc, cid, False)
+            await _safe_mute(uvc, cid, False, uid)
             await asyncio.sleep(0.18)
         else:
             # hold mode: mic steady OFF (muted) — zero blinking, audio continues
-            await _safe_mute(uvc, cid, True)
-            await asyncio.sleep(3)
+            await _safe_mute(uvc, cid, True, uid)
+            await asyncio.sleep(5)
 
 
 async def _start(uid, uvc, cid, mode="hold"):
@@ -147,7 +214,7 @@ async def _start(uid, uvc, cid, mode="hold"):
             pass
 
     _GHOST[uid] = {"cid": cid, "mode": mode, "task": None}
-    await _safe_mute(uvc, cid, True)
+    await _safe_mute(uvc, cid, True, uid)
     _GHOST[uid]["task"] = asyncio.create_task(_loop(uid, uvc, cid, mode))
     return True
 
@@ -169,8 +236,11 @@ async def _stop(uid, uvc, cid=None, unmute=True):
                 st.ghost_mute = False
             except Exception:
                 pass
+        if not any(e.get("cid") == cid for e in _GHOST.values()):
+            for k in [k for k, v in _GHOST_CALLS.items() if v == cid]:
+                _GHOST_CALLS.pop(k, None)
         if unmute:
-            await _safe_mute(uvc, cid, False)
+            await _safe_mute(uvc, cid, False, uid)
     return bool(ent)
 
 
@@ -404,6 +474,45 @@ def _install_guards():
             _PC._ghost_v8_guards = True
     except Exception as exc:
         logger.warning("Ghost v8: PyTgCalls client patch failed: %s", exc)
+
+    # ---- 9b) PYROGRAM CHOKE POINT (blink ROOT FIX) ----
+    # Many paths call relay.client.invoke(EditGroupCallParticipant(muted=False))
+    # directly (live-mic force-unmute, health re-unmute, bridge volume keeper,
+    # pytgcalls join).  Each one flipped the icon ON for a moment until the
+    # ghost loop muted it again = blink.  Every raw request goes through
+    # pyrogram.Client.invoke, so force muted=True there for self-edits/joins
+    # on a ghost call.
+    try:
+        import pyrogram
+        from pyrogram.raw.functions.phone import (
+            EditGroupCallParticipant as _E2, JoinGroupCall as _J2,
+        )
+        from pyrogram.raw.types import InputPeerSelf as _Self
+        if not getattr(pyrogram.Client, "_ghost_v9_invoke", False):
+            _orig_client_invoke = pyrogram.Client.invoke
+
+            async def _client_invoke_v9(self, query, *a, **kw):
+                try:
+                    if isinstance(query, (_E2, _J2)) and _GHOST_CALLS:
+                        call_id = int(getattr(getattr(query, "call", None), "id", 0) or 0)
+                        if call_id in _GHOST_CALLS:
+                            if isinstance(query, _J2):
+                                query.muted = True
+                            else:
+                                part = getattr(query, "participant", None)
+                                me = getattr(getattr(self, "me", None), "id", None)
+                                is_self = isinstance(part, _Self) or (
+                                    me is not None and getattr(part, "user_id", None) == me)
+                                if is_self and query.muted is not None:
+                                    query.muted = True
+                except Exception:
+                    pass
+                return await _orig_client_invoke(self, query, *a, **kw)
+
+            pyrogram.Client.invoke = _client_invoke_v9
+            pyrogram.Client._ghost_v9_invoke = True
+    except Exception as exc:
+        logger.warning("Ghost v9: pyrogram invoke guard failed: %s", exc)
 
     # ---- 10) leave guard ----
     if hasattr(user_vc, "leave"):
