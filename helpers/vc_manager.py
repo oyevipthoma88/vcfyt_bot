@@ -1403,7 +1403,7 @@ class UserVC:
         # viewers saw a blurry / "loading" screen.  Send it at native 720p
         # and 24+ fps so the encoder reaches full quality within a second.
         ss_w, ss_h = min(Config.SS_WIDTH, 1280), min(Config.SS_HEIGHT, 720)
-        ss_fps = max(24, min(30, Config.SS_FPS))
+        ss_fps = max(10, min(15, Config.SS_FPS))
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",
