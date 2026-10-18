@@ -94,8 +94,10 @@ async def _loop(uid, uvc, cid, mode):
             await _safe_mute(uvc, cid, False)
             await asyncio.sleep(0.18)
         else:
-            await asyncio.sleep(30)
+            # hold: mic steady OFF — re-assert mute + ghost flags every 5s
+            # taaki state recreate / admin unmute ke baad bhi blink na ho.
             await _safe_mute(uvc, cid, True)
+            await asyncio.sleep(5)
 
 
 async def _start(uid, uvc, cid, mode="hold"):
@@ -162,12 +164,31 @@ def _install_guards():
         return
 
     def _active(self, chat_id):
-        st = self.chats.get(chat_id) if hasattr(self, "chats") else None
-        if not st:
-            return False
-        if getattr(st, "ghost_mute", False):
+        # _is_ghost_chat pehle check karo — ChatState abhi bana hi nahi
+        # to bhi guard lagu rahe (yahin bug tha: st None -> False -> blink
+        # chal jaata tha).
+        if _is_ghost_chat(chat_id):
             return True
-        return _is_ghost_chat(chat_id)
+        st = self.chats.get(chat_id) if hasattr(self, "chats") else None
+        return bool(st and getattr(st, "ghost_mute", False))
+
+    # ---- 0b) state() guard — ghost chat me mic_blink hamesha False
+    # (mute_prefs se True restore ho jaata tha, blink wapas aa jaata tha)
+    if hasattr(user_vc, "state"):
+        orig_state = user_vc.state
+
+        def _state_v6(self, chat_id):
+            st = orig_state(self, chat_id)
+            if _is_ghost_chat(chat_id):
+                try:
+                    st.ghost_mute = True
+                    st.mic_blink = False
+                    st.mic_blink_secs = 0
+                except Exception:
+                    pass
+            return st
+
+        user_vc.state = _state_v6
 
     # ---- 1) _edit_self force-mute ----
     if hasattr(user_vc, "_edit_self"):
