@@ -113,6 +113,8 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
     return K([
         [B("🔴 Mic OFF", callback_data="brc:off", style="danger") if live else
          B("🟢 Mic ON", callback_data="brc:on", style="success")],
+        [B("👻 Ghost Mic", callback_data="gm:live", style="primary")],
+
         [B("🔉 Awaaz −", callback_data="brl:drive:-2", style="primary"),
          B("🔊 Awaaz +", callback_data="brl:drive:2", style="success")],
         [B("🛡 Saaf", callback_data="brl:p:safe", style="primary"),
