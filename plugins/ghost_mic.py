@@ -1,6 +1,5 @@
 # plugins/ghost_mic.py
-# Ghost Mic v4 — mic icon steady OFF, audio stream untouched.
-# No LiveMicSession / no calls.play(). Sirf raw EditGroupCallParticipant.
+# Ghost Mic v5 — hardened guards: _edit_self + set_tg_mute force-mute.
 import asyncio
 import logging
 
@@ -10,7 +9,6 @@ from helpers.vc_manager import session_manager
 
 logger = logging.getLogger("vcbot.ghost_mic")
 
-# uid -> {"cid": int, "task": Task, "mode": "hold"|"blink"|"pulse"}
 _GHOST = {}
 
 
@@ -27,6 +25,15 @@ def _state(uvc, cid):
         return uvc.chats.get(cid)
     except Exception:
         return None
+
+
+def _is_ghost_chat(cid):
+    if cid is None:
+        return False
+    for ent in _GHOST.values():
+        if ent.get("cid") == cid:
+            return True
+    return False
 
 
 def _pick_cid(uvc, msg, arg=None):
@@ -86,24 +93,28 @@ async def _loop(uid, uvc, cid, mode):
             await _safe_mute(uvc, cid, False)
             await asyncio.sleep(0.18)
         else:
+            # v5: safety net hi hai, actual mute hard guard karta hai
+            await asyncio.sleep(30)
             await _safe_mute(uvc, cid, True)
-            await asyncio.sleep(4)
 
 
 async def _start(uid, uvc, cid, mode="hold"):
     await _stop(uid, uvc, cid=None, unmute=False)
+
     st = _state(uvc, cid)
     if st is not None:
         try:
             st.ghost_mute = True
         except Exception:
             pass
-    await _safe_mute(uvc, cid, True)
+
     _GHOST[uid] = {
         "cid": cid,
         "mode": mode,
-        "task": asyncio.create_task(_loop(uid, uvc, cid, mode)),
+        "task": None,
     }
+    await _safe_mute(uvc, cid, True)
+    _GHOST[uid]["task"] = asyncio.create_task(_loop(uid, uvc, cid, mode))
     return True
 
 
@@ -129,83 +140,117 @@ async def _stop(uid, uvc, cid=None, unmute=True):
     return bool(ent)
 
 
-# ---------------------------------------------------------------- guards
+# ---------------------------------------------------------------- HARD GUARDS
 def _install_guards():
-    """Ghost mode me mute/unmute/blink/leave — sab ignore karo."""
     from helpers import vc_manager as vm
 
     user_vc = getattr(vm, "UserVC", None)
-    if user_vc is None or getattr(user_vc, "_ghost_guards", False):
+    if user_vc is None:
+        return
+    if getattr(user_vc, "_ghost_v5_guards", False):
         return
 
-    def _ghost_active(self, chat_id):
-        st = self.chats.get(chat_id)
+    def _active(self, chat_id):
+        st = self.chats.get(chat_id) if hasattr(self, "chats") else None
         return bool(st and getattr(st, "ghost_mute", False))
 
+    # ---- GUARD 1: _edit_self force-mute ----
+    if hasattr(user_vc, "_edit_self"):
+        original_edit = user_vc._edit_self
+
+        async def _edit_self_v5(self, chat_id, *args, **kwargs):
+            if _active(self, chat_id):
+                # caller mute ya unmute maang raha ho, ghost me hamesha mute
+                if args:
+                    args = (True,) + args[1:]
+                else:
+                    kwargs["muted"] = True
+            return await original_edit(self, chat_id, *args, **kwargs)
+
+        user_vc._edit_self = _edit_self_v5
+
+    # ---- GUARD 2: LiveMicSession.set_tg_mute force-mute ----
+    try:
+        from helpers.live_mic import LiveMicSession
+        if not getattr(LiveMicSession, "_ghost_v5_guards", False):
+            original_set_tg = LiveMicSession.set_tg_mute
+
+            async def _set_tg_v5(self, muted):
+                cid = getattr(self, "chat_id", None) or getattr(self, "cid", None)
+                if cid is not None and _is_ghost_chat(cid):
+                    muted = True
+                return await original_set_tg(self, muted)
+
+            LiveMicSession.set_tg_mute = _set_tg_v5
+            LiveMicSession._ghost_v5_guards = True
+    except Exception as exc:
+        logger.warning("Ghost v5: LiveMicSession guard failed: %s", exc)
+
+    # ---- GUARD 3: admin flows skip ----
     if hasattr(user_vc, "apply_mute_state"):
-        original_apply = user_vc.apply_mute_state
+        orig_apply = user_vc.apply_mute_state
 
-        def _apply(self, chat_id, muted_by_admin):
-            if _ghost_active(self, chat_id):
-                logger.info("Ghost: transition ignored in %s", chat_id)
+        def _apply_v5(self, chat_id, muted_by_admin):
+            if _active(self, chat_id):
+                logger.info("Ghost v5: apply_mute_state blocked %s", chat_id)
                 return
-            return original_apply(self, chat_id, muted_by_admin)
+            return orig_apply(self, chat_id, muted_by_admin)
 
-        user_vc.apply_mute_state = _apply
+        user_vc.apply_mute_state = _apply_v5
 
     if hasattr(user_vc, "handle_admin_mute"):
-        original_mute = user_vc.handle_admin_mute
+        orig_hm = user_vc.handle_admin_mute
 
-        async def _hm(self, chat_id):
-            if _ghost_active(self, chat_id):
+        async def _hm_v5(self, chat_id):
+            if _active(self, chat_id):
                 return
-            return await original_mute(self, chat_id)
+            return await orig_hm(self, chat_id)
 
-        user_vc.handle_admin_mute = _hm
+        user_vc.handle_admin_mute = _hm_v5
 
     if hasattr(user_vc, "handle_admin_unmute"):
-        original_unmute = user_vc.handle_admin_unmute
+        orig_hu = user_vc.handle_admin_unmute
 
-        async def _hu(self, chat_id):
-            if _ghost_active(self, chat_id):
+        async def _hu_v5(self, chat_id):
+            if _active(self, chat_id):
                 return
-            return await original_unmute(self, chat_id)
+            return await orig_hu(self, chat_id)
 
-        user_vc.handle_admin_unmute = _hu
+        user_vc.handle_admin_unmute = _hu_v5
 
     if hasattr(user_vc, "_mic_blink"):
-        original_blink = user_vc._mic_blink
+        orig_blink = user_vc._mic_blink
 
-        async def _blink(self, chat_id, seconds):
-            if _ghost_active(self, chat_id):
+        async def _blink_v5(self, chat_id, *args, **kwargs):
+            if _active(self, chat_id):
                 return
-            return await original_blink(self, chat_id, seconds)
+            return await orig_blink(self, chat_id, *args, **kwargs)
 
-        user_vc._mic_blink = _blink
+        user_vc._mic_blink = _blink_v5
 
     if hasattr(user_vc, "leave"):
-        original_leave = user_vc.leave
+        orig_leave = user_vc.leave
 
-        async def _leave(self, chat_id, *args, **kwargs):
-            st = self.chats.get(chat_id)
+        async def _leave_v5(self, chat_id, *args, **kwargs):
+            st = self.chats.get(chat_id) if hasattr(self, "chats") else None
             reason = kwargs.get("reason")
             if reason is None and args:
                 reason = args[0]
             if getattr(st, "ghost_mute", False) and "queue" in str(reason).lower():
-                logger.info("Ghost: blocked leave in %s", chat_id)
+                logger.info("Ghost v5: blocked leave %s", chat_id)
                 return
-            return await original_leave(self, chat_id, *args, **kwargs)
+            return await orig_leave(self, chat_id, *args, **kwargs)
 
-        user_vc.leave = _leave
+        user_vc.leave = _leave_v5
 
-    user_vc._ghost_guards = True
-    logger.info("Ghost: guards installed (mute/unmute/blink/leave)")
+    user_vc._ghost_v5_guards = True
+    logger.info("Ghost v5: hard guards installed (_edit_self + set_tg_mute + flows)")
 
 
 _install_guards()
 
 
-# ---------------------------------------------------------------- command
+# ---------------------------------------------------------------- commands
 @Client.on_message(
     filters.text
     & filters.regex(r"^[./!]ghostmic(?:@\w+)?\b", flags=2)
@@ -236,13 +281,12 @@ async def ghost_mic_cmd(bot, msg):
         await _start(uid, uvc, cid, mode)
         audio = _has_audio(uvc, cid)
         note = "" if audio else (
-            "\n\n⚠️ Is chat me koi audio active nahi hai — "
-            "sirf mic icon mute hoga, sunne ko kuch nahi hoga."
+            "\n\n⚠️ Is chat me koi audio active nahi hai — sirf icon mute hoga."
         )
         await msg.reply_text(
             f"👻 Ghost Mode ON (`{mode}`)\n\n"
-            f"• Mic icon steady OFF (raw Telegram mute)\n"
-            f"• Music/live stream ko chhua nahi gaya\n"
+            f"• Mic icon **steady OFF** — blink nahi hoga\n"
+            f"• Music/live stream chalta rahega\n"
             f"• Chat: `{cid}`{note}\n\n"
             "Off: `.ghostmic off`"
         )
@@ -272,7 +316,6 @@ async def ghost_mic_cmd(bot, msg):
     await msg.reply_text("Usage: `.ghostmic on|off|blink|pulse|status [chat_id]`")
 
 
-# ---------------------------------------------------------------- playback button
 @Client.on_callback_query(filters.regex(r"^gm:play:(-?\d+)$"))
 async def cb_ghost_play(bot, cq):
     uid = cq.from_user.id
@@ -285,7 +328,6 @@ async def cb_ghost_play(bot, cq):
     await cq.answer("👻 Ghost Mic ON — mic OFF, music ON")
 
 
-# ---------------------------------------------------------------- live mic button
 @Client.on_callback_query(filters.regex(r"^gm:live(?::(-?\d+))?$"))
 async def cb_ghost_live(bot, cq):
     uid = cq.from_user.id
