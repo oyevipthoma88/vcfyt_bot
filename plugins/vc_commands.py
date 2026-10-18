@@ -150,6 +150,7 @@ def now_playing_kb(cid: int, st=None) -> K:
     def onoff(v):
         return "success" if v else "danger"
     return K([
+        [B("👻 Ghost Mic", callback_data=f"gm:play:{cid}", style="primary")],
         [B("▶ Resume" if paused else "⏸ Pause",
            callback_data=f"vc:{'resume' if paused else 'pause'}:{cid}",
            style="success" if paused else "primary"),

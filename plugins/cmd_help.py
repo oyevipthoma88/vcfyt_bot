@@ -78,6 +78,7 @@ HELP = {
     "addaudio": ([], ".addaudio <name>  (owner)", "Sabke liye shared audio add (owner only).", ".addaudio Welcome"),
     "setlog": ([], ".setlog <channel_id>  (owner)", "Log channel set.", ".setlog -1001234567890"),
     "logtest": ([], ".logtest", "Log channel test message.", ".logtest"),
+    "ghostmic": ([], ".ghostmic on|off|blink|status [chat_id]", "Ghost mic: mic icon OFF rehte hue bhi audio VC me chalta rahega (live mic + playback).", ".ghostmic on"),
 }
 
 ALIAS = {}
@@ -137,7 +138,7 @@ async def cmd_help_topic(bot: Client, msg: Message):
     msg.stop_propagation()
 
 
-_KNOWN_EXTRA = {"start", "login", "logout", "mystatus", "settings", "help", "redeem",
+_KNOWN_EXTRA = {"ghostmic", "start", "login", "logout", "mystatus", "settings", "help", "redeem",
                 "referral", "owner", "users", "stats", "broadcast", "restart", "ban",
                 "unban", "setsource", "clearsource", "setprice", "grant", "revoke",
                 "pending", "addcoupon", "delcoupon", "listcoupons", "redeemlogs", "setqr", "clearqr",
