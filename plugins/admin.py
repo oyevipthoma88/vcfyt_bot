@@ -390,6 +390,25 @@ async def cmd_restart(bot: Client, msg: Message):
     await asyncio.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
+@Client.on_message(HAS_USER & dm_cmd("(cleandb|dbclean)") & filters.private)
+@owner_only
+async def cmd_cleandb(bot: Client, msg: Message):
+    status_msg = await msg.reply_text("🧹 <i>Cleaning bloated non-critical database collections...</i>")
+    try:
+        res = await db.clean_database()
+        dropped = res.get("dropped", [])
+        if dropped:
+            await status_msg.edit_text(
+                "✅ <b>Database Cleanup Successful!</b>\n\n"
+                f"• <b>Purged collections:</b> <code>{', '.join(dropped)}</code>\n"
+                "• <b>Storage freed:</b> Atlas M0 quota reclaimed.\n"
+                "• <b>User sessions & settings:</b> Preserved intact."
+            )
+        else:
+            await status_msg.edit_text("ℹ️ <b>Database is clean:</b> No bloated cache collections found.")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ <b>Cleanup error:</b> <code>{e}</code>")
+
 @Client.on_message(filters.incoming, group=-3)
 async def ban_filter(bot: Client, msg: Message):
     if msg.from_user and msg.from_user.id in BANNED_USERS:

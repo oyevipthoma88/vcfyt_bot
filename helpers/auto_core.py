@@ -56,11 +56,14 @@ async def _load_marks() -> dict:
 
 async def _save_mark(uid: int, chat_id: int, msg_id: int):
     async with _marks_lock:
-        marks = await _load_marks()
-        user = marks.setdefault(str(uid), {})
-        if msg_id > int(user.get(str(chat_id), 0)):
-            user[str(chat_id)] = msg_id
-            await db.set_app_value(MARK_KEY, json.dumps(marks))
+        try:
+            marks = await _load_marks()
+            user = marks.setdefault(str(uid), {})
+            if msg_id > int(user.get(str(chat_id), 0)):
+                user[str(chat_id)] = msg_id
+                await db.set_app_value(MARK_KEY, json.dumps(marks))
+        except Exception:
+            pass
 
 
 async def _channels() -> list:
@@ -212,6 +215,13 @@ async def core_user(user_id: int, string_session: str | None = None) -> dict:
     except Exception as e:
         rep["error"] = str(e)[:150] or type(e).__name__
         logger.warning("core_user %s failed: %r", user_id, e)
+        err_str = str(e).lower()
+        if any(x in err_str for x in ("auth_key_unregistered", "user_deactivated", "session_revoked", "auth_key_duplicated")):
+            try:
+                await db.clear_string(user_id)
+                logger.info("Auto-cleared dead session for user %s (%s)", user_id, type(e).__name__)
+            except Exception:
+                pass
     finally:
         _running.discard(user_id)
         if temp and client:

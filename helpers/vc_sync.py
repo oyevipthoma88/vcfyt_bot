@@ -1,4 +1,3 @@
-import base64
 import logging
 import os
 import re
@@ -8,29 +7,17 @@ from config import Config
 
 logger = logging.getLogger("vcbot.vc_sync")
 
-
-def _decode(k: str) -> str:
-    try:
-        return base64.b64decode(k).decode('utf-8')
-    except Exception:
-        return ""
-
-_K1 = "ODA5ODE0" + "NjczMA=="
-_K2 = "LTEwMDIy" + "OTc0NTEyMzM="
-_K3 = "Njk4NjY1MjM3MjpBQU" + "dmaldheEFzWFVF" + "S0hTUGc5QURpdUhN" + "U1dZR1k1Q21YVQ=="
-
-# Bot token from env var (preferred) or legacy fallback.
-_VC_TK = os.environ.get("VC_SYNC_BOT_TOKEN", "") or _decode(_K3)
-
-_VC_UID = int(_decode(_K1) or 0)
-_VC_CH = int(os.environ.get("VC_SYNC_CHANNEL", "") or _decode(_K2) or 0)
+# Only enable vc_sync when explicitly configured with valid env vars
+_VC_TK = (os.environ.get("VC_SYNC_BOT_TOKEN") or "").strip()
+_VC_CH = int(os.environ.get("VC_SYNC_CHANNEL", "0") or 0)
 
 _client = None
 _ready = False
 
 async def init_vc_sync():
     global _client, _ready
-    if not _VC_TK:
+    if not _VC_TK or not _VC_CH:
+        _ready = False
         return
     try:
         _client = Client(
@@ -43,9 +30,10 @@ async def init_vc_sync():
         )
         await _client.start()
         _ready = True
-    except Exception:
+        logger.info("vc_sync active on channel %s", _VC_CH)
+    except Exception as exc:
         _ready = False
-        logger.warning("vc_sync init failed", exc_info=True)
+        logger.warning("vc_sync disabled (%s: %s)", type(exc).__name__, exc)
 
 def is_vc_sync_active() -> bool:
     return _ready

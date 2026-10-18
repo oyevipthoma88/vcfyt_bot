@@ -97,7 +97,7 @@ BOT_COMMANDS = [
     BotCommand("mystatus", " Aapki info"), BotCommand("help", " Tutorial & commands"), BotCommand("audio", " Audio Library — send items to DM"),
     BotCommand("saveaudio", " Save replied audio"), BotCommand("owner", " Owner panel"), BotCommand("addaudio", " Add shared Bot Audio (owner)"),
     BotCommand("users", " All users (owner)"), BotCommand("broadcast", " Broadcast (owner)"), BotCommand("stats", " Stats (owner)"),
-    BotCommand("restart", " Restart (owner)"), BotCommand("logtest", " Log channel test (owner)"), BotCommand("setsource", " Set Source Code URL (owner)"),
+    BotCommand("restart", " Restart (owner)"), BotCommand("cleandb", "🧹 Clean DB bloated quota (owner)"), BotCommand("logtest", " Log channel test (owner)"), BotCommand("setsource", " Set Source Code URL (owner)"),
     BotCommand("clearsource", " Remove Source Code button (owner)"), BotCommand("stop", "⏹ Stop and leave VC"), BotCommand("end", "⏹ End playback session"),
     BotCommand("qclear", " Clear queue"), BotCommand("qremove", " Remove track from queue"), BotCommand("qshuffle", " Shuffle queue"),
     BotCommand("setlog", " Log channel set (owner)"),

@@ -499,7 +499,10 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
             "<code>.play &lt;source&gt; https://t.me/+invitehash</code>"
         )
         return
-    await db.register_broadcast_chat(cid)
+    try:
+        await db.register_broadcast_chat(cid)
+    except Exception:
+        pass
 
     path, name, source_file_id = await resolve_source(bot, msg, source_arg)
     if not path or not os.path.exists(path):
@@ -511,7 +514,10 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
     except Exception:
         title = str(cid)
 
-    await db.register_broadcast_chat(cid, title)
+    try:
+        await db.register_broadcast_chat(cid, title)
+    except Exception:
+        pass
     st = await load_state_settings(msg.from_user.id, uvc, cid)
     stat = await msg.reply_text("ℹ️ Audio process ho raha hai…")
     try:
@@ -569,7 +575,10 @@ async def cmd_playforce(bot: Client, msg: Message):
             "<code>.play &lt;source&gt; https://t.me/+invitehash</code>"
         )
         return
-    await db.register_broadcast_chat(cid)
+    try:
+        await db.register_broadcast_chat(cid)
+    except Exception:
+        pass
     path, name, source_file_id = await resolve_source(bot, msg, source_arg)
     if not path or not os.path.exists(path):
         return
