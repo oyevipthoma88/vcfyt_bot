@@ -1507,15 +1507,21 @@ class UserVC:
             if not task or task.done():
                 st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
             script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_screen.py")
+            # GROUP VC LIMIT: Telegram accepts group screen share up to
+            # 720p only — a 1080p presentation is refused outright
+            # ("screen share accept nahi kiya").  Cap the live screen to the
+            # same SS_SEND_* size the mixer image path uses.
+            ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
+            ss_h = min(Config.SS_HEIGHT, Config.SS_SEND_HEIGHT) // 2 * 2
+            ss_fps = max(1, min(Config.SS_FPS, Config.SS_SEND_FPS))
             cmd = " ".join(shlex.quote(x) for x in [
                 _sys.executable or "python3", script,
                 "--state", self._ss_state_path(chat_id),
-                "--w", str(Config.SS_WIDTH), "--h", str(Config.SS_HEIGHT),
-                "--fps", str(Config.SS_FPS)])
+                "--w", str(ss_w), "--h", str(ss_h),
+                "--fps", str(ss_fps)])
             return VideoStream(
                 MediaSource.SHELL, cmd,
-                VideoParameters(Config.SS_WIDTH, Config.SS_HEIGHT, Config.SS_FPS,
-                                adjust_by_height=False),
+                VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False),
             )
         # NO BLUR: the mixer picture is 1280x720.  Upscaling it to 1080p at
         # 15 fps made Telegram's encoder starve (big frames, low bitrate) and
@@ -1620,6 +1626,8 @@ class UserVC:
                         raise
                     logger.warning("Play with screen share failed (%r); "
                                    "retrying audio-only", exc)
+                    st.ss_error = ("Screen stream Telegram ne reject kiya: "
+                                   "%s" % (str(exc)[:160] or type(exc).__name__))
                     from pytgcalls.types.raw import Stream as _RawStream
                     raw_stream = _RawStream(microphone=raw_stream.microphone)
                     st.ss_on = False
