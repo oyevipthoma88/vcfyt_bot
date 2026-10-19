@@ -1,6 +1,6 @@
 {
   "name": "VC Audio Bot",
-  "description": "Multi-user Telegram Voice Chat Audio Bot \u2014 in-bot login, high volume/bass/echo/boost, live mic boost, full button UI.",
+  "description": "Multi-user Telegram Voice Chat Audio Bot — in-bot login, high volume/bass/echo/boost, live mic boost, full button UI.",
   "keywords": [
     "telegram",
     "bot",
@@ -10,11 +10,11 @@
   ],
   "env": {
     "API_ID": {
-      "description": "Telegram API ID \u2014 get from https://my.telegram.org",
+      "description": "Telegram API ID — get from https://my.telegram.org",
       "required": true
     },
     "API_HASH": {
-      "description": "Telegram API Hash \u2014 get from https://my.telegram.org",
+      "description": "Telegram API Hash — get from https://my.telegram.org",
       "required": true
     },
     "BOT_TOKEN": {
@@ -53,11 +53,11 @@
       "value": "false"
     },
     "HEROKU_APP_NAME": {
-      "description": "Your Heroku app name. Only a last-resort fallback \u2014 modern Heroku domains have a random suffix, so prefer LIVE_MIC_BASE_URL.",
+      "description": "Your Heroku app name. Only a last-resort fallback — modern Heroku domains have a random suffix, so prefer LIVE_MIC_BASE_URL.",
       "required": false
     },
     "LIVE_MIC_BASE_URL": {
-      "description": "RECOMMENDED: the exact URL Heroku shows under Settings \u2192 Domains / Open app (e.g. https://my-vc-bot-1a2b3c4d5e6f.herokuapp.com). Used for live mic links.",
+      "description": "RECOMMENDED: the exact URL Heroku shows under Settings → Domains / Open app (e.g. https://my-vc-bot-1a2b3c4d5e6f.herokuapp.com). Used for live mic links.",
       "required": false
     },
     "START_PIC": {
@@ -108,14 +108,16 @@
       "description": "Seconds of inactivity before an idle user session is auto-stopped. Default 1800 (30 min).",
       "required": false,
       "value": "1800"
+    },
+    "ULTRA_LOUD": {
+      "description": "Extra loud drive tail on all audio (1=on, 0=off). Default on.",
+      "required": false,
+      "value": "1"
     }
   },
   "buildpacks": [
     {
       "url": "heroku/python"
-    },
-    {
-      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
     }
   ],
   "formation": {
@@ -123,6 +125,5 @@
       "quantity": 1,
       "size": "eco"
     }
-  },
-  "stack": "heroku-24"
+  }
 }

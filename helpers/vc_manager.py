@@ -84,6 +84,18 @@ def _probe_duration(path: str) -> float:
         dur = float(out or 0)
     except Exception:
         dur = 0.0
+    if not dur:
+        # No ffprobe (bundled ffmpeg only): read "Duration: HH:MM:SS.xx".
+        try:
+            import re as _re
+            import subprocess
+            err = subprocess.run(["ffmpeg", "-hide_banner", "-i", path],
+                                 capture_output=True, text=True, timeout=8).stderr
+            m = _re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", err)
+            if m:
+                dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        except Exception:
+            dur = 0.0
     _DURATIONS[path] = dur
     while len(_DURATIONS) > 64:
         _DURATIONS.popitem(last=False)

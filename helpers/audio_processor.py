@@ -115,6 +115,9 @@ def apply_sync_and_presence(chain: str, boost: bool = True) -> str:
             extra.append("asoftclip=type=cubic")
         idx = max((i for i, x in enumerate(parts) if x.startswith("alimiter")), default=len(parts))
         parts[idx:idx] = extra
+    if ultra_loud_enabled():
+        idx = max((i for i, x in enumerate(parts) if x.startswith("alimiter")), default=len(parts))
+        parts[idx:idx] = fight_drive_stage()
     parts = [x for x in parts if not x.startswith("asetnsamples")]
     if _has_filter("asetnsamples"):
         parts.append(f"asetnsamples=n={AUDIO_FRAME_SAMPLES}:p=0")
@@ -132,8 +135,38 @@ def apply_sync_and_presence(chain: str, boost: bool = True) -> str:
 #      AVERAGE (RMS) level rises to within ~2 dB of the peak.
 # Disable with ULTRA_LOUD=0.  Tune drive with ULTRA_LOUD_DB (0..12).
 # ---------------------------------------------------------------------------
+def fight_drive_stage() -> list:
+    """"Drive" stage inserted right before the final limiter of EVERY chain
+    (file playback, relay and live mic).
+
+    Real loudness, not a bigger number:
+      * highpass 80 Hz  - rumble Opus/phone speakers can't play is removed,
+        so the freed peak headroom goes to the voice (~3 dB);
+      * crystalizer     - sharpens transients so words cut through;
+      * aexciter        - adds 3-8 kHz harmonics ("bite"/presence) -> sounds
+        louder at the same peak level;
+      * drive dB + tanh - warm overdrive saturation (FIGHT_DRIVE_DB, 0..18).
+    All are zero/low-latency, safe for the live mic.  Each optional filter is
+    only used when this ffmpeg build has it (unknown filter = silence).
+    """
+    drive = _env_db("FIGHT_DRIVE_DB", 9.0, high=18.0, low=0.0)
+    out = ["highpass=f=80:p=2"]
+    if _has_filter("crystalizer"):
+        out.append("crystalizer=i=1.6")
+    if _has_filter("aexciter"):
+        out.append("aexciter=level_in=1:level_out=1:amount=2.5:drive=6:blend=0:freq=3500:ceil=11000")
+    out += ["equalizer=f=2600:t=q:w=1.2:g=3",
+            f"volume={_db(drive)}dB"]
+    if _has_filter("asoftclip"):
+        # tanh tops out ~0.76 of full scale -> lift back to 0 dBFS with a
+        # hard ceiling so the saturation adds loudness instead of costing it.
+        out += ["asoftclip=type=tanh:oversample=2", "volume=2.40dB",
+                "asoftclip=type=hard:threshold=0.99"]
+    return out
+
+
 def ultra_loud_enabled() -> bool:
-    return (os.environ.get("ULTRA_LOUD", "0") or "0").strip() not in ("0", "off", "false")
+    return (os.environ.get("ULTRA_LOUD", "1") or "1").strip() not in ("0", "off", "false")
 
 
 def ultra_loud_tail(hp: int = 110) -> list:

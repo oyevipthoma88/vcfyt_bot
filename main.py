@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 
+import helpers.ffmpeg_setup  # noqa: F401  (puts ffmpeg on PATH before anything uses it)
+
 from pyrogram import idle
 from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait, PeerIdInvalid
