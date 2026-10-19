@@ -1396,7 +1396,7 @@ class UserVC:
             act = getattr(p, "active_date", None) or 0
             last = max(float(act), speak.get((chat_id, uid), 0))
             out.append({
-                "name": name[:40], "muted": muted,
+                "uid": uid, "name": name[:40], "muted": muted,
                 "speaking": (not muted) and (now - last) < 2.5,
                 "hand": bool(getattr(p, "raise_hand_rating", None)),
                 "volume": int((getattr(p, "volume", None) or 10000) / 100),
@@ -1406,6 +1406,29 @@ class UserVC:
 
     def _ss_state_path(self, chat_id: int) -> str:
         return os.path.join("/tmp", f"ss_live_{self.owner_id}_{abs(chat_id)}.json")
+
+    async def _ss_avatar(self, uid) -> str:
+        """Download a participant's profile photo once, cache it on disk."""
+        if not uid:
+            return ""
+        cache = self.__dict__.setdefault("_ss_avatar_cache", {})
+        path = cache.get(uid)
+        if path and os.path.exists(path):
+            return path
+        path = os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{uid}.jpg")
+        if os.path.exists(path):
+            cache[uid] = path
+            return path
+        try:
+            photos = await self.client.get_chat_photos(uid, limit=1)
+            if photos:
+                got = await self.client.download_media(photos[0], file_name=path)
+                if got and os.path.exists(got):
+                    cache[uid] = got
+                    return got
+        except Exception as exc:
+            logger.debug("ss avatar fetch failed for %s: %r", uid, exc)
+        return ""
 
     async def _ss_live_loop(self, chat_id: int):
         """Keep the live screen's state file fresh while screen share is ON."""
@@ -1419,6 +1442,14 @@ class UserVC:
         except Exception:
             pass
         parts, last_fetch = [], 0.0
+        me_name = ""
+        try:
+            me = await self.client.get_me()
+            me_name = " ".join(x for x in [
+                getattr(me, "first_name", "") or "",
+                getattr(me, "last_name", "") or ""] if x).strip()
+        except Exception:
+            pass
         while True:
             st = self.chats.get(chat_id)
             if not st or not st.ss_on:
@@ -1429,8 +1460,23 @@ class UserVC:
                 except Exception as exc:
                     logger.debug("ss participants failed: %r", exc)
                 last_fetch = time.time()
+            # profile photos: cached ones attach instantly, uncached ones are
+            # downloaded in small batches so the loop never stalls.
+            av_cache = self.__dict__.setdefault("_ss_avatar_cache", {})
+            pending = 0
+            for p in parts:
+                uid = p.get("uid")
+                ph = av_cache.get(uid)
+                if ph and os.path.exists(ph):
+                    p["photo"] = ph
+                elif pending < 5:
+                    pending += 1
+                    ph = await self._ss_avatar(uid)
+                    if ph:
+                        p["photo"] = ph
             data = {
                 "group": title, "started": started, "participants": parts,
+                "me_name": me_name,
                 "now_playing": st.source_name if st.is_playing else "",
                 "paused": bool(st.is_paused), "loop": bool(st.loop),
                 "volume": int(getattr(st, "relay_volume", 0) or 0),
@@ -1452,8 +1498,9 @@ class UserVC:
         from pytgcalls.types.raw import VideoParameters, VideoStream
         import shlex
         import sys as _sys
-        # Live participants screen removed — always the old mixer SS / photo.
-        mode = "image" if getattr(st, "ss_image", "") else "mixer"
+        # LIVE SCREEN DEFAULT: the real VC grid (participants + PFPs + clock)
+        # is the screen share; a replied photo still overrides it.
+        mode = "image" if getattr(st, "ss_image", "") else "live"
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
         if mode == "live" and chat_id is not None:
             task = getattr(st, "ss_task", None)

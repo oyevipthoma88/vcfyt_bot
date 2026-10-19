@@ -99,6 +99,8 @@ class Renderer:
         self.w, self.h = w, h
         s = h / 1080.0
         self.s = s
+        self._avatar_cache = {}   # path -> (mtime, PIL RGBA circular image)
+        self._photo_ops = []      # (path, x, y, size, speaking) pasted last
         self.f_title = _font(int(22 * s), True)
         self.f_big = _font(int(34 * s), True)
         self.f_med = _font(int(24 * s), True)
@@ -106,9 +108,35 @@ class Renderer:
         self.f_small = _font(int(18 * s))
         self.f_init = _font(int(60 * s), True)
 
+    def _avatar(self, path, size):
+        """Load a participant's profile photo as a circular RGBA image."""
+        try:
+            mtime = os.path.getmtime(path)
+        except Exception:
+            return None
+        ent = self._avatar_cache.get(path)
+        if ent and ent[0] == mtime and ent[1].size == (size, size):
+            return ent[1]
+        try:
+            im = Image.open(path).convert("RGB")
+            w0, h0 = im.size
+            side = min(w0, h0)
+            im = im.crop(((w0 - side) // 2, (h0 - side) // 2,
+                          (w0 - side) // 2 + side, (h0 - side) // 2 + side))
+            im = im.resize((size, size), Image.LANCZOS)
+            mask = Image.new("L", (size * 4, size * 4), 0)
+            ImageDraw.Draw(mask).ellipse([0, 0, size * 4, size * 4], fill=255)
+            mask = mask.resize((size, size), Image.LANCZOS)
+            im.putalpha(mask)
+        except Exception:
+            return None
+        self._avatar_cache[path] = (mtime, im)
+        return im
+
     def render(self, st, now, started):
         W, H, s = self.w, self.h, self.s
         img = Image.new("RGB", (W, H), BG)
+        self._photo_ops = []
         d = ImageDraw.Draw(img)
         # ---- window title bar (PC look) ----
         tb = int(44 * s)
@@ -134,7 +162,13 @@ class Renderer:
         self._grid(d, st, gx0, gy0, gx1, gy1, now)
         self._sidebar(d, st, W - side_w, tb, W, H - task_h, now, started)
         self._taskbar(d, st, H - task_h, now)
-        return img
+        # real profile photos go on top of everything, last
+        rgba = img.convert("RGBA")
+        for path, px, py, size, speaking in self._photo_ops:
+            ph = self._avatar(path, size)
+            if ph is not None:
+                rgba.alpha_composite(ph, (px, py))
+        return rgba.convert("RGB")
 
     def _grid(self, d, st, x0, y0, x1, y1, now):
         s = self.s
@@ -193,8 +227,18 @@ class Renderer:
         ar = int(min(w, h) * 0.24)
         cx, cy = x + w // 2, y + int(h * 0.42)
         d.ellipse([cx - ar, cy - ar, cx + ar, cy + ar], fill=color)
-        f_init = _font(max(12, int(ar * 0.8)), True)
-        d.text((cx, cy), _initials(name), font=f_init, fill=TEXT, anchor="mm")
+        photo_path = p.get("photo") or ""
+        photo = self._avatar(photo_path, ar * 2) if photo_path else None
+        if photo is not None:
+            # speaking ring around the real profile picture
+            if speaking:
+                d.ellipse([cx - ar - int(4 * s), cy - ar - int(4 * s),
+                           cx + ar + int(4 * s), cy + ar + int(4 * s)],
+                          outline=GREEN, width=max(2, int(3 * s)))
+            self._photo_ops.append((photo_path, cx - ar, cy - ar, ar * 2, speaking))
+        else:
+            f_init = _font(max(12, int(ar * 0.8)), True)
+            d.text((cx, cy), _initials(name), font=f_init, fill=TEXT, anchor="mm")
         fs = _font(max(12, int(min(22 * s, h * 0.11))), True)
         label = name + ("  (You)" if p.get("is_me") else "")
         d.text((x + int(12 * s), y + h - int(14 * s)),
@@ -247,6 +291,7 @@ class Renderer:
                    font=self.f_med, fill=color, anchor="ld")
             y += h + int(12 * s)
 
+        card("HOST", st.get("me_name") or "—", BLUE)
         np_name = st.get("now_playing") or "—"
         paused = bool(st.get("paused"))
         card("NOW PLAYING", np_name, TEXT)
