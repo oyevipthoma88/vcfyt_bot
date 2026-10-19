@@ -14,7 +14,7 @@ from pyrogram.types import Message
 from config import Config
 from helpers.access_control import check_access, record_usage
 from helpers.audio_processor import (
-    BASS_MAX, BASS_MIN, LEVEL_MAX, LEVEL_MIN, VOLUME_MAX, VOLUME_MIN, clamp,
+    BASS_MAX, BASS_MIN, GAIN_MAX, LEVEL_MAX, LEVEL_MIN, VOLUME_MAX, VOLUME_MIN, clamp,
 )
 from helpers.database import db
 from helpers.logger_channel import (
@@ -545,7 +545,7 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         f" <b>Chat:</b> {title}\n"
         + (f" <b>Queue position:</b> {len(uvc.chats[cid].queue) if uvc.chats.get(cid) else 0}\n" if status == 'queued' else '')
         + f" <b>Account:</b> {uvc.account_name}\n"
-        f" <b>Volume:</b> {st.relay_volume}/2000 |  <b>Bass:</b> +{st.bass} dB\n"
+        f" <b>Volume:</b> {st.relay_volume}/3000 |  <b>Bass:</b> +{st.bass} dB\n"
         f" <b>Boost:</b> {st.boost}/10 |  <b>Echo:</b> "
         f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
         reply_markup=now_playing_kb(cid, uvc.chats.get(cid)),
@@ -602,7 +602,7 @@ async def cmd_playforce(bot: Client, msg: Message):
         f" <b>Force playing!</b>\n\n"
         f" <b>Source:</b> {name}\n"
         f" <b>Chat:</b> {title}\n"
-        f" <b>Volume:</b> {st.relay_volume}/2000 |  <b>Bass:</b> +{st.bass} dB\n"
+        f" <b>Volume:</b> {st.relay_volume}/3000 |  <b>Bass:</b> +{st.bass} dB\n"
         f" <b>Boost:</b> {st.boost}/10 |  <b>Echo:</b> "
         f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
         reply_markup=now_playing_kb(cid, uvc.chats.get(cid)),
@@ -1017,7 +1017,7 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
     applied = await apply_settings_live(uid)
     await msg.reply_text(
         f"{label}\n\n"
-        f" Vol <code>{s['volume']}/1000</code> |  Gain <code>{s['gain']}/200</code> | "
+        f" Vol <code>{s['volume']}/1000</code> |  Gain <code>{s['gain']}/500</code> | "
         f" Bass <code>{s['bass']}</code> |  Boost <code>{s['boost']}/10</code> |  Echo "
         f"<code>{'On' if s['echo'] else 'Off'} {s['echo_level']}/10</code>\n"
         + (f" {applied} live VC par apply hua." if applied else
@@ -1038,10 +1038,10 @@ def _num_arg(msg: Message):
 async def cmd_vol(bot, msg: Message):
     n = _num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>.vol &lt;0-2000&gt;</code>\n1000 = clean max, 1001-2000 = OVERDRIVE (aur tez, fat sakti hai)")
+        await msg.reply_text("Usage: <code>.vol &lt;0-3000&gt;</code>\n1000 = clean max, 1001-3000 = OVERDRIVE (sach me aur tez, presence boost)")
         return
     n = clamp(n, VOLUME_MIN, VOLUME_MAX)
-    await _apply_and_reply(msg, f" Volume set: <b>{n}/2000</b>" + (" — OVERDRIVE" if n > 1000 else ""), volume=n, relay_volume=n)
+    await _apply_and_reply(msg, f" Volume set: <b>{n}/3000</b>" + (" — OVERDRIVE" if n > 1000 else ""), volume=n, relay_volume=n)
 
 @Client.on_message(HAS_USER & cmd_prefix(r"bass\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_bass(bot, msg: Message):
@@ -1160,7 +1160,7 @@ async def cb_vc(bot, cq):
             f"🎧 <b>NOW PLAYING</b>\n\n"
             f"🎵 {st.source_name}\n"
             f"{'⏸ Paused' if st.is_paused else '▶ Playing'} · "
-            f"🔊 {st.relay_volume}/2000 · 💥 {st.boost}/10\n\n"
+            f"🔊 {st.relay_volume}/3000 · 💥 {st.boost}/10\n\n"
             "<i>Human Mode = hand raise + mic on/off blink, taaki account "
             "asli insaan jaisa lage.</i>",
             reply_markup=now_playing_kb(cid, st),
@@ -1398,7 +1398,7 @@ async def cb_mic(bot: Client, cq):
 
     if action == "gain":
         delta = int(rest[0]) if rest else 0
-        s["gain"] = max(0, min(400,
+        s["gain"] = max(0, min(GAIN_MAX,
             int(s.get("gain", Config.RELAY_DEFAULT_GAIN)) + delta))
         await db.save_settings(uid, gain=s["gain"])
         await apply_settings_live(uid)
@@ -1406,7 +1406,7 @@ async def cb_mic(bot: Client, cq):
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
             reply_markup=mic_kb(active_cid is not None, logged_in=True))
-        await safe_answer(cq, f"Gain: {s['gain']}/200")
+        await safe_answer(cq, f"Gain: {s['gain']}/500")
         return
 
     if action == "bass":
@@ -1512,7 +1512,7 @@ async def cmd_auto(bot: Client, msg: Message):
 
     await msg.reply_text(
         " <b>AUTO MODE ON</b> — ab sab automatic hai \n\n"
-        f" Volume <code>{VOLUME_MAX}/1000</code> (max)\n"
+        f" Volume <code>{VOLUME_MAX}/3000</code> (max)\n"
         f" Bass <code>+{AUTO_PRESET['bass']}</code> (voice-safe max)\n"
         f" Treble <code>{AUTO_PRESET['treble']}/100</code> + Gain <code>200/200</code>\n"
         f" Boost <code>{LEVEL_MAX}/10</code> (max)\n"
@@ -1577,19 +1577,19 @@ def _relay_num_arg(msg: Message):
 async def cmd_volume(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>.volume &lt;0-1000&gt;</code>")
+        await msg.reply_text("Usage: <code>.volume &lt;0-3000&gt;</code>")
         return
     n = max(0, min(VOLUME_MAX, n))
-    await _apply_and_reply(msg, f" Playback volume: <b>{n}/1000</b>", relay_volume=n, volume=n)
+    await _apply_and_reply(msg, f" Playback volume: <b>{n}/3000</b>", relay_volume=n, volume=n)
 
 @Client.on_message(HAS_USER & cmd_prefix(r"gain\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_gain(bot: Client, msg: Message):
     n = _relay_num_arg(msg)
     if n is None:
-        await msg.reply_text("Usage: <code>.gain &lt;0-200&gt;</code>")
+        await msg.reply_text("Usage: <code>.gain &lt;0-500&gt;</code>")
         return
-    n = max(0, min(400, n))
-    await _apply_and_reply(msg, f" Gain: <b>{n}/400</b>", gain=n)
+    n = max(0, min(GAIN_MAX, n))
+    await _apply_and_reply(msg, f" Gain: <b>{n}/500</b>", gain=n)
 
 @Client.on_message(HAS_USER & cmd_prefix(r"treble\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_treble(bot: Client, msg: Message):
@@ -1627,7 +1627,7 @@ async def cmd_relaystatus(bot: Client, msg: Message):
     await msg.reply_text(
         " <b>VC Audio Relay Settings</b>\n\n"
         f"├ Volume: <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
-        f"├ Gain: <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/200</code>\n"
+        f"├ Gain: <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/500</code>\n"
         f"├ Bass: <code>{s.get('bass', Config.RELAY_DEFAULT_BASS)}/100</code>\n"
         f"├ Treble: <code>{s.get('treble', Config.RELAY_DEFAULT_TREBLE)}/100</code>\n"
         f"├ Live mic: <code>{s.get('live_volume', Config.LIVE_BOOST_DEFAULT)}/20000</code>\n"

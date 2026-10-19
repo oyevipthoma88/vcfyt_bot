@@ -172,8 +172,8 @@ class LiveMicSession:
     @staticmethod
     def sanitize_settings(data: dict) -> dict:
         limits = {
-            "volume": (0, 2000), "bass": (0, 100), "treble": (0, 120),
-            "gain": (0, 400), "boost": (0, 10), "echo_level": (0, 10),
+            "volume": (0, 3000), "bass": (0, 100), "treble": (0, 120),
+            "gain": (0, 500), "boost": (0, 10), "echo_level": (0, 10),
             "pregain": (0, 200), "turbo": (0, 24), "clarity": (0, 35),
             "loud": (0, 200), "crunch": (0, 200),
         }

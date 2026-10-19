@@ -115,7 +115,7 @@ SECTIONS = {
         "🎚️ <b>Audio Settings — high bhi, low bhi</b>\n\n"
         f"{LINE}\n"
         "<code>.volume &lt;0-1000&gt;</code> — playback volume (default 1000)\n"
-        "<code>.gain &lt;0-400&gt;</code> — loudness gain (default 300)\n"
+        "<code>.gain &lt;0-500&gt;</code> — loudness gain (default 300)\n"
         "<code>.bass &lt;0-100&gt;</code> — controlled bass (default 10)\n"
         "<code>.treble &lt;0-120&gt;</code> — voice clarity/presence (default 100)\n"
         "<code>.voice female|male|normal</code> — voice profile\n"

@@ -6,13 +6,15 @@ from typing import Optional
 
 from config import Config
 
-VOLUME_MIN, VOLUME_MAX = 0, 2000
-# 1000 = old max (clean).  1001-2000 = OVERDRIVE: extra drive into a hard
+VOLUME_MIN, VOLUME_MAX = 0, 3000
+# 1000 = old max (clean).  1001-3000 = OVERDRIVE: extra drive into a hard
 # clipper, limiter removed -> louder, awaaz fat sakti hai (by choice).
 VOLUME_CLEAN_MAX = 1000
 BASS_MIN, BASS_MAX = 0, 100
 LEVEL_MIN, LEVEL_MAX = 0, 10
-GAIN_MAX = 400
+GAIN_MAX = 500
+# Live-mic gain curve stays calibrated on the old 0-400 scale; 401-500 is extra.
+GAIN_REF = 400
 TREBLE_MAX = 120
 # Live mic pre-amp ceiling (dB).  Fight mode needs a hotter pre-amp to push
 # the compressors hard; 36 dB gives maximum loudness before the limiter.
@@ -515,7 +517,7 @@ def build_ffmpeg_filter(
             drive_db = max(34.0, min(48.0, 34.0 + (float(pregain if pregain is not None else 200) / 200.0) * 14.0))
         except (TypeError, ValueError):
             drive_db = 48.0
-        final_db = 24.0 + 22.0 * (gain_value / float(GAIN_MAX or 400))
+        final_db = 24.0 + 22.0 * (gain_value / float(GAIN_REF))
         final_db = min(52.0, final_db + extra_loud_db())
 
         # FIX: old chain used "dialoguenhance=recipe=default" — that option does
@@ -771,16 +773,25 @@ def build_ffmpeg_filter(
         filters.append("asoftclip=type=tanh:oversample=4")
         filters.append("volume=4dB")
     filters.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=1:release=60:level=false")
-    if vol > VOLUME_CLEAN_MAX:
-        # PLAYBACK OVERDRIVE (.vol 1001-2000): up to +18 dB more into a hard
-        # clip at 0 dBFS.  Louder than 1000; awaaz fat sakti hai (by choice).
-        over = (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)
-        filters.append(f"volume={_db(18.0 * over)}dB")
+    # REAL LOUDNESS ABOVE 1000 / GAIN 300+:
+    # The signal already sits at 0 dBFS after the chain above, so plain dB
+    # gain only flattens it (number goes up, awaaz same).  What the ear hears
+    # as "tez" is energy in the 1-5 kHz band.  So OVERDRIVE (vol 1001-3000)
+    # and GAIN 301-500 move the energy out of the sub-bass rumble (which eats
+    # headroom but phone speakers can't play) into the presence band, then
+    # re-saturate and re-limit.  Same peak, much higher perceived loudness.
+    over = max(0.0, (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX))
+    g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
+    push = min(1.0, over * 0.75 + g_over * 0.45)
+    if push > 0:
+        filters.append(f"equalizer=f=2200:t=q:w=1.4:g={_db(3.0 + 9.0 * push)}")
+        filters.append(f"equalizer=f=4000:t=q:w=1.2:g={_db(3.0 + 9.0 * push)}")
+        filters.append(f"volume={_db(6.0 + 24.0 * push)}dB")
         if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=hard:threshold=1.0")
+            filters.append("asoftclip=type=hard:threshold=1.0:oversample=2")
         else:
             filters.append("alimiter=limit=1.0:attack=0.1:release=2:level=false")
-    elif vol < VOLUME_CLEAN_MAX:
+    if vol < VOLUME_CLEAN_MAX:
         # VOLUME FIX: limiter ke baad sab level same ho jaata tha, isliye
         # .vol 0-999 ka koi asar nahi tha.  Ab 1000 = full, kam = sach me dheema.
         filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
@@ -942,7 +953,7 @@ def _prerender_ss_base(img: str, width: int, height: int) -> str:
         if (nw, nh) != src.size:
             src = src.resize((nw, nh), Image.LANCZOS)
         # halka sharpen: text crisp, ringing nahi (encoder ko easy).
-        src = src.filter(ImageFilter.UnsharpMask(radius=1.0, percent=60, threshold=2))
+        src = src.filter(ImageFilter.UnsharpMask(radius=1.2, percent=90, threshold=2))
         canvas = Image.new("RGB", (width, height), (0, 0, 0))
         canvas.paste(src, ((width - nw) // 2, (height - nh) // 2))
         canvas.save(out, "BMP")
@@ -1018,7 +1029,7 @@ def build_fake_screen_command(
     for x, sp in meters:
         # Update meters only 3x/s (was every frame): fewer changing pixels =
         # encoder spends its bitrate on sharpness instead of motion -> no blur.
-        q = "(floor(t*3)/3)"
+        q = "floor(t)"
         lvl = f"(0.35+0.6*abs(sin({q}*{sp:.2f})*cos({q}*{sp * 0.53:.2f})))"
         for k in range(seg_n):
             y = top + span - (k + 1) * seg_h
@@ -1036,7 +1047,7 @@ def build_fake_screen_command(
     # Mouse cursor that moves between spots every few seconds.
     cw, ch = max(6, W // 110), max(10, H // 45)
     spots = [(0.55, 0.45), (0.30, 0.55), (0.62, 0.30), (0.40, 0.70), (0.70, 0.60), (0.25, 0.35)]
-    step = 3
+    step = 8
     for i, (fx, fy) in enumerate(spots):
         parts.append(
             f"drawbox=x={int(W * fx)}:y={int(H * fy)}:w={cw}:h={ch}:color=white@0.95:t=fill:"
@@ -1053,7 +1064,7 @@ def build_fake_screen_command(
     font = _find_font()
     if font:
         ff = f"fontfile='{font}':"
-        parts.append("drawtext="+ff+"expansion=strftime:text='%I\\:%M\\:%S %p':"
+        parts.append("drawtext="+ff+"expansion=strftime:text='%I\\:%M %p':"
                      f"x=w-tw-{bh // 2}:y={H - bh + bh // 8}:fontsize={fs1}:fontcolor=white")
         parts.append("drawtext="+ff+"expansion=strftime:text='%d-%m-%Y':"
                      f"x=w-tw-{bh // 2}:y={H - fs2 - bh // 8}:fontsize={fs2}:fontcolor=white")

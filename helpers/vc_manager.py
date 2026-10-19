@@ -1402,11 +1402,17 @@ class UserVC:
         # 15 fps made Telegram's encoder starve (big frames, low bitrate) and
         # viewers saw a blurry / "loading" screen.  Send it at native 720p
         # and 24+ fps so the encoder reaches full quality within a second.
-        ss_w, ss_h = min(Config.SS_WIDTH, 1280), min(Config.SS_HEIGHT, 720)
+        # BLUR FIX v2: Telegram's WebRTC starts screen share at a very low
+        # bitrate and, when bits/pixel are too low, downsizes the stream to
+        # 1/4 -> viewers saw the whole picture smeared.  960x540 at 5 fps
+        # gives ~2.2x more bits per pixel than 720p/8fps, so the encoder
+        # never needs to downscale and the picture stays sharp.
+        ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
+        ss_h = min(Config.SS_HEIGHT, Config.SS_SEND_HEIGHT) // 2 * 2
         # SHARP SS: screen content needs few frames.  At 15 fps Telegram's
         # low start bitrate is split over 15 pictures/s -> whole screen blurry
         # for the first seconds.  8 fps = ~2x bits per frame -> crisp quickly.
-        ss_fps = max(5, min(10, Config.SS_FPS))
+        ss_fps = max(3, min(10, Config.SS_SEND_FPS))
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",

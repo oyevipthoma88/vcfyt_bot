@@ -334,7 +334,7 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
         f"{device_line}"
         f"🔊 <b>Mic Gain:</b> <code>{lv}/20000</code> "
         f"({pct}% — Telegram participant volume)\n"
-        f"📈 <b>Audio Gain:</b> <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/200</code>\n"
+        f"📈 <b>Audio Gain:</b> <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/500</code>\n"
         f"🎵 <b>Bass:</b> <code>+{s['bass']} dB</code>\n"
         f"💥 <b>Boost:</b> <code>{bars(int(s['boost']))} {s['boost']}/10</code>\n"
         f"🔊 <b>Echo:</b> {'ON' if s['echo'] else 'OFF'} "

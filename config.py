@@ -93,6 +93,10 @@ class Config:
     SS_WIDTH: int = _int("SS_WIDTH", 1920)
     SS_HEIGHT: int = _int("SS_HEIGHT", 1080)
     SS_FPS: int = _int("SS_FPS", 8)
+    # Actual size/fps sent to Telegram (lower = sharper on weak bitrate).
+    SS_SEND_WIDTH: int = _int("SS_SEND_WIDTH", 960)
+    SS_SEND_HEIGHT: int = _int("SS_SEND_HEIGHT", 540)
+    SS_SEND_FPS: int = _int("SS_SEND_FPS", 5)
 
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)

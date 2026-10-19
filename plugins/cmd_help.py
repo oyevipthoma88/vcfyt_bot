@@ -35,7 +35,7 @@ HELP = {
     "tags": ([], ".tags", "Aapke saare saved tags.", ".tags"),
     "untag": ([], ".untag <name>", "Saved tag delete karta hai.", ".untag intro"),
     "volume": (["vol"], ".volume <0-1000>", "Playback volume.", ".vol 800"),
-    "gain": ([], ".gain <0-400>", "Loudness gain.", ".gain 150"),
+    "gain": ([], ".gain <0-500>", "Loudness gain.", ".gain 150"),
     "bass": ([], ".bass <0-100>", "Bass level.", ".bass 20"),
     "treble": ([], ".treble <0-100>", "Awaaz ki clarity/sharpness.", ".treble 70"),
     "voice": ([], ".voice female|male|normal", "Voice profile badalta hai.", ".voice male"),
