@@ -30,7 +30,7 @@ class LiveMicFfmpegValid(unittest.TestCase):
              + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
              "-f", "null", "-"], capture_output=True, text=True)
         rms = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
-        self.assertGreater(rms, -2.0)
+        self.assertGreater(rms, -7.0)
 
     def test_no_live_delay_filters(self):
         chain = build_live_mic_filter(loud=120)

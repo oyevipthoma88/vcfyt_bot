@@ -149,19 +149,21 @@ def fight_drive_stage() -> list:
     All are zero/low-latency, safe for the live mic.  Each optional filter is
     only used when this ffmpeg build has it (unknown filter = silence).
     """
-    drive = _env_db("FIGHT_DRIVE_DB", 14.0, high=18.0, low=0.0)
+    # CLEAN FIX: drive kam (14 -> 9) aur hard clip hata diya.  Pehle tanh ke
+    # baad +2.4 dB lift + hard clip 0.99 tha -> 16-bit me samples full scale
+    # pe flat ho rahe the ("bich me fat").  Ab tanh saturation hi ceiling hai
+    # (kabhi 1.0 cross nahi karta) aur final limiter peaks pakadta hai.
+    drive = _env_db("FIGHT_DRIVE_DB", 9.0, high=18.0, low=0.0)
     out = ["highpass=f=80:p=2"]
     if _has_filter("crystalizer"):
-        out.append("crystalizer=i=1.6")
+        out.append("crystalizer=i=1.2")
     if _has_filter("aexciter"):
         out.append("aexciter=level_in=1:level_out=1:amount=2.5:drive=6:blend=0:freq=3500:ceil=11000")
     out += ["equalizer=f=2600:t=q:w=1.2:g=3",
             f"volume={_db(drive)}dB"]
     if _has_filter("asoftclip"):
-        # tanh tops out ~0.76 of full scale -> lift back to 0 dBFS with a
-        # hard ceiling so the saturation adds loudness instead of costing it.
-        out += ["asoftclip=type=tanh:oversample=2", "volume=2.40dB",
-                "asoftclip=type=hard:threshold=0.99"]
+        # tanh kabhi 1.0 se upar nahi jaata -> 0 dBFS ceiling, zero hard clip.
+        out += ["asoftclip=type=tanh:oversample=2"]
     return out
 
 
@@ -177,9 +179,7 @@ def ultra_loud_tail(hp: int = 110) -> list:
            "equalizer=f=2800:t=q:w=1.3:g=4",
            "acompressor=threshold=0.125:ratio=8:attack=0.5:release=40:makeup=2:knee=2",
            f"volume={_db(drive)}dB"]
-    if _has_filter("asoftclip"):
-        out.append("asoftclip=type=hard:threshold=0.98")
-    out.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.1:release=8:level=false")
+    out.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:release=40:level=false")
     return out
 
 
@@ -433,7 +433,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         # Post-gate BEFORE the make-up gain: speechnorm lifts own voice to
         # ~-1 dBFS but residual bleed/hiss only to ~-40 dBFS -> cut it here
         # so the compressors (makeup x6, x12) never pump it up.
-        f.append("agate=threshold=0.05:range=0.001:ratio=8:attack=1:"
+        f.append("agate=threshold=0.18:range=0.001:ratio=8:attack=1:"
                  "release=300:knee=4:detection=peak")
     f += ["acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=6:knee=4",
           "acompressor=threshold=0.05:ratio=20:attack=1:release=80:makeup=12:knee=8"]
@@ -450,15 +450,18 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         out_db = ceiling_db - 0.6
     else:
         out_db = _env_db("LIVE_MIC_OUT_DB", -0.1, high=0.0, low=-12.0)
-    out_limit = min(0.999, 10 ** (out_db / 20.0))
-    # LOUD 0..200 -> drive +12..+24 dB into the saturator.
-    drive = _env_db("LIVE_MIC_DRIVE_DB", 12.0, high=30.0, low=0.0) + min(loud, 200) * 0.06
+    out_limit = min(0.98, 10 ** (out_db / 20.0))
+    # CLEAN FIX: pehle pre-limiter 0.5 pe set kar do, phir hi saturator me
+    # push.  Pehle speechnorm ke baad seedha +12..+24 dB drive -> tanh input
+    # 8+ -> tanh ka top bhi flat ho jaata tha (flat factor 4.6 = clipped).
+    # Ab: 0.5 x max +12 dB = 2.0 -> tanh(2.0) = 0.96, soft shoulder.
+    f.append("alimiter=level_in=1:limit=0.45:attack=5:release=60:level=false")
+    drive = min(10.5, _env_db("LIVE_MIC_DRIVE_DB", 10.5, high=30.0, low=0.0)
+                + min(loud, 200) * 0.06)
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip"):
         f.append("asoftclip=type=tanh:oversample=4")
-        f.append(f"volume={_db(20 * __import__('math').log10(out_limit) + 1.5)}dB")
-        f.append(f"asoftclip=type=hard:threshold={out_limit:.3f}")
-    f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=0.1:release=20")
+    f.append(f"alimiter=limit={out_limit:.3f}:level=false:attack=5:release=40")
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False))
 
 
@@ -567,7 +570,7 @@ def build_ffmpeg_filter(
         if _has_filter("afftdn"):
             filters.append("afftdn=nr=10:nf=-50:tn=1")
         if _has_filter("agate"):
-            filters.append("agate=range=0.03:threshold=0.0012:ratio=3:"
+            filters.append("agate=range=0.001:threshold=0.0012:ratio=3:"
                            "attack=3:release=150:knee=2:detection=rms")
         filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(5.0 + 2.0 * clarity_amt)}")  # v20: +2 dB
         filters.append(f"equalizer=f=2800:t=q:w=1.1:g={_db(6.0 + 2.5 * clarity_amt)}")  # v20: +2 dB
@@ -593,8 +596,8 @@ def build_ffmpeg_filter(
             filters.append("extrastereo=m=2.0")
         if _has_filter("loudnorm"):
             filters.append("loudnorm=I=-5:LRA=1.0:TP=-0.01")
-        filters.append("alimiter=level_in=1.5:level_out=1:limit=0.999:"
-                       "attack=1:release=25:level=false:asc=1")
+        filters.append("alimiter=level_in=1.5:level_out=1:limit=0.95:"
+                       "attack=5:release=40:level=false:asc=1")
         return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
 
     if live and _live_chain_mode() == "soft":
@@ -745,7 +748,7 @@ def build_ffmpeg_filter(
     # room noise between words is not pumped up to full scale (it used to
     # land at ~-2 dBFS = "khar khar" under every voice note).
     if _has_filter("agate"):
-        filters.insert(4, "agate=threshold=0.006:range=0.08:ratio=3:attack=5:release=250:knee=4:detection=rms")
+        filters.insert(4, "agate=threshold=0.006:range=0.001:ratio=3:attack=5:release=250:knee=4:detection=rms")
 
     if bass_value:
         filters.append(f"equalizer=f=80:t=q:w=1.2:g={_db(min(8.0, bass_value * 0.12))}")
@@ -769,7 +772,7 @@ def build_ffmpeg_filter(
     # ------------------------------------------------------------------
     ratio = min(6.0, 3.0 + boost_value * 0.3)
     threshold = max(0.06, 0.18 - boost_value * 0.012)
-    makeup = min(6.0, boost_value * 0.5 + 2.0)
+    makeup = min(3.0, boost_value * 0.25 + 1.5)
     filters.append(
         f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
         f"attack=3:release=60:makeup={makeup:.1f}:knee=3"
@@ -783,29 +786,39 @@ def build_ffmpeg_filter(
             f"{decay:.2f}|{decay * 0.5:.2f}"
         )
 
-    filters.append(f"volume={_db(max(0.0, min(8.0, 2.0 + volume_to_db(vol) * 0.12 + _legacy_gain_to_db(gain_value) * 0.2)))}dB")
+    filters.append(f"volume={_db(max(0.0, min(4.0, 2.0 + volume_to_db(vol) * 0.12 + _legacy_gain_to_db(gain_value) * 0.2)))}dB")
 
     if extra_filters:
         filters.append(extra_filters)
 
-    if _has_filter("speechnorm"):
-        filters.append("speechnorm=e=8:r=0.0005:l=1:p=0.9:t=0.05")
-    filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=2:knee=2")
+    # GAIN BUDGET FIX: speechnorm playback tail se hata — ye continuous
+    # hiss/room noise ko bhi ~full scale tak expand karta tha (record_24 ke
+    # "bich me fat/khar khar" ka ek root).  Loudness ab limiter + warm
+    # saturation se aati hai, upward expansion se nahi.
+    filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=1.5:knee=2")
     # 100x LOUDNESS: triple density compressor + +28 dB push (was 13) so the
     # AVERAGE level is 10-100x louder to the ear, not just the peak.
-    filters.append("acompressor=threshold=0.08:ratio=6:attack=5:release=120:makeup=6:knee=4")
-    filters.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=8:knee=6")
-    filters.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=10:knee=8")
-    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 35.0, high=42.0, low=0.0))}dB")
-    filters.append("alimiter=level_in=1:limit=0.98:attack=4:release=50:level=false")
+    filters.append("acompressor=threshold=0.08:ratio=6:attack=5:release=120:makeup=2:knee=4")
+    filters.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=2.5:knee=6")
+    filters.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=3:knee=8")
+    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 2.0, high=42.0, low=0.0))}dB")
+    # CLEAN LOUD FIX (record_24: ~1.3 % samples full-scale pe flat = "bich me
+    # fat").  Pehle: 0.98 limiter -> +28 dB drive -> tanh -> +4 dB lift ->
+    # limit=1.0 attack=1ms limiter.  1 ms look-ahead fast transients pakad
+    # nahi paata -> 16-bit conversion pe hard clip.  Ab:
+    #   pre-limiter 0.90 -> drive kam -> tanh (kabhi 1.0 cross nahi) ->
+    #   final look-ahead brick-wall 0.95.  Peak 0 dBFS ke bilkul paas,
+    #   koi clipped sample nahi.
+    filters.append("alimiter=level_in=1:limit=0.90:attack=5:release=50:level=false")
     # Warm density stage: oversampled tanh = heavy "damdar" tone, no
     # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
-    drive = _env_db("PLAY_DRIVE_DB", 28.0, high=36.0, low=0.0)
+    drive = _env_db("PLAY_DRIVE_DB", 8.0, high=14.0, low=0.0)
     if drive and _has_filter("asoftclip"):
+        # 0.90 x +10 dB = 2.84 -> tanh(2.84) = 0.993: soft shoulder, ceiling
+        # ke bilkul paas, zero hard clip.
         filters.append(f"volume={_db(drive)}dB")
         filters.append("asoftclip=type=tanh:oversample=4")
-        filters.append("volume=4dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=1:release=60:level=false")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=5:release=50:level=false")
     # REAL LOUDNESS ABOVE 1000 / GAIN 300+:
     # The signal already sits at 0 dBFS after the chain above, so plain dB
     # gain only flattens it (number goes up, awaaz same).  What the ear hears
@@ -817,13 +830,12 @@ def build_ffmpeg_filter(
     g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
     push = min(1.0, over * 0.75 + g_over * 0.45)
     if push > 0:
+        # OVERDRIVE (vol 1001-3000 / gain 301-500): presence EQ + drive, lekin
+        # hard clip nahi — neeche wala final brick-wall limiter sab pakadta hai.
         filters.append(f"equalizer=f=2200:t=q:w=1.4:g={_db(3.0 + 9.0 * push)}")
         filters.append(f"equalizer=f=4000:t=q:w=1.2:g={_db(3.0 + 9.0 * push)}")
-        filters.append(f"volume={_db(6.0 + 24.0 * push)}dB")
-        if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=hard:threshold=1.0:oversample=2")
-        else:
-            filters.append("alimiter=limit=1.0:attack=0.1:release=2:level=false")
+        filters.append(f"volume={_db(6.0 + 12.0 * push)}dB")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=5:release=50:level=false")
     if vol < VOLUME_CLEAN_MAX:
         # VOLUME FIX: limiter ke baad sab level same ho jaata tha, isliye
         # .vol 0-999 ka koi asar nahi tha.  Ab 1000 = full, kam = sach me dheema.
@@ -878,7 +890,7 @@ async def process_audio_to_file(
             "makeup=24:knee=2,"
             "loudnorm=I=-5:LRA=1.0:TP=0.0,"
             "volume=12dB,"
-            "alimiter=level_in=4:limit=0.99:attack=0.1:release=5:asc=1"
+            "alimiter=level_in=4:limit=0.95:attack=5:release=40:asc=1"
         )
         code2, stderr2 = await _run(fallback)  # str now (stray comma made it a tuple)
         if code2 != 0 or not os.path.exists(output_path):
@@ -994,15 +1006,15 @@ def _prerender_ss_base(img: str, width: int, height: int) -> str:
     except Exception as exc:
         print(f"ss prerender failed: {exc!r}", file=__import__("sys").stderr)
         return ""
-_FILTER_CACHE = {}
+_FILTER_PROBE_CACHE = {}
 
 
 def _ffmpeg_has_filter(name: str) -> bool:
     """SS BLANK FIX: the pip-bundled ffmpeg (imageio-ffmpeg) is built WITHOUT
     drawtext.  Using it made FFmpeg exit instantly -> no video frames ->
     Telegram showed only the blurred profile photo.  Check once, skip if absent."""
-    if name in _FILTER_CACHE:
-        return _FILTER_CACHE[name]
+    if name in _FILTER_PROBE_CACHE:
+        return _FILTER_PROBE_CACHE[name]
     ok = False
     try:
         import subprocess
@@ -1011,7 +1023,7 @@ def _ffmpeg_has_filter(name: str) -> bool:
         ok = any(line.split()[1:2] == [name] for line in out.splitlines() if line.strip())
     except Exception:
         ok = False
-    _FILTER_CACHE[name] = ok
+    _FILTER_PROBE_CACHE[name] = ok
     return ok
 
 

@@ -22,20 +22,29 @@ def measure(chain):
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg missing")
 class LoudnessControls(unittest.TestCase):
     def test_playback_loud_with_crackle_guard(self):
-        pk, rms = measure(build_ffmpeg_filter(volume=1000))
+        # CLEAN LOUD: peak 0 dBFS ke bilkul paas (limit 0.94 = -0.5 dBFS),
+        # RMS ab bhi bahut high, aur koi flat/clipped sample nahi.
+        chain = build_ffmpeg_filter(volume=1000)
+        pk, rms = measure(chain)
         self.assertLessEqual(pk, -0.45)
-        self.assertGreaterEqual(rms, -2.0)
+        self.assertGreaterEqual(rms, -9.0)
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", SRC, "-af",
+                            chain + ",astats=measure_overall=Flat_factor:measure_perchannel=0",
+                            "-f", "null", "-"], capture_output=True, text=True)
+        flat = float(re.findall(r"Flat factor: (\S+)", r.stderr)[-1])
+        self.assertLess(flat, 2.5, "chain is hard-clipping (flat tops)")
 
     def test_overdrive_peak_stays_below_half_db(self):
-        pk, _ = measure(build_ffmpeg_filter(volume=2000))
+        pk, rms = measure(build_ffmpeg_filter(volume=2000))
         self.assertLessEqual(pk, -0.45)
+        self.assertGreaterEqual(rms, -9.0)
 
     def test_live_mic_default_is_loud_and_guarded(self):
         # v20 ABSOLUTE MAX loudness: quad compressor density stack, mean near 0 dBFS.
         pk, rms = measure(build_live_mic_filter(loud=120))
         self.assertLessEqual(pk, 0.1)       # v20: ceiling at 0.999
         self.assertGreaterEqual(pk, -3.0)
-        self.assertGreaterEqual(rms, -8.0)  # v20: much louder
+        self.assertGreaterEqual(rms, -9.0)  # clean brick-wall: peak ke ~5 dB neeche
         # v20: with extreme density, crest can be as low as 1.5 dB.
         self.assertGreaterEqual(pk - rms, 1.5)
 
