@@ -69,8 +69,8 @@ class Config:
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)
     DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)
 
-    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 1000)
-    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 300)
+    RELAY_DEFAULT_VOLUME: int = _int("RELAY_DEFAULT_VOLUME", 3000)
+    RELAY_DEFAULT_GAIN: int = _int("RELAY_DEFAULT_GAIN", 500)
     RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 14)
     RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 100)
 
@@ -92,11 +92,14 @@ class Config:
     SCREEN_SHARE_ENABLED: bool = _bool("SCREEN_SHARE_ENABLED", True)
     SS_WIDTH: int = _int("SS_WIDTH", 1920)
     SS_HEIGHT: int = _int("SS_HEIGHT", 1080)
-    SS_FPS: int = _int("SS_FPS", 8)
+    SS_FPS: int = _int("SS_FPS", 20)
     # Actual size/fps sent to Telegram (lower = sharper on weak bitrate).
-    SS_SEND_WIDTH: int = _int("SS_SEND_WIDTH", 960)
-    SS_SEND_HEIGHT: int = _int("SS_SEND_HEIGHT", 540)
-    SS_SEND_FPS: int = _int("SS_SEND_FPS", 5)
+    # 1280x720 @ 20 fps: enough steady traffic for WebRTC bandwidth
+    # estimation to ramp up (5 fps of a still picture kept the bitrate at the
+    # floor forever = 100% blur).
+    SS_SEND_WIDTH: int = _int("SS_SEND_WIDTH", 1280)
+    SS_SEND_HEIGHT: int = _int("SS_SEND_HEIGHT", 720)
+    SS_SEND_FPS: int = _int("SS_SEND_FPS", 20)
 
     LIVE_BOOST_DEFAULT: int = _int("LIVE_BOOST_DEFAULT", 20000)
     AUTO_LIVE_BOOST: bool = _bool("AUTO_LIVE_BOOST", True)

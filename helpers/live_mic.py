@@ -67,7 +67,7 @@ JITTER_HIGH_MS = 200
 # Loudness comes from the levelling + limiter stages, not from piling on
 # pre-amp and turbo; the old 22 dB pregain + 4 dB turbo only squashed the
 # voice flat before it ever reached the voice chat.
-FIXED_BEST = {"volume": 1000, "gain": 400, "boost": 10, "bass": 0,
+FIXED_BEST = {"volume": 3000, "gain": 500, "boost": 10, "bass": 0,
               "treble": 120, "pregain": 200, "turbo": 24, "clarity": 35,
               "echo": 0, "echo_level": 0, "loud": 4000}
 

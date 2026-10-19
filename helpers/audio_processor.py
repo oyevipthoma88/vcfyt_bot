@@ -1062,7 +1062,7 @@ def build_fake_screen_command(
     for x, sp in meters:
         # Update meters only 3x/s (was every frame): fewer changing pixels =
         # encoder spends its bitrate on sharpness instead of motion -> no blur.
-        q = "floor(t)"
+        q = "floor(t*4)/4"
         lvl = f"(0.35+0.6*abs(sin({q}*{sp:.2f})*cos({q}*{sp * 0.53:.2f})))"
         for k in range(seg_n):
             y = top + span - (k + 1) * seg_h

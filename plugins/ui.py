@@ -294,21 +294,24 @@ def settings_text(s: dict) -> str:
     return (
         "🎚️ <b>Audio Controls</b>\n"
         f"{LINE}\n"
-        f"🔊 <b>Volume:</b> <code>{bars(min(10, vol // 100))} {vol}/1000</code>\n"
+        f"🔊 <b>Volume:</b> <code>{bars(min(10, vol // 300))} {vol}/3000</code>\n"
+        f"📈 <b>Gain:</b> <code>{bars(min(10, int(s.get('gain', Config.RELAY_DEFAULT_GAIN)) // 50))} {s.get('gain', Config.RELAY_DEFAULT_GAIN)}/500</code>\n"
         f"🎵 <b>Bass:</b> <code>{s['bass']}/100</code>\n"
         f"💥 <b>Boost:</b> <code>{bars(int(s['boost']))} {s['boost']}/10</code>\n"
         f"🔁 <b>Echo:</b> {'ON' if s['echo'] else 'OFF'}\n"
         f"{LINE}\n"
         "Button dabao → <b>✅ Apply</b> dabao, chal raha gaana turant update.\n"
-        "Ya group me likho: <code>.boost 10</code>, <code>.echo on</code>, <code>.vol 1000</code>"
+        "Ya group me likho: <code>.boost 10</code>, <code>.echo on</code>, <code>.vol 3000</code>, <code>.gain 500</code>"
     )
 
 def settings_kb() -> K:
     # Simple panel: only the controls people actually use.
     return K([
         [B("🔥 MAX LOUD (1 tap)", callback_data="set:max", style="success")],
-        [B("🔉 Vol −", callback_data="set:relay:-100", style="primary"),
-         B("🔊 Vol +", callback_data="set:relay:100", style="primary")],
+        [B("🔉 Vol −", callback_data="set:relay:-250", style="primary"),
+         B("🔊 Vol +", callback_data="set:relay:250", style="primary")],
+        [B("📉 Gain −", callback_data="set:gain:-50", style="primary"),
+         B("📈 Gain +", callback_data="set:gain:50", style="primary")],
         [B("🎵 Bass −", callback_data="set:bass:-5", style="primary"),
          B("🎵 Bass +", callback_data="set:bass:5", style="primary")],
         [B("💥 Boost −", callback_data="set:boost:-1", style="primary"),
@@ -398,7 +401,7 @@ def status_text(user_id: int, data: dict, uvc, s: dict, premium: dict = None) ->
         f"├ <b>Username:</b> @{(data or {}).get('username') or 'none'}\n"
         f"├ <b>Login:</b> {logged}\n"
         f"{acc}{prem_line}"
-        f"├ <b>Volume:</b> <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
+        f"├ <b>Volume:</b> <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/3000</code>\n"
         f"├ <b>Gain:</b> {s.get('gain', Config.RELAY_DEFAULT_GAIN)} | <b>Bass:</b> +{s['bass']} | <b>Treble:</b> {s.get('treble', Config.RELAY_DEFAULT_TREBLE)}\n"
         f"├ <b>Voice:</b> {s.get('voice', 'normal')}\n"
         f"├ <b>Boost:</b> {s['boost']}/10 | <b>Echo:</b> "

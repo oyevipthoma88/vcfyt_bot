@@ -34,7 +34,7 @@ HELP = {
     "tag": ([], ".tag <name>  (audio reply karke)", "Audio ko naam se save karta hai.", ".tag intro"),
     "tags": ([], ".tags", "Aapke saare saved tags.", ".tags"),
     "untag": ([], ".untag <name>", "Saved tag delete karta hai.", ".untag intro"),
-    "volume": (["vol"], ".volume <0-1000>", "Playback volume.", ".vol 800"),
+    "volume": (["vol"], ".volume <0-3000>", "Playback volume (1000+ = overdrive).", ".vol 3000"),
     "gain": ([], ".gain <0-500>", "Loudness gain.", ".gain 150"),
     "bass": ([], ".bass <0-100>", "Bass level.", ".bass 20"),
     "treble": ([], ".treble <0-100>", "Awaaz ki clarity/sharpness.", ".treble 70"),

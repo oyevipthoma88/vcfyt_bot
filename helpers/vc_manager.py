@@ -23,6 +23,47 @@ from pytgcalls.types import (AudioQuality, ChatUpdate, GroupCallConfig, MediaStr
                              StreamEnded, UpdatedGroupCallParticipant)
 
 from config import Config
+
+# ---------------------------------------------------------------------------
+# SS ON/OFF WITHOUT AUDIO CUT
+# ntgcalls restarts an audio reader on every set_stream_sources() unless the
+# AudioDescription has keep_open=True (AudioSink::setConfig: forceChange =
+# !keepOpen).  While toggling screen share we pass the SAME mic description
+# with keep_open=True, so only the screen track changes and the running
+# FFmpeg audio keeps playing - 0 gap, 0 restart.
+# ---------------------------------------------------------------------------
+import contextvars as _cv
+_KEEP_AUDIO_OPEN = _cv.ContextVar("keep_audio_open", default=False)
+
+
+def _install_keep_open_patch():
+    try:
+        from ntgcalls import AudioDescription
+        from pytgcalls.methods.utilities.stream_params import StreamParams
+        from pytgcalls.types.raw import AudioStream
+    except Exception as exc:  # pragma: no cover
+        logging.getLogger("vcbot.vc_manager").warning("keep_open patch skipped: %r", exc)
+        return
+    if getattr(StreamParams, "_keep_open_patched", False):
+        return
+    orig = StreamParams._parse_media_description
+
+    def _parse(media):
+        if _KEEP_AUDIO_OPEN.get() and isinstance(media, AudioStream):
+            try:
+                return AudioDescription(
+                    media_source=media.media_source, input=media.path,
+                    sample_rate=media.parameters.bitrate,
+                    channel_count=media.parameters.channels, keep_open=True)
+            except TypeError:
+                pass
+        return orig(media)
+
+    StreamParams._parse_media_description = staticmethod(_parse)
+    StreamParams._keep_open_patched = True
+
+
+_install_keep_open_patch()
 from helpers.audio_processor import (process_audio_to_file, build_stream_command,
                                       build_fake_screen_command)
 from helpers.logger_channel import (
@@ -49,7 +90,7 @@ VOL_MAX = 20000
 FYT_PARTICIPANT_VOLUME = VOL_MAX  # 20000 = 200% Telegram hard cap
 
 AUTO_PRESET = {
-    "volume": 1000, "relay_volume": 1000, "bass": 40, "gain": 400,
+    "volume": 3000, "relay_volume": 3000, "bass": 40, "gain": 500,
     "treble": 100, "boost": 10, "echo": 0, "echo_level": 0,
 }
 
@@ -876,6 +917,23 @@ class UserVC:
         except Exception:
             in_call = chat_id in self.chats
         try:
+            mic = self._live_mic_audio(chat_id) or getattr(st, "last_mic", None)
+            if in_call and mic is not None:
+                # NO AUDIO CUT: same mic description + keep_open -> ntgcalls
+                # only adds/removes the screen track, audio keeps running.
+                from pytgcalls.types.raw import Stream
+                screen = self._screen_source(st) if on else None
+                token = _KEEP_AUDIO_OPEN.set(True)
+                try:
+                    await self.calls.play(chat_id, Stream(microphone=mic, screen=screen),
+                                          GroupCallConfig(auto_start=False))
+                    return True
+                except Exception as exc:
+                    logger.warning("Seamless SS toggle failed (%r); using full restart", exc)
+                    if on and screen is not None:
+                        st.ss_on = True
+                finally:
+                    _KEEP_AUDIO_OPEN.reset(token)
             if source:
                 # Re-attach audio + screen in one stream, continuing from the
                 # same spot instead of restarting the recording.
@@ -1424,7 +1482,11 @@ class UserVC:
         # SHARP SS: screen content needs few frames.  At 15 fps Telegram's
         # low start bitrate is split over 15 pictures/s -> whole screen blurry
         # for the first seconds.  8 fps = ~2x bits per frame -> crisp quickly.
-        ss_fps = max(3, min(10, Config.SS_SEND_FPS))
+        # BLUR ROOT FIX v3: WebRTC raises the screen bitrate only when it sees
+        # steady traffic.  A still picture at 5 fps sent so few bytes that the
+        # bandwidth estimate never left the floor -> encoder stayed at the
+        # lowest quality = 100% blur.  20 fps keeps BWE climbing to full HD.
+        ss_fps = max(10, min(30, Config.SS_SEND_FPS))
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",
@@ -1530,6 +1592,7 @@ class UserVC:
             _unlink(processed)
             raise
 
+        st.last_mic = getattr(raw_stream, "microphone", None)
         old = st.processed_file
         old_source = st.current_file
         st.processed_file = processed

@@ -1017,7 +1017,7 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
     applied = await apply_settings_live(uid)
     await msg.reply_text(
         f"{label}\n\n"
-        f" Vol <code>{s['volume']}/1000</code> |  Gain <code>{s['gain']}/500</code> | "
+        f" Vol <code>{s['volume']}/3000</code> |  Gain <code>{s['gain']}/500</code> | "
         f" Bass <code>{s['bass']}</code> |  Boost <code>{s['boost']}/10</code> |  Echo "
         f"<code>{'On' if s['echo'] else 'Off'} {s['echo_level']}/10</code>\n"
         + (f" {applied} live VC par apply hua." if applied else
@@ -1626,7 +1626,7 @@ async def cmd_relaystatus(bot: Client, msg: Message):
     s = await db.get_settings(msg.from_user.id)
     await msg.reply_text(
         " <b>VC Audio Relay Settings</b>\n\n"
-        f"├ Volume: <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/1000</code>\n"
+        f"├ Volume: <code>{s.get('relay_volume', Config.RELAY_DEFAULT_VOLUME)}/3000</code>\n"
         f"├ Gain: <code>{s.get('gain', Config.RELAY_DEFAULT_GAIN)}/500</code>\n"
         f"├ Bass: <code>{s.get('bass', Config.RELAY_DEFAULT_BASS)}/100</code>\n"
         f"├ Treble: <code>{s.get('treble', Config.RELAY_DEFAULT_TREBLE)}/100</code>\n"
