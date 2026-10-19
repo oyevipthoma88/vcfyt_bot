@@ -43,9 +43,9 @@
       "required": false
     },
     "DEFAULT_VOLUME": {
-      "description": "Practical playback volume scale 0-1000. Default: 1000",
+      "description": "Playback volume 0-3000. Default: 3000 (max loud)",
       "required": false,
-      "value": "1000"
+      "value": "3000"
     },
     "DEFAULT_ECHO": {
       "description": "Enable echo by default. Keep false for the clearest voice playback.",
@@ -80,9 +80,9 @@
       "value": "20000"
     },
     "RELAY_DEFAULT_VOLUME": {
-      "description": "Relay playback volume 0-1000. Strong real-audio default: 1000",
+      "description": "Relay playback volume 0-3000. Default: 3000",
       "required": false,
-      "value": "1000"
+      "value": "3000"
     },
     "RELAY_DEFAULT_GAIN": {
       "description": "Relay playback gain 0-400. Strong real-audio default: 300",

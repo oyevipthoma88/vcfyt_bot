@@ -149,7 +149,7 @@ def fight_drive_stage() -> list:
     All are zero/low-latency, safe for the live mic.  Each optional filter is
     only used when this ffmpeg build has it (unknown filter = silence).
     """
-    drive = _env_db("FIGHT_DRIVE_DB", 9.0, high=18.0, low=0.0)
+    drive = _env_db("FIGHT_DRIVE_DB", 14.0, high=18.0, low=0.0)
     out = ["highpass=f=80:p=2"]
     if _has_filter("crystalizer"):
         out.append("crystalizer=i=1.6")
@@ -172,7 +172,7 @@ def ultra_loud_enabled() -> bool:
 def ultra_loud_tail(hp: int = 110) -> list:
     if not ultra_loud_enabled():
         return []
-    drive = _env_db("ULTRA_LOUD_DB", 6.0, high=12.0, low=0.0)
+    drive = _env_db("ULTRA_LOUD_DB", 10.0, high=12.0, low=0.0)
     out = [f"highpass=f={int(hp)}:p=2",
            "equalizer=f=2800:t=q:w=1.3:g=4",
            "acompressor=threshold=0.125:ratio=8:attack=0.5:release=40:makeup=2:knee=2",
@@ -994,6 +994,27 @@ def _prerender_ss_base(img: str, width: int, height: int) -> str:
     except Exception as exc:
         print(f"ss prerender failed: {exc!r}", file=__import__("sys").stderr)
         return ""
+_FILTER_CACHE = {}
+
+
+def _ffmpeg_has_filter(name: str) -> bool:
+    """SS BLANK FIX: the pip-bundled ffmpeg (imageio-ffmpeg) is built WITHOUT
+    drawtext.  Using it made FFmpeg exit instantly -> no video frames ->
+    Telegram showed only the blurred profile photo.  Check once, skip if absent."""
+    if name in _FILTER_CACHE:
+        return _FILTER_CACHE[name]
+    ok = False
+    try:
+        import subprocess
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                             capture_output=True, text=True, timeout=10).stdout
+        ok = any(line.split()[1:2] == [name] for line in out.splitlines() if line.strip())
+    except Exception:
+        ok = False
+    _FILTER_CACHE[name] = ok
+    return ok
+
+
 def build_fake_screen_command(
     width: int = 1280,
     height: int = 720,
@@ -1094,7 +1115,7 @@ def build_fake_screen_command(
                  f"color=0x3a96dd:t=fill")
     # drawtext needs a font; on Heroku/Termux without fontconfig it made
     # FFmpeg exit instantly -> the screen share froze and stalled the call.
-    font = _find_font()
+    font = _find_font() if _ffmpeg_has_filter("drawtext") else ""
     if font:
         ff = f"fontfile='{font}':"
         parts.append("drawtext="+ff+"expansion=strftime:text='%I\\:%M %p':"

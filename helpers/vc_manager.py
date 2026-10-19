@@ -291,10 +291,12 @@ class ChatState:
         self.ss_task = None
 
     def apply_settings(self, s: dict):
-        self.volume = int(s.get("volume", Config.DEFAULT_VOLUME))
-        self.relay_volume = int(s.get("relay_volume", self.volume))
+        # Old saved settings (1000/400) kept audio low after restart -> on load
+        # always start at least at the max-loud defaults.
+        self.volume = max(Config.DEFAULT_VOLUME, int(s.get("volume", Config.DEFAULT_VOLUME)))
+        self.relay_volume = max(Config.RELAY_DEFAULT_VOLUME, int(s.get("relay_volume", self.volume)))
         self.bass = int(s.get("bass", Config.DEFAULT_BASS))
-        self.gain = int(s.get("gain", Config.RELAY_DEFAULT_GAIN))
+        self.gain = max(Config.RELAY_DEFAULT_GAIN, int(s.get("gain", Config.RELAY_DEFAULT_GAIN)))
         self.treble = int(s.get("treble", Config.RELAY_DEFAULT_TREBLE))
         self.voice = s.get("voice", "normal")
         self.live_volume = int(s.get("live_volume", Config.LIVE_BOOST_DEFAULT))
