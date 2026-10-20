@@ -162,11 +162,17 @@ async def resolve_group(msg, ref: str, uid: int, kind: str):
     """(chat_id, join_ref). Public @username / t.me link / invite link /
     numeric ID — bot, main ID ya spare ID me se jo bhi resolve kar sake.
     Target ke liye spare ID khud join bhi kar leti hai (public + invite)."""
+    ref = (ref or "").strip()
+    if re.fullmatch(r"-?\d+", ref):
+        # TARGET ROOT FIX: numeric ID ko pehle bina verify kiye "guess" karke
+        # save kar diya jata tha (galat -100 variant / spare ID group me hi
+        # nahi) -> "✅ Target set" dikhta tha par Mic ON pe PEER_ID_INVALID /
+        # "Target group nahi mila".  Ab bot + main ID + spare ID(s) sab se
+        # har ID variant verify hota hai; koi bhi na dekh paaye to 0.
+        return await _verify_numeric_group(msg, ref, uid), None
     cid, jref = await target_chat(msg, ref)
     if cid:
-        return cid, jref or (ref if not re.fullmatch(r"-?\d+", ref) else None)
-    if re.fullmatch(r"-?\d+", ref):
-        return 0, None
+        return cid, jref or ref
     clients = []
     try:
         relay = await session_manager.get_relay(uid)
@@ -212,6 +218,57 @@ async def resolve_group(msg, ref: str, uid: int, kind: str):
                         pass
                 continue
     return 0, ref
+
+
+async def _verify_numeric_group(msg, ref: str, uid: int) -> int:
+    """Real chat ID for a typed numeric ID, verified by a client that can
+    actually see the group (bot, main ID, spare IDs).  0 = nobody can."""
+    from helpers.peer_guard import chat_id_variants
+    clients = [getattr(msg, "_client", None)]
+    try:
+        uvc = await session_manager.get(uid)
+        if uvc and getattr(uvc, "client", None):
+            clients.append(uvc.client)
+    except Exception:
+        pass
+    try:
+        relay = await session_manager.get_relay(uid)
+        if relay and getattr(relay, "client", None):
+            clients.append(relay.client)
+    except Exception:
+        pass
+    try:
+        for r in await session_manager.extra_relays(uid, exclude_ids=()):
+            if getattr(r, "client", None):
+                clients.append(r.client)
+    except Exception:
+        pass
+    clients = [c for c in clients if c is not None]
+    variants = chat_id_variants(ref)
+
+    async def _probe():
+        for cand in variants:
+            for c in clients:
+                try:
+                    chat = await c.get_chat(cand)
+                    cid = getattr(chat, "id", None)
+                    if cid and int(cid) < 0:
+                        return int(cid)
+                except Exception:
+                    continue
+        return 0
+
+    found = await _probe()
+    if found:
+        return found
+    # Fresh session: peer cache khaali hota hai -> dialogs load karke retry.
+    for c in clients[1:]:
+        try:
+            async for _ in c.get_dialogs(limit=300):
+                pass
+        except Exception:
+            pass
+    return await _probe()
 
 
 def _join_key(ref: str) -> str:
@@ -322,6 +379,7 @@ async def cb_mic_control(bot: Client, cq):
 
 # uid -> "src" | "tgt": next plain DM message is the group ID / link.
 _await_chat: dict = {}
+_AWAIT_TTL = 300  # sec — purana 'group bhejo' state baad ke normal DM text ko na khaye
 
 
 @Client.on_callback_query(filters.regex(r"^brs:"))
@@ -357,7 +415,8 @@ async def cb_mic_setup(bot: Client, cq):
         return
     if what not in {"src", "tgt"}:
         return await safe_answer(cq, "?")
-    _await_chat[uid] = what
+    import time as _t
+    _await_chat[uid] = (what, _t.time())
     await safe_answer(cq)
     label = "📥 PRIVATE (source) group" if what == "src" else "🎯 TARGET group"
     await edit_screen(cq.message, (
@@ -372,8 +431,13 @@ async def cb_mic_setup(bot: Client, cq):
                    & ~filters.regex(r"^[/.!]"), group=4)
 async def mic_setup_listener(bot: Client, msg: Message):
     uid = msg.from_user.id
-    what = _await_chat.get(uid)
-    if not what:
+    import time as _t
+    entry = _await_chat.get(uid)
+    if not entry:
+        return
+    what, since = entry if isinstance(entry, tuple) else (entry, _t.time())
+    if _t.time() - since > _AWAIT_TTL:
+        _await_chat.pop(uid, None)
         return
     ref = cmd_text(msg).strip().split()[0] if cmd_text(msg).strip() else ""
     try:
@@ -383,7 +447,9 @@ async def mic_setup_listener(bot: Client, msg: Message):
     cid, jref = await resolve_group(msg, ref, uid, what) if ref else (None, None)
     if not cid:
         await bot.send_message(
-            msg.chat.id, "❌ Group nahi mila. Chat ID / @username / invite link dobara bhejo.",
+            msg.chat.id, "❌ Group nahi mila / verify nahi hua.\n"
+            "Chat ID tabhi chalega jab bot, main ID ya spare ID us group me ho.\n"
+            "Nahi to group ka <b>invite link</b> ya <b>@username</b> bhejo — spare ID khud join kar legi.",
             reply_markup=K([[B("❌ Cancel", callback_data="brs:cancel", style="danger")]]))
         return
     other = await db.get_app_value(f"mic_chat_{uid}" if what == "src" else f"bridge_src_{uid}")
@@ -489,6 +555,9 @@ async def run_bridge(msg: Message, parts):
         cid, jref = await resolve_group(msg, parts[2], uid, "tgt")
         if not cid:
             await mic_notify(msg, "❌ Target group nahi mila. Chat ID / @username / link do.")
+            return
+        if str(cid) == str(await db.get_app_value(f"bridge_src_{uid}") or ""):
+            await mic_notify(msg, "❌ Private aur target group alag hone chahiye.")
             return
         await db.set_app_value(f"mic_chat_{uid}", str(cid))
         await db.set_app_value(f"mic_chat_ref_{uid}", jref or "")

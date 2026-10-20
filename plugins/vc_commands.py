@@ -2069,6 +2069,9 @@ async def cmd_mic(bot: Client, msg: Message):
             await mic_notify(msg, "❌ Group nahi mila. Chat ID / @username / invite link check karein.\n"
                                   "Private group ho to spare ID ko pehle group me add karo.")
             return
+        if str(cid) == str(await db.get_app_value(f"bridge_src_{msg.from_user.id}") or ""):
+            await mic_notify(msg, "❌ Private (source) aur target group alag hone chahiye.")
+            return
         await db.set_app_value(f"mic_chat_{msg.from_user.id}", str(cid))
         await db.set_app_value(f"mic_chat_ref_{msg.from_user.id}", jref or "")
         await mic_notify(msg, 
@@ -2304,8 +2307,11 @@ async def cmd_say(bot: Client, msg: Message):
         await mic_notify(msg, err)
 
 
+# group=6 (was 4): Pyrogram runs only ONE handler per group, and the Live
+# Mic target listener (plugins/vc_bridge.py) also sits in group 4 with the
+# same filter -> one of them silently swallowed the other's messages.
 @Client.on_message(HAS_USER & filters.private & filters.text
-                   & ~filters.regex(r"^[/.!]"), group=4)
+                   & ~filters.regex(r"^[/.!]"), group=6)
 async def spare_chat_listener(bot: Client, msg: Message):
     uid = msg.from_user.id
     if uid not in _spare_chat or uid in _mic_login:

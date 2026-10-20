@@ -777,10 +777,16 @@ def build_ffmpeg_filter(
     # the peaks smoothly and a fast limiter holds -0.5 dBTP, so the body of
     # the sound stays at ~-4 dBFS RMS (louder than the live mic) without
     # hard-clipping / khar-khar.
-    filters.append("volume=5dB")
-    filters.append("asoftclip=type=tanh:threshold=1:output=1")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=1:"
-                   "release=20:level=false")
+    # MAX LOUD v3 (user: "pehle pura 0 dBFS tak jata tha, ab normal"):
+    # ceiling -0.5 dBTP (0.94) + 5 dB push kept peaks/body ~1-2 dB under the
+    # old full-scale wall.  Now +8 dB into tanh (+ cubic fallback when the
+    # ffmpeg build lacks asoftclip) and a fast brick-wall at 0 dBFS (0.999),
+    # so peaks sit on full scale and RMS rides ~-2.5 dBFS.
+    filters.append(f"volume={_db(_env_db('PLAYBACK_PUSH_DB', 8.0, high=14.0, low=0.0))}dB")
+    if _has_filter("asoftclip"):
+        filters.append("asoftclip=type=tanh:threshold=1:output=1")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.5:"
+                   "release=15:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
                        f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")

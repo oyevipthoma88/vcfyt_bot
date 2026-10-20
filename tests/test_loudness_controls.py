@@ -22,11 +22,12 @@ def measure(chain):
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg missing")
 class LoudnessControls(unittest.TestCase):
     def test_playback_loud_with_crackle_guard(self):
-        # CLEAN LOUD: peak 0 dBFS ke bilkul paas (limit 0.94 = -0.5 dBFS),
-        # RMS ab bhi bahut high, aur koi flat/clipped sample nahi.
+        # MAX LOUD: playback peaks full scale tak (>= -0.1 dBFS) par 0 dBFS
+        # cross nahi, RMS high, aur koi flat/clipped sample nahi.
         chain = build_ffmpeg_filter(volume=1000)
         pk, rms = measure(chain)
-        self.assertLessEqual(pk, -0.45)
+        self.assertGreaterEqual(pk, -0.1)
+        self.assertLessEqual(pk, 0.0)
         self.assertGreaterEqual(rms, -11.0)  # test signal is 40% silence
         r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", SRC, "-af",
                             chain + ",astats=measure_overall=Flat_factor:measure_perchannel=0",
@@ -34,9 +35,10 @@ class LoudnessControls(unittest.TestCase):
         flat = float(re.findall(r"Flat factor: (\S+)", r.stderr)[-1])
         self.assertLess(flat, 2.5, "chain is hard-clipping (flat tops)")
 
-    def test_overdrive_peak_stays_below_half_db(self):
+    def test_overdrive_peak_hits_full_scale_without_overs(self):
         pk, rms = measure(build_ffmpeg_filter(volume=2000))
-        self.assertLessEqual(pk, -0.45)
+        self.assertGreaterEqual(pk, -0.1)
+        self.assertLessEqual(pk, 0.0)
         self.assertGreaterEqual(rms, -11.0)  # test signal is 40% silence
 
     def test_live_mic_default_is_loud_and_guarded(self):
