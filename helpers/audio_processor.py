@@ -771,8 +771,16 @@ def build_ffmpeg_filter(
     # audio sounded "normal" (limiter never engaged).  Drive into the
     # limiter so peaks sit at ~-1 dBTP and RMS lands near -9 dBFS.
     filters.append(f"volume={_db(11.0 + 4.0 * push)}dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=5:"
-                   "release=80:level=false")
+    # LOUD ROOT FIX v2: the drive above already pushes the signal past
+    # 0 dBFS, but the old slow limiter (attack 5 / release 80) "pumped" it
+    # back down to ~-10 dBFS RMS = "normal" awaaz.  A tanh soft-clipper rounds
+    # the peaks smoothly and a fast limiter holds -0.5 dBTP, so the body of
+    # the sound stays at ~-4 dBFS RMS (louder than the live mic) without
+    # hard-clipping / khar-khar.
+    filters.append("volume=5dB")
+    filters.append("asoftclip=type=tanh:threshold=1:output=1")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=1:"
+                   "release=20:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
                        f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
