@@ -72,6 +72,22 @@ from helpers.logger_channel import (
 from helpers.peer_guard import ensure_peer, is_peer_error
 
 
+def _shell_exe(path: str) -> str:
+    """ntgcalls SHELL sources resolve argv[0] ONLY through $PATH (boost
+    find_executable joins every PATH dir with the name).  An absolute path
+    such as sys.executable is therefore never found ->
+    ShellError("default_launcher: No such file or directory") and the screen
+    share failed every time.  Put the binary's folder first on PATH and pass
+    the bare name instead."""
+    if not path or os.sep not in path:
+        return path or "python3"
+    folder, name = os.path.split(path)
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    if not parts or parts[0] != folder:
+        os.environ["PATH"] = os.pathsep.join([folder] + [p for p in parts if p and p != folder])
+    return name
+
+
 def _check_ghost(uvc, chat_id: int) -> bool:
     try:
         st = uvc.chats.get(chat_id) if hasattr(uvc, "chats") else None
@@ -931,9 +947,23 @@ class UserVC:
                                           GroupCallConfig(auto_start=False))
                     return True
                 except Exception as exc:
-                    logger.warning("Seamless SS toggle failed (%r); using full restart", exc)
-                    if on and screen is not None:
-                        st.ss_on = True
+                    logger.warning("Seamless SS toggle failed (%r); retrying lighter screen "
+                                   "without touching audio", exc)
+                    # NO AUDIO CUT: never fall back to a full audio restart.
+                    # Retry the screen only (lighter/image) with keep_open.
+                    if on:
+                        for size, mode in (((854, 480, 15), None), (None, "image")):
+                            try:
+                                scr = self._screen_source(st, size=size, force_mode=mode)
+                                await self.calls.play(chat_id, Stream(microphone=mic, screen=scr),
+                                                      GroupCallConfig(auto_start=False))
+                                st.ss_on = True
+                                return True
+                            except Exception as exc2:
+                                logger.warning("SS lighter retry %s/%s failed: %r", size, mode, exc2)
+                    st.ss_on = prev if not on else False
+                    st.ss_error = (str(exc)[:300] or type(exc).__name__)
+                    return False
                 finally:
                     _KEEP_AUDIO_OPEN.reset(token)
             if source:
@@ -1521,7 +1551,7 @@ class UserVC:
             if size:
                 ss_w, ss_h, ss_fps = size
             cmd = " ".join(shlex.quote(x) for x in [
-                _sys.executable or "python3", script,
+                _shell_exe(_sys.executable or "python3"), script,
                 "--state", self._ss_state_path(chat_id),
                 "--w", str(ss_w), "--h", str(ss_h),
                 "--fps", str(ss_fps)])

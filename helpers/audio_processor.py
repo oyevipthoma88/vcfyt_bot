@@ -747,8 +747,8 @@ def build_ffmpeg_filter(
         "highpass=f=45",
         "aresample=48000",
         "aformat=channel_layouts=stereo",
-        ("dynaudnorm=f=100:g=9:p=0.89:m=15:r=0.5:s=0" if low_lat
-         else "dynaudnorm=f=150:g=15:p=0.89:m=15:r=0.5:s=0"),
+        ("dynaudnorm=f=100:g=5:p=0.89:m=15:r=0.5:s=0" if low_lat
+         else "dynaudnorm=f=100:g=5:p=0.89:m=15:r=0.5:s=0"),
     ]
     if bass_value:
         filters.append(f"equalizer=f=90:t=q:w=1.0:g={_db(min(4.0, bass_value * 0.08))}")
@@ -767,8 +767,11 @@ def build_ffmpeg_filter(
     makeup = 10 ** ((2.0 + 2.0 * push) / 20.0)
     filters.append("acompressor=threshold=0.125:ratio=3:attack=15:release=180:"
                    f"makeup={makeup:.2f}:knee=6")
-    filters.append(f"volume={_db(2.0 + 2.5 * push)}dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.89:attack=5:"
+    # LOUD FIX: the old +2..4.5 dB drive left peaks ~-10 dBFS, so played
+    # audio sounded "normal" (limiter never engaged).  Drive into the
+    # limiter so peaks sit at ~-1 dBTP and RMS lands near -9 dBFS.
+    filters.append(f"volume={_db(11.0 + 4.0 * push)}dB")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=5:"
                    "release=80:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else

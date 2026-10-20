@@ -24,6 +24,12 @@ class Database:
         self._sqlite_path = "bot_data.db"
         self._use_mongo = bool(Config.MONGO_URI) and MONGO_AVAILABLE
         self._purging = False
+        # QUOTA LOOP FIX: once Atlas says "quota full", every write used to
+        # re-trigger a purge (4 drops + log spam per write, dozens per second).
+        # Now we purge at most once per cooldown and skip Mongo writes
+        # (straight to SQLite) while the cluster is write-blocked.
+        self._quota_blocked_until = 0.0
+        self._last_purge = 0.0
         self._init_sqlite()
 
     def _is_quota_error(self, exc: Exception) -> bool:
@@ -59,12 +65,28 @@ class Database:
         except Exception as e:
             if self._is_quota_error(e):
                 logger.warning("[DB] Atlas quota exceeded (512MB limit)! Auto-triggering emergency purge...")
+                self._mark_quota_blocked()
                 await self.emergency_purge_non_critical()
             else:
                 logger.warning("[DB] Initial write probe warning: %s", e)
 
+    QUOTA_COOLDOWN = 600.0
+
+    def _mark_quota_blocked(self):
+        import time as _t
+        self._quota_blocked_until = _t.time() + self.QUOTA_COOLDOWN
+
+    def _quota_blocked(self) -> bool:
+        import time as _t
+        return _t.time() < self._quota_blocked_until
+
     async def emergency_purge_non_critical(self) -> dict:
-        """Drop non-critical collections to immediately reclaim space on Atlas M0."""
+        """Drop non-critical collections to immediately reclaim space on Atlas M0.
+        Runs at most once per QUOTA_COOLDOWN seconds."""
+        import time as _t
+        if _t.time() - self._last_purge < self.QUOTA_COOLDOWN:
+            return {"status": "cooldown", "dropped": []}
+        self._last_purge = _t.time()
         return await self.clean_database()
 
     async def clean_database(self) -> dict:
@@ -98,7 +120,7 @@ class Database:
 
     async def _safe_write(self, mongo_fn, sqlite_fn=None):
         """Execute a Mongo write with quota error detection, emergency cleanup, and SQLite fallback."""
-        if self._use_mongo and self._mongo is not None:
+        if self._use_mongo and self._mongo is not None and not self._quota_blocked():
             try:
                 res = mongo_fn() if callable(mongo_fn) else mongo_fn
                 if asyncio.iscoroutine(res):
@@ -106,7 +128,9 @@ class Database:
                 return res
             except Exception as e:
                 if self._is_quota_error(e):
-                    logger.warning("[DB] MongoDB quota full! Triggering auto-purge & using SQLite fallback")
+                    logger.warning("[DB] MongoDB quota full! Using SQLite fallback for %ds",
+                                   int(self.QUOTA_COOLDOWN))
+                    self._mark_quota_blocked()
                     asyncio.create_task(self.emergency_purge_non_critical())
                 else:
                     logger.warning("[DB] Mongo write error (%s): %s", type(e).__name__, e)
