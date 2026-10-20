@@ -746,6 +746,9 @@ def build_ffmpeg_filter(
     filters = [
         "highpass=f=45",
         "aresample=48000",
+        # Gate the noise floor BEFORE the strict-0 dBFS push, otherwise the
+        # gaps/hiss get lifted to full scale too ("khar khar" in pauses).
+        "agate=threshold=0.006:ratio=9:range=0.003:attack=1:release=150:knee=2",
         "aformat=channel_layouts=stereo",
         ("dynaudnorm=f=100:g=5:p=0.89:m=15:r=0.5:s=0" if low_lat
          else "dynaudnorm=f=100:g=5:p=0.89:m=15:r=0.5:s=0"),
@@ -782,11 +785,19 @@ def build_ffmpeg_filter(
     # old full-scale wall.  Now +8 dB into tanh (+ cubic fallback when the
     # ffmpeg build lacks asoftclip) and a fast brick-wall at 0 dBFS (0.999),
     # so peaks sit on full scale and RMS rides ~-2.5 dBFS.
-    filters.append(f"volume={_db(_env_db('PLAYBACK_PUSH_DB', 8.0, high=14.0, low=0.0))}dB")
+    filters.append(f"volume={_db(_env_db('PLAYBACK_PUSH_DB', 16.0, high=24.0, low=0.0))}dB")
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:threshold=1:output=1")
+    # STRICT 0 dBFS: second saturate + brick-wall pass so the body of every
+    # track (not only the peaks) rides at Telegram's full scale.
     filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.5:"
                    "release=15:level=false")
+    filters.append("volume=4dB")
+    if _has_filter("asoftclip"):
+        filters.append("asoftclip=type=tanh:threshold=1:output=1")
+    filters.append("volume=1dB")  # tanh tops out ~-0.8 dB -> lift to full scale
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.1:"
+                   "release=8:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
                        f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
@@ -819,7 +830,7 @@ async def process_audio_to_file(
     async def _run(filter_chain: str) -> tuple:
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-i", input_path, "-vn", "-af", apply_sync_and_presence(filter_chain),
+            "-i", input_path, "-vn", "-af", filter_chain,
             "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", output_path,
         ]
         proc = await asyncio.create_subprocess_exec(
