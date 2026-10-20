@@ -732,115 +732,51 @@ def build_ffmpeg_filter(
 
 
 
+    # ------------------------------------------------------------------
+    # PLAYBACK v9 — CLEAN LOUD MASTER (root fix "aawaz fat rahi + kam aati").
+    # Old chain: 4 compressors + 2 tanh/cubic saturators + up to +30 dB push
+    # into limiters -> RMS -4 dBFS / +1 LUFS = practically a square wave.
+    # Telegram's Opus encoder + client loudness normalisation then turned
+    # that distorted wall DOWN, so it sounded both broken AND quiet.
+    # Now: ONE leveller, ONE gentle compressor, ONE look-ahead limiter at
+    # -1 dBTP.  Target ~-10 LUFS with real crest factor = loud on phone
+    # speakers, no crackle, no re-normalisation by Telegram.
+    # ------------------------------------------------------------------
+    import math as _m
     filters = [
-        # LOUDNESS v7: sub-bass (<60 Hz) phone speaker baja hi nahi pata par
-        # headroom khaata hai -> kaato, wahi taakat 2.8-4 kHz me daalo.
-        "highpass=f=60:p=2",
-        "highpass=f=60:p=2",
+        "highpass=f=45",
         "aresample=48000",
         "aformat=channel_layouts=stereo",
-        # Pehle pan=0.71 se stereo mono me collapse (-3 dB) hota tha. Ab
-        # asli stereo rehta hai (mono file dono kaan me full level).
-        ("dynaudnorm=f=30:g=5:p=0.98:m=12:r=0.96:s=0" if low_lat
-         else "dynaudnorm=f=120:g=15:p=0.96:m=10:r=0.98:s=0"),
+        ("dynaudnorm=f=100:g=9:p=0.89:m=15:r=0.5:s=0" if low_lat
+         else "dynaudnorm=f=150:g=15:p=0.89:m=15:r=0.5:s=0"),
     ]
-    # CLARITY: gentle expander BEFORE the levellers so a recording's hiss /
-    # room noise between words is not pumped up to full scale (it used to
-    # land at ~-2 dBFS = "khar khar" under every voice note).
-    if _has_filter("agate"):
-        filters.insert(4, "agate=threshold=0.006:range=0.001:ratio=3:attack=5:release=250:knee=4:detection=rms")
-
     if bass_value:
-        filters.append(f"equalizer=f=80:t=q:w=1.2:g={_db(min(8.0, bass_value * 0.12))}")
-        filters.append(f"equalizer=f=160:t=q:w=1.0:g={_db(min(6.0, bass_value * 0.08))}")
-
-    filters.append(f"equalizer=f=3000:t=q:w=1.2:g={_db(min(6.0, -1.0 + treble_value * 0.08))}")
-    if not live:
-        filters.append("equalizer=f=2600:t=q:w=1.4:g=5.5")
-    filters.append(f"equalizer=f=8000:t=q:w=1.2:g={_db(min(5.0, 1.0 + treble_value * 0.06))}")
-    # Presence shift: kaan ki sabse sensitive band -> bina phate tez.
-    filters.append("equalizer=f=3300:t=q:w=0.9:g=3.5")
-
-    # ------------------------------------------------------------------
-    # PLAYBACK v8 — LOUD + CLEAR (gain budget fix).
-    # The old tail stacked ~100 dB of gain (makeup 12 + 24 dB + 4.5 + 28 dB
-    # + 30 dB into a HARD clip).  Measured: 78 % of samples clipped (square
-    # wave) and the hiss between words sat at -2 dBFS = "khar khar".  Now
-    # the gain is budgeted: one glue compressor, one leveller, a slow
-    # limiter, warm oversampled tanh saturation for density/"dam", and the
-    # final brick-wall.  Words stay just as loud, the noise stays down.
-    # ------------------------------------------------------------------
-    ratio = min(6.0, 3.0 + boost_value * 0.3)
-    threshold = max(0.06, 0.18 - boost_value * 0.012)
-    makeup = min(3.0, boost_value * 0.25 + 1.5)
-    filters.append(
-        f"acompressor=threshold={threshold:.3f}:ratio={ratio:.1f}:"
-        f"attack=3:release=60:makeup={makeup:.1f}:knee=3"
-    )
-
+        filters.append(f"equalizer=f=90:t=q:w=1.0:g={_db(min(4.0, bass_value * 0.08))}")
+    filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(min(3.5, 0.5 + treble_value * 0.025))}")
     if use_echo and echo_value:
         d1 = 70 + echo_value * 22
-        decay = min(0.60, 0.15 + echo_value * 0.04)
-        filters.append(
-            f"aecho=0.85:0.75:{d1}|{d1 * 2}:"
-            f"{decay:.2f}|{decay * 0.5:.2f}"
-        )
-
-    filters.append(f"volume={_db(max(0.0, min(4.0, 2.0 + volume_to_db(vol) * 0.12 + _legacy_gain_to_db(gain_value) * 0.2)))}dB")
-
+        decay = min(0.45, 0.12 + echo_value * 0.03)
+        filters.append(f"aecho=0.9:0.7:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
     if extra_filters:
         filters.append(extra_filters)
-
-    # GAIN BUDGET FIX: speechnorm playback tail se hata — ye continuous
-    # hiss/room noise ko bhi ~full scale tak expand karta tha (record_24 ke
-    # "bich me fat/khar khar" ka ek root).  Loudness ab limiter + warm
-    # saturation se aati hai, upward expansion se nahi.
-    filters.append("acompressor=threshold=0.25:ratio=6:attack=1:release=40:makeup=1.5:knee=2")
-    # 100x LOUDNESS: triple density compressor + +28 dB push (was 13) so the
-    # AVERAGE level is 10-100x louder to the ear, not just the peak.
-    filters.append("acompressor=threshold=0.08:ratio=6:attack=5:release=120:makeup=2:knee=4")
-    filters.append("acompressor=threshold=0.04:ratio=12:attack=8:release=200:makeup=2.5:knee=6")
-    filters.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=3:knee=8")
-    filters.append(f"volume={_db(_env_db('PLAY_PUSH_DB', 2.0, high=42.0, low=0.0))}dB")
-    # CLEAN LOUD FIX (record_24: ~1.3 % samples full-scale pe flat = "bich me
-    # fat").  Pehle: 0.98 limiter -> +28 dB drive -> tanh -> +4 dB lift ->
-    # limit=1.0 attack=1ms limiter.  1 ms look-ahead fast transients pakad
-    # nahi paata -> 16-bit conversion pe hard clip.  Ab:
-    #   pre-limiter 0.90 -> drive kam -> tanh (kabhi 1.0 cross nahi) ->
-    #   final look-ahead brick-wall 0.95.  Peak 0 dBFS ke bilkul paas,
-    #   koi clipped sample nahi.
-    filters.append("alimiter=level_in=1:limit=0.90:attack=5:release=50:level=false")
-    # Warm density stage: oversampled tanh = heavy "damdar" tone, no
-    # square-wave crackle.  PLAY_DRIVE_DB tunes how hard it is pushed.
-    drive = _env_db("PLAY_DRIVE_DB", 8.0, high=14.0, low=0.0)
-    if drive and _has_filter("asoftclip"):
-        # 0.90 x +10 dB = 2.84 -> tanh(2.84) = 0.993: soft shoulder, ceiling
-        # ke bilkul paas, zero hard clip.
-        filters.append(f"volume={_db(drive)}dB")
-        filters.append("asoftclip=type=tanh:oversample=4")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=5:release=50:level=false")
-    # REAL LOUDNESS ABOVE 1000 / GAIN 300+:
-    # The signal already sits at 0 dBFS after the chain above, so plain dB
-    # gain only flattens it (number goes up, awaaz same).  What the ear hears
-    # as "tez" is energy in the 1-5 kHz band.  So OVERDRIVE (vol 1001-3000)
-    # and GAIN 301-500 move the energy out of the sub-bass rumble (which eats
-    # headroom but phone speakers can't play) into the presence band, then
-    # re-saturate and re-limit.  Same peak, much higher perceived loudness.
+    # Overdrive (vol >1000 / gain >300 / boost) = a bit more density, capped
+    # so the limiter never has to eat more than ~6 dB.
     over = max(0.0, (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX))
     g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
-    push = min(1.0, over * 0.75 + g_over * 0.45)
-    if push > 0:
-        # OVERDRIVE (vol 1001-3000 / gain 301-500): presence EQ + drive, lekin
-        # hard clip nahi — neeche wala final brick-wall limiter sab pakadta hai.
-        filters.append(f"equalizer=f=2200:t=q:w=1.4:g={_db(3.0 + 9.0 * push)}")
-        filters.append(f"equalizer=f=4000:t=q:w=1.2:g={_db(3.0 + 9.0 * push)}")
-        filters.append(f"volume={_db(6.0 + 12.0 * push)}dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.94:attack=5:release=50:level=false")
+    push = min(1.0, over * 0.6 + g_over * 0.4 + boost_value * 0.02)
+    makeup = 10 ** ((2.0 + 2.0 * push) / 20.0)
+    filters.append("acompressor=threshold=0.125:ratio=3:attack=15:release=180:"
+                   f"makeup={makeup:.2f}:knee=6")
+    filters.append(f"volume={_db(2.0 + 2.5 * push)}dB")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.89:attack=5:"
+                   "release=80:level=false")
     if vol < VOLUME_CLEAN_MAX:
-        # VOLUME FIX: limiter ke baad sab level same ho jaata tha, isliye
-        # .vol 0-999 ka koi asar nahi tha.  Ab 1000 = full, kam = sach me dheema.
-        filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
-    return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
+        filters.append("volume=0" if vol <= 0 else
+                       f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
+    parts = [SYNC_RESAMPLE if _ARESAMPLE_RE.fullmatch(x) else x for x in filters]
+    if _has_filter("asetnsamples"):
+        parts.append(f"asetnsamples=n={AUDIO_FRAME_SAMPLES}:p=0")
+    return _sanitize_ffmpeg_filter(",".join(parts))
 
 async def process_audio_to_file(
     input_path: str,
@@ -884,13 +820,10 @@ async def process_audio_to_file(
         # slams the audio to the ceiling.
         fallback = (
             "aresample=48000,"
-            "dynaudnorm=f=150:g=15:p=0.95:m=100:r=0.9:s=0,"
-            "volume=36dB,"
-            "acompressor=threshold=0.01:ratio=20:attack=1:release=50:"
-            "makeup=24:knee=2,"
-            "loudnorm=I=-5:LRA=1.0:TP=0.0,"
-            "volume=12dB,"
-            "alimiter=level_in=4:limit=0.95:attack=5:release=40:asc=1"
+            "dynaudnorm=f=150:g=15:p=0.89:m=8:s=0,"
+            "acompressor=threshold=0.125:ratio=3:attack=15:release=180:makeup=1.6:knee=6,"
+            "volume=4dB,"
+            "alimiter=level_in=1:limit=0.89:attack=5:release=80:level=false"
         )
         code2, stderr2 = await _run(fallback)  # str now (stray comma made it a tuple)
         if code2 != 0 or not os.path.exists(output_path):

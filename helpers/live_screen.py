@@ -148,10 +148,18 @@ class Renderer:
         title = f"Telegram Desktop — Voice Chat · {st.get('group') or 'Group'}"
         d.text((int(120 * s), tb // 2), _fit(d, title, self.f_title, W * 0.6),
                font=self.f_title, fill=TEXT, anchor="lm")
-        live_txt = "● LIVE"
-        if int(now) % 2 == 0:
-            d.text((W - int(20 * s), tb // 2), live_txt, font=self.f_title,
-                   fill=RED, anchor="rm")
+        el = int(max(0, now - started))
+        timer = f"{el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}"
+        bw = int(250 * s)
+        bx0 = W - bw - int(14 * s)
+        d.rounded_rectangle([bx0, int(6 * s), W - int(14 * s), tb - int(6 * s)],
+                            radius=int(8 * s), fill=(60, 16, 20))
+        if int(now * 2) % 2 == 0:
+            r0 = int(7 * s)
+            cx0 = bx0 + int(20 * s)
+            d.ellipse([cx0 - r0, tb // 2 - r0, cx0 + r0, tb // 2 + r0], fill=RED)
+        d.text((bx0 + int(38 * s), tb // 2), "LIVE  " + timer, font=self.f_title,
+               fill=TEXT, anchor="lm")
 
         # ---- layout: grid (left) + control sidebar (right) ----
         side_w = int(W * 0.26)
@@ -317,9 +325,63 @@ class Renderer:
         y += h + int(12 * s)
         card("LIVE MIC", "ON AIR" if st.get("mic_on") else "Off",
              RED if st.get("mic_on") else MUTED)
-        card("LOOP", "ON" if st.get("loop") else "OFF", GREEN if st.get("loop") else MUTED)
-        el = int(max(0, now - started))
-        card("LIVE TIME", f"{el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}", BLUE)
+        self._mic_setup(d, st, x, y, w, y1 - int(12 * s), now, paused)
+
+    def _mic_setup(self, d, st, x, y, w, ymax, now, paused):
+        """Studio mic chain panel: model, interface, gain knob, live waveform."""
+        s = self.s
+        h = ymax - y
+        if h < int(120 * s):
+            return
+        d.rounded_rectangle([x, y, x + w, ymax], radius=int(12 * s), fill=PANEL2)
+        px = x + int(14 * s)
+        d.text((px, y + int(12 * s)), "MIC SETUP", font=self.f_small, fill=MUTED)
+        active = bool(st.get("mic_on")) or (bool(st.get("now_playing")) and not paused)
+        d.text((x + w - int(14 * s), y + int(12 * s)),
+               "● ARMED" if active else "○ STANDBY", font=self.f_small,
+               fill=RED if active else MUTED, anchor="ra")
+        rows = [("Mic", st.get("mic_model") or "Shure SM7B · Dynamic"),
+                ("Interface", st.get("mic_iface") or "Focusrite Scarlett 2i2"),
+                ("Format", "48 kHz · 24-bit · Stereo"),
+                ("Chain", "HPF 45Hz › Comp 3:1 › Limiter -1dB")]
+        ly = y + int(42 * s)
+        lh = int(26 * s)
+        for k, v in rows:
+            if ly + lh > ymax - int(70 * s):
+                break
+            d.text((px, ly), k, font=self.f_small, fill=MUTED)
+            d.text((px + int(110 * s), ly), _fit(d, v, self.f_small, w - int(130 * s)),
+                   font=self.f_small, fill=TEXT)
+            ly += lh
+        # gain knob + live waveform
+        bot = ymax - int(14 * s)
+        top = ly + int(10 * s)
+        kr = max(8, min(int(34 * s), (bot - top) // 2 - int(10 * s)))
+        kcx, kcy = px + kr, (top + bot) // 2
+        d.ellipse([kcx - kr, kcy - kr, kcx + kr, kcy + kr], fill=(20, 24, 32),
+                  outline=(90, 100, 120), width=max(1, int(2 * s)))
+        gain = 0.72 + (0.06 * abs(((now * 0.7) % 2) - 1) if active else 0)
+        import math
+        ang = math.radians(135 + 270 * gain)
+        d.line([kcx, kcy, kcx + int(kr * 0.8 * math.cos(ang)), kcy + int(kr * 0.8 * math.sin(ang))],
+               fill=YELLOW, width=max(2, int(3 * s)))
+        d.text((kcx, bot + int(2 * s)), f"GAIN +{int(gain * 60)}dB",
+               font=_font(max(9, int(12 * s))), fill=MUTED, anchor="ma")
+        wx0, wx1 = kcx + kr + int(16 * s), x + w - int(14 * s)
+        mid = kcy
+        amp = (bot - top) // 2
+        n = max(8, (wx1 - wx0) // max(3, int(5 * s)))
+        step = (wx1 - wx0) / n
+        for i in range(n):
+            if active:
+                t = now * 6 + i * 0.55
+                lvl = 0.15 + 0.85 * abs(math.sin(t) * math.sin(t * 0.37 + i * 0.2))
+            else:
+                lvl = 0.04
+            bh = max(1, int(amp * lvl))
+            bx = int(wx0 + i * step)
+            col = GREEN if lvl < 0.7 else (YELLOW if lvl < 0.9 else RED)
+            d.rectangle([bx, mid - bh, bx + max(1, int(step) - 2), mid + bh], fill=col)
 
     def _taskbar(self, d, st, y, now):
         s = self.s
@@ -341,17 +403,16 @@ class Renderer:
 
 
 def rgb_to_i420(img):
-    a = np.asarray(img, dtype=np.float32)
-    r, g, b = a[..., 0], a[..., 1], a[..., 2]
-    y = 0.257 * r + 0.504 * g + 0.098 * b + 16
-    u = -0.148 * r - 0.291 * g + 0.439 * b + 128
-    v = 0.439 * r - 0.368 * g - 0.071 * b + 128
-    u = u.reshape(u.shape[0] // 2, 2, u.shape[1] // 2, 2).mean(axis=(1, 3))
-    v = v.reshape(v.shape[0] // 2, 2, v.shape[1] // 2, 2).mean(axis=(1, 3))
-    out = np.concatenate([np.clip(y, 0, 255).astype(np.uint8).ravel(),
-                          np.clip(u, 0, 255).astype(np.uint8).ravel(),
-                          np.clip(v, 0, 255).astype(np.uint8).ravel()])
-    return out.tobytes()
+    """RGB -> I420 using PIL's C converter (≈10x faster than float numpy):
+    a slow first frame on weak servers made ntgcalls/Telegram drop the
+    presentation ("screen share accept nahi kiya")."""
+    ycc = np.asarray(img.convert("YCbCr"), dtype=np.uint8)
+    y = ycc[..., 0]
+    # full-range JPEG YCbCr -> limited (BT.601) range expected by WebRTC
+    y = (y.astype(np.uint16) * 219 // 255 + 16).astype(np.uint8)
+    u = ycc[0::2, 0::2, 1].astype(np.uint16) * 224 // 255 + 16
+    v = ycc[0::2, 0::2, 2].astype(np.uint16) * 224 // 255 + 16
+    return y.tobytes() + u.astype(np.uint8).tobytes() + v.astype(np.uint8).tobytes()
 
 
 def main():
@@ -370,7 +431,7 @@ def main():
     started = time.time()
     frame, key, last_read, st = None, None, 0.0, {}
     # re-render 4x per second for pulses/meters; resend cached frame between
-    anim_step = 0.25
+    anim_step = 0.2
     t0 = time.time()
     n = 0
     while True:

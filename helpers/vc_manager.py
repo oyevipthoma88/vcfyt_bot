@@ -944,8 +944,9 @@ class UserVC:
                                    start_at=pos)
                 if on and not st.ss_on:
                     # _stream fell back to audio-only: presentation refused.
-                    st.ss_error = ("Telegram ne screen share accept nahi kiya "
-                                   "(group me video/screen allowed nahi ya FFmpeg fail).")
+                    st.ss_error = st.ss_error or (
+                        "Telegram ne screen share accept nahi kiya "
+                        "(group me video/screen allowed nahi ya FFmpeg fail).")
                     return False
             elif not on and not in_call:
                 return True  # nothing being shared, nothing to stop
@@ -1492,15 +1493,18 @@ class UserVC:
                 pass
             await asyncio.sleep(0.5)
 
-    def _screen_source(self, st):
-        """Screen share: live VC grid (default), a replied photo, or mixer."""
+    def _screen_source(self, st, size=None, force_mode=None):
+        """Screen share: live VC grid (default), a replied photo, or mixer.
+
+        size=(w, h, fps) / force_mode="image" are used by the fallback ladder
+        when Telegram refuses the first presentation attempt."""
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
         import shlex
         import sys as _sys
         # LIVE SCREEN DEFAULT: the real VC grid (participants + PFPs + clock)
         # is the screen share; a replied photo still overrides it.
-        mode = "image" if getattr(st, "ss_image", "") else "live"
+        mode = force_mode or ("image" if getattr(st, "ss_image", "") else "live")
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
         if mode == "live" and chat_id is not None:
             task = getattr(st, "ss_task", None)
@@ -1514,6 +1518,8 @@ class UserVC:
             ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
             ss_h = min(Config.SS_HEIGHT, Config.SS_SEND_HEIGHT) // 2 * 2
             ss_fps = max(1, min(Config.SS_FPS, Config.SS_SEND_FPS))
+            if size:
+                ss_w, ss_h, ss_fps = size
             cmd = " ".join(shlex.quote(x) for x in [
                 _sys.executable or "python3", script,
                 "--state", self._ss_state_path(chat_id),
@@ -1542,6 +1548,8 @@ class UserVC:
         # bandwidth estimate never left the floor -> encoder stayed at the
         # lowest quality = 100% blur.  20 fps keeps BWE climbing to full HD.
         ss_fps = max(10, min(30, Config.SS_SEND_FPS))
+        if size:
+            ss_w, ss_h, ss_fps = size
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",
@@ -1625,13 +1633,34 @@ class UserVC:
                     if getattr(raw_stream, "screen", None) is None or is_peer_error(exc):
                         raise
                     logger.warning("Play with screen share failed (%r); "
-                                   "retrying audio-only", exc)
-                    st.ss_error = ("Screen stream Telegram ne reject kiya: "
-                                   "%s" % (str(exc)[:160] or type(exc).__name__))
+                                   "trying lighter screen", exc)
                     from pytgcalls.types.raw import Stream as _RawStream
-                    raw_stream = _RawStream(microphone=raw_stream.microphone)
-                    st.ss_on = False
-                    await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
+                    mic_src = raw_stream.microphone
+                    first_err = str(exc)[:160] or type(exc).__name__
+                    # SS ROOT FIX: Telegram/ntgcalls often refuses the FIRST
+                    # presentation (720p encoder start / slow first frame on a
+                    # weak dyno).  Retry lighter before dropping the screen:
+                    # 480p live grid -> 480p ffmpeg mixer -> audio only.
+                    ladder = [((854, 480, 15), None), ((854, 480, 12), "image")]
+                    ok_ss = False
+                    for size, mode in ladder:
+                        try:
+                            scr = self._screen_source(st, size=size, force_mode=mode)
+                            await asyncio.sleep(0.4)
+                            await self.calls.play(chat_id, _RawStream(microphone=mic_src, screen=scr),
+                                                  GroupCallConfig(auto_start=False))
+                            ok_ss = True
+                            st.ss_error = ""
+                            break
+                        except Exception as e2:
+                            if is_peer_error(e2) or isinstance(e2, NoActiveGroupCall):
+                                raise
+                            logger.warning("SS fallback %s/%s failed: %r", size, mode, e2)
+                    if not ok_ss:
+                        st.ss_error = ("Telegram ne presentation reject ki: %s" % first_err)
+                        raw_stream = _RawStream(microphone=mic_src)
+                        st.ss_on = False
+                        await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
             except NoActiveGroupCall:
                 if not await self.start_voice_chat(chat_id):
                     raise RuntimeError(
