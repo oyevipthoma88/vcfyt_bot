@@ -299,7 +299,7 @@ class ChatState:
         self.native_loop: bool = False
         self.ss_on: bool = False
         self.ss_image: Optional[str] = None
-        self.ss_title: str = "Audio Setup — Live"
+        self.ss_title: str = "Live Room"
         # "live" = real VC participants grid (default), "image" = replied
         # photo, "mixer" = old PC mixer picture.
         # Live participants grid removed (user request): old PC mixer SS is default.
@@ -309,10 +309,12 @@ class ChatState:
     def apply_settings(self, s: dict):
         # Old saved settings (1000/400) kept audio low after restart -> on load
         # always start at least at the max-loud defaults.
-        self.volume = max(Config.DEFAULT_VOLUME, int(s.get("volume", Config.DEFAULT_VOLUME)))
-        self.relay_volume = max(Config.RELAY_DEFAULT_VOLUME, int(s.get("relay_volume", self.volume)))
+        # FIX: user ka saved volume hi use karo (pehle max(3000, ...) se
+        # volume kabhi kam nahi hota tha = volume control "glitch").
+        self.volume = max(0, min(3000, int(s.get("volume", Config.DEFAULT_VOLUME))))
+        self.relay_volume = max(0, min(3000, int(s.get("relay_volume", self.volume))))
         self.bass = int(s.get("bass", Config.DEFAULT_BASS))
-        self.gain = max(Config.RELAY_DEFAULT_GAIN, int(s.get("gain", Config.RELAY_DEFAULT_GAIN)))
+        self.gain = max(0, min(500, int(s.get("gain", Config.RELAY_DEFAULT_GAIN))))
         self.treble = int(s.get("treble", Config.RELAY_DEFAULT_TREBLE))
         self.voice = s.get("voice", "normal")
         self.live_volume = int(s.get("live_volume", Config.LIVE_BOOST_DEFAULT))
@@ -676,10 +678,16 @@ class UserVC:
             return 0.0
         if played > 100000:  # some builds report ms
             played /= 1000.0
+        # FIX: stream restart (settings change / resume) ke baad calls.time()
+        # 0 se ginta hai — offset jodo warna har volume change par gaana
+        # shuru se bajta tha.
+        played += float(getattr(st, "stream_offset", 0.0) or 0.0)
+        dur = _probe_duration(st.current_file)
         if getattr(st, "native_loop", False):
-            dur = _probe_duration(st.current_file)
             if dur > 1:
                 played = played % dur
+        elif dur > 1 and played >= dur:
+            played = max(0.0, dur - 0.5)
         return max(0.0, played)
 
     def apply_mute_state(self, chat_id: int, muted_by_admin: bool):
@@ -1473,18 +1481,28 @@ class UserVC:
         except Exception:
             pass
         parts, last_fetch = [], 0.0
-        me_name = ""
+        me_name, me_user, me_photo = "", "", ""
         try:
             me = await self.client.get_me()
             me_name = " ".join(x for x in [
                 getattr(me, "first_name", "") or "",
                 getattr(me, "last_name", "") or ""] if x).strip()
+            me_user = getattr(me, "username", "") or ""
+            me_photo = await self._ss_avatar(getattr(me, "id", 0))
         except Exception:
             pass
+        last_pos = 0.0
         while True:
             st = self.chats.get(chat_id)
             if not st or not st.ss_on:
                 break
+            if st.is_playing:
+                try:
+                    last_pos = await self._current_position(chat_id)
+                except Exception:
+                    pass
+            else:
+                last_pos = 0.0
             if time.time() - last_fetch > 1.5:
                 try:
                     parts = await self.vc_participants(chat_id)
@@ -1507,7 +1525,10 @@ class UserVC:
                         p["photo"] = ph
             data = {
                 "group": title, "started": started, "participants": parts,
-                "me_name": me_name,
+                "title": getattr(st, "ss_title", "") or "",
+                "me_name": me_name, "me_user": me_user, "me_photo": me_photo,
+                "position": round(last_pos, 1),
+                "duration": round(_DURATIONS.get(st.current_file, 0.0) if st.current_file else 0.0, 1),
                 "now_playing": st.source_name if st.is_playing else "",
                 "paused": bool(st.is_paused), "loop": bool(st.loop),
                 "volume": int(getattr(st, "relay_volume", 0) or 0),
@@ -1583,7 +1604,7 @@ class UserVC:
         cmd = build_fake_screen_command(
             width=ss_w, height=ss_h, fps=ss_fps,
             image_path=getattr(st, "ss_image", "") or "",
-            title=getattr(st, "ss_title", "") or "Audio Setup — Live",
+            title=getattr(st, "ss_title", "") or "Live Room",
         )
         return VideoStream(
             MediaSource.SHELL, cmd,
@@ -1607,6 +1628,7 @@ class UserVC:
         if chat_id in self._stopped_chats:
             raise RuntimeError("Playback stopped manually; start .play again")
         st = self.state(chat_id)
+        st.stream_offset = float(start_at or 0.0)
 
         play_path = path
         processed = None
@@ -2012,7 +2034,9 @@ class UserVC:
             )
         if not st.current_file or not os.path.exists(st.current_file):
             return False
-        await self._stream(chat_id, st.current_file, st.source_name)
+        # FIX: naye settings ke saath usi position se continue karo.
+        pos = await self._current_position(chat_id)
+        await self._stream(chat_id, st.current_file, st.source_name, start_at=pos)
         return True
 
     async def leave(self, chat_id: int, reason: str = "Manual stop"):

@@ -141,7 +141,11 @@ DEFAULT_SETTINGS = {
     "auto": 0,
 }
 
-async def apply_settings_live(user_id: int) -> int:
+_APPLY_TASKS: dict = {}
+_APPLY_DEBOUNCE = 0.8  # sec — fast +/- taps ek hi restart me merge
+
+
+async def _apply_settings_now(user_id: int) -> int:
     uvc = session_manager.users.get(user_id)
     if not uvc:
         return 0
@@ -157,6 +161,36 @@ async def apply_settings_live(user_id: int) -> int:
         except Exception as e:
             await log_error("apply_settings_live", e)
     return applied
+
+
+async def apply_settings_live(user_id: int) -> int:
+    """FIX volume glitch: har button tap par FFmpeg restart hota tha (audio
+    cut + gaana shuru se).  Ab taps debounce hote hai aur sirf aakhri
+    value ek baar apply hoti hai, current position se."""
+    import asyncio as _aio
+    uvc = session_manager.users.get(user_id)
+    if not uvc:
+        return 0
+    playing = sum(1 for st in uvc.chats.values() if st.is_playing or st.mic_enabled)
+    old = _APPLY_TASKS.get(user_id)
+    if old and not old.done():
+        old.cancel()
+
+    async def _run():
+        try:
+            await _aio.sleep(_APPLY_DEBOUNCE)
+            await _apply_settings_now(user_id)
+        except _aio.CancelledError:
+            pass
+        except Exception as e:
+            await log_error("apply_settings_live", e)
+        finally:
+            if _APPLY_TASKS.get(user_id) is task:
+                _APPLY_TASKS.pop(user_id, None)
+
+    task = _aio.get_event_loop().create_task(_run())
+    _APPLY_TASKS[user_id] = task
+    return playing
 
 @Client.on_callback_query(filters.regex(r"^set:"))
 async def cb_settings_change(bot, cq):

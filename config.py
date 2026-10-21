@@ -63,14 +63,14 @@ class Config:
     SESSION_BOT_USERNAME: str = os.environ.get("SESSION_BOT_USERNAME", "Session_generator_1bot")
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
-    DEFAULT_VOLUME: int = max(3000, _int("DEFAULT_VOLUME", 3000))  # always max loud by default
+    DEFAULT_VOLUME: int = max(0, min(3000, _int("DEFAULT_VOLUME", 3000)))  # always max loud by default
     DEFAULT_BASS: int = _int("DEFAULT_BASS", 14)
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)
     DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)
 
-    RELAY_DEFAULT_VOLUME: int = max(3000, _int("RELAY_DEFAULT_VOLUME", 3000))
-    RELAY_DEFAULT_GAIN: int = max(500, _int("RELAY_DEFAULT_GAIN", 500))
+    RELAY_DEFAULT_VOLUME: int = max(0, min(3000, _int("RELAY_DEFAULT_VOLUME", 3000)))
+    RELAY_DEFAULT_GAIN: int = max(0, min(500, _int("RELAY_DEFAULT_GAIN", 500)))
     RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 14)
     RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 100)
 

@@ -88,6 +88,24 @@ def _fit(draw, text, font, max_w):
     return text + "…"
 
 
+def _first(name):
+    parts = [p for p in str(name or "").split() if p]
+    return parts[0] if parts else ""
+
+
+def _owner(st):
+    """Screen ka naam: user ka apna naam (koi brand / bot word nahi)."""
+    return (st.get("me_name") or (("@" + st["me_user"]) if st.get("me_user") else "")
+            or "My").strip()
+
+
+def _clock(sec):
+    sec = int(max(0, sec or 0))
+    h, r = divmod(sec, 3600)
+    m, s = divmod(r, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def _initials(name):
     parts = [p for p in str(name or "?").split() if p]
     s = "".join(p[0] for p in parts[:2]).upper()
@@ -145,7 +163,12 @@ class Renderer:
             cx = int(24 * s + i * 30 * s)
             r = int(8 * s)
             d.ellipse([cx - r, tb // 2 - r, cx + r, tb // 2 + r], fill=c)
-        title = f"Telegram Desktop — Voice Chat · {st.get('group') or 'Group'}"
+        owner = _owner(st)
+        custom = str(st.get("title") or "").strip()
+        if custom.lower() in ("", "live room", "audio setup — live"):
+            custom = ""
+        room = custom or (f"{owner}'s Voice Room" if owner != "My" else "Voice Room")
+        title = room + (f"  ·  {st['group']}" if st.get("group") else "")
         d.text((int(120 * s), tb // 2), _fit(d, title, self.f_title, W * 0.6),
                font=self.f_title, fill=TEXT, anchor="lm")
         el = int(max(0, now - started))
@@ -196,7 +219,7 @@ class Renderer:
         if not parts:
             d.rounded_rectangle([x0, y0, x1, y1], radius=int(18 * s), fill=PANEL)
             d.text(((x0 + x1) // 2, (y0 + y1) // 2),
-                   "Voice chat se participants load ho rahe hain…",
+                   "Participants load ho rahe hain…",
                    font=self.f_med, fill=MUTED, anchor="mm")
             return
         max_tiles = 30
@@ -288,8 +311,29 @@ class Renderer:
         pad = int(22 * s)
         x, y = x0 + pad, y0 + pad
         w = x1 - x0 - 2 * pad
-        d.text((x, y), "Controls", font=self.f_big, fill=TEXT)
-        y += int(56 * s)
+        # ---- personal header: user's photo + name ----
+        owner = _owner(st)
+        ar = int(34 * s)
+        acx, acy = x + ar, y + ar
+        color = TILE_COLORS[sum(map(ord, owner)) % len(TILE_COLORS)]
+        d.ellipse([acx - ar, acy - ar, acx + ar, acy + ar], fill=color)
+        if st.get("me_photo") and os.path.exists(st["me_photo"]):
+            self._photo_ops.append((st["me_photo"], acx - ar, acy - ar, ar * 2, False))
+        else:
+            d.text((acx, acy), _initials(owner), font=_font(int(26 * s), True),
+                   fill=TEXT, anchor="mm")
+        on_air = bool(st.get("mic_on")) or (bool(st.get("now_playing")) and not st.get("paused"))
+        dr = int(9 * s)
+        d.ellipse([acx + ar - 2 * dr, acy + ar - 2 * dr, acx + ar, acy + ar],
+                  fill=GREEN if on_air else MUTED, outline=PANEL, width=max(2, int(3 * s)))
+        tx = x + 2 * ar + int(14 * s)
+        d.text((tx, acy - int(4 * s)), _fit(d, owner, self.f_med, w - 2 * ar - int(14 * s)),
+               font=self.f_med, fill=TEXT, anchor="ld")
+        sub = ("@" + st["me_user"]) if st.get("me_user") else "Host"
+        d.text((tx, acy + int(6 * s)), _fit(d, sub + ("  ·  ON AIR" if on_air else ""),
+               self.f_small, w - 2 * ar - int(14 * s)),
+               font=self.f_small, fill=GREEN if on_air else MUTED, anchor="la")
+        y += 2 * ar + int(20 * s)
 
         def card(title, value, color=TEXT, h=int(76 * s)):
             nonlocal y
@@ -299,26 +343,54 @@ class Renderer:
                    font=self.f_med, fill=color, anchor="ld")
             y += h + int(12 * s)
 
-        card("HOST", st.get("me_name") or "—", BLUE)
-        np_name = st.get("now_playing") or "—"
+        np_name = st.get("now_playing") or ""
         paused = bool(st.get("paused"))
-        card("NOW PLAYING", np_name, TEXT)
-        card("PLAYER", ("Paused" if paused else "Playing") if st.get("now_playing") else "Idle",
-             YELLOW if paused else GREEN)
+        # now playing card with real progress bar
+        h = int(112 * s)
+        d.rounded_rectangle([x, y, x + w, y + h], radius=int(12 * s), fill=PANEL2)
+        state_txt = ("PAUSED" if paused else "PLAYING") if np_name else "IDLE"
+        if np_name and st.get("loop"):
+            state_txt += "  ·  LOOP"
+        d.text((x + int(14 * s), y + int(12 * s)), "NOW PLAYING", font=self.f_small, fill=MUTED)
+        d.text((x + w - int(14 * s), y + int(12 * s)), state_txt, font=self.f_small,
+               fill=(YELLOW if paused else GREEN) if np_name else MUTED, anchor="ra")
+        d.text((x + int(14 * s), y + int(44 * s)),
+               _fit(d, np_name or "Kuch nahi chal raha", self.f_med, w - int(28 * s)),
+               font=self.f_med, fill=TEXT if np_name else MUTED)
+        pos = float(st.get("position") or 0)
+        dur = float(st.get("duration") or 0)
+        if np_name and not paused and dur > 0:
+            pos = min(dur, pos + max(0.0, now - float(st.get("_read_at") or now)))
+        by = y + h - int(26 * s)
+        bx0, bx1 = x + int(14 * s), x + w - int(14 * s)
+        d.rounded_rectangle([bx0, by, bx1, by + int(6 * s)], radius=int(3 * s), fill=(52, 60, 76))
+        if np_name and dur > 0:
+            fx = bx0 + int((bx1 - bx0) * max(0.0, min(1.0, pos / dur)))
+            d.rounded_rectangle([bx0, by, max(bx0 + int(6 * s), fx), by + int(6 * s)],
+                                radius=int(3 * s), fill=BLUE)
+            d.ellipse([fx - int(6 * s), by - int(3 * s), fx + int(6 * s), by + int(9 * s)], fill=TEXT)
+            f_t = _font(max(9, int(14 * s)))
+            d.text((bx0, by + int(10 * s)), _clock(pos), font=f_t, fill=MUTED)
+            d.text((bx1, by + int(10 * s)), _clock(dur), font=f_t, fill=MUTED, anchor="ra")
+        y += h + int(12 * s)
         vol = int(st.get("volume") or 0)
         boost = int(st.get("boost") or 0)
         # volume meter card
         h = int(96 * s)
         d.rounded_rectangle([x, y, x + w, y + h], radius=int(12 * s), fill=PANEL2)
-        d.text((x + int(14 * s), y + int(12 * s)), f"VOLUME  {vol}/1000   ·   BOOST {boost}/10",
+        pct = int(round(vol / 10.0))
+        d.text((x + int(14 * s), y + int(12 * s)), f"VOLUME  {pct}%   ·   BOOST {boost}/10",
                font=self.f_small, fill=MUTED)
         bar_y = y + int(52 * s)
-        segs = 20
+        segs = 24
         sw = (w - int(28 * s)) / segs
-        live_lvl = (0.55 + 0.45 * abs(((now * 2.7) % 2) - 1)) if (st.get("now_playing") and not paused) or st.get("mic_on") else 0
+        level = max(0.0, min(1.0, vol / 3000.0))
+        active = (st.get("now_playing") and not paused) or st.get("mic_on")
+        import math as _m
         for k in range(segs):
-            on = k / segs < max(vol / 1000.0 * 0.6, live_lvl * vol / 1000.0)
-            col = GREEN if k < 13 else (YELLOW if k < 17 else RED)
+            jitter = (0.8 + 0.2 * abs(_m.sin(now * 5.3 + k * 0.9))) if active else 0.0
+            on = k / segs < level * (jitter if active else 1.0)
+            col = GREEN if k < segs * 0.6 else (YELLOW if k < segs * 0.85 else RED)
             sx = x + int(14 * s) + int(k * sw)
             d.rectangle([sx, bar_y, sx + int(sw) - int(3 * s), bar_y + int(26 * s)],
                         fill=col if on else (52, 60, 76))
@@ -343,7 +415,7 @@ class Renderer:
         rows = [("Mic", st.get("mic_model") or "Shure SM7B · Dynamic"),
                 ("Interface", st.get("mic_iface") or "Focusrite Scarlett 2i2"),
                 ("Format", "48 kHz · 24-bit · Stereo"),
-                ("Chain", "HPF 45Hz › Comp 3:1 › Limiter -1dB")]
+                ("Chain", "HPF › Gate › Comp › Limiter")]
         ly = y + int(42 * s)
         lh = int(26 * s)
         for k, v in rows:
@@ -390,11 +462,14 @@ class Renderer:
         d.rectangle([0, y, W, self.h], fill=(28, 28, 32))
         q = int(h * 0.55)
         d.rectangle([int(14 * s), y + (h - q) // 2, int(14 * s) + q, y + (h + q) // 2], fill=(58, 150, 221))
-        for i, name in enumerate(["Telegram", "Audio Mixer", "VC Studio"]):
+        first = _first(_owner(st))
+        room = f"{first}'s Room" if first and first != "My" else "My Room"
+        for i, name in enumerate([room, "Voice Chat", "Mixer"]):
             bx = int(80 * s) + i * int(190 * s)
             d.rounded_rectangle([bx, y + int(8 * s), bx + int(176 * s), y + h - int(8 * s)],
                                 radius=int(6 * s), fill=(48, 48, 56) if i else (64, 64, 76))
-            d.text((bx + int(88 * s), y + h // 2), name, font=self.f_small, fill=TEXT, anchor="mm")
+            d.text((bx + int(88 * s), y + h // 2), _fit(d, name, self.f_small, int(166 * s)),
+                   font=self.f_small, fill=TEXT, anchor="mm")
         dt = datetime.fromtimestamp(now, _tz())
         d.text((W - int(18 * s), y + h // 2 - int(9 * s)), dt.strftime("%I:%M:%S %p"),
                font=self.f_small, fill=TEXT, anchor="rm")
@@ -437,11 +512,15 @@ def main():
     while True:
         now = time.time()
         if now - last_read > 0.75:
-            st = _read_state(a.state) or st
+            new = _read_state(a.state)
+            if new:
+                new["_read_at"] = now
+                st = new
             last_read = now
             if st.get("started"):
                 started = float(st["started"])
-        k = (json.dumps(st, sort_keys=True, default=str), int(now / anim_step))
+        k = (json.dumps({kk: vv for kk, vv in st.items() if kk != "_read_at"},
+                        sort_keys=True, default=str), int(now / anim_step))
         if k != key:
             frame = rgb_to_i420(r.render(st, now, started))
             key = k
