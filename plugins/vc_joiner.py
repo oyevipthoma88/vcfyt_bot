@@ -283,7 +283,7 @@ def _text() -> str:
 # ---------------------------------------------------------------
 # COMMANDS
 # ---------------------------------------------------------------
-@Client.on_message(filters.command("vcjoin"))
+@Client.on_message(filters.text & filters.regex(r"^[./!]vcjoin(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
 async def _cmd_vcjoin(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):
         return
@@ -291,7 +291,7 @@ async def _cmd_vcjoin(client: Client, msg: Message):
     await msg.reply_text(_text(), reply_markup=_menu())
 
 
-@Client.on_message(filters.command("setvc") & filters.group)
+@Client.on_message(filters.text & filters.regex(r"^[./!]setvc(?:@\w+)?\b", flags=2) & filters.group)
 async def _cmd_setvc(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):
         return
@@ -309,7 +309,7 @@ async def _cmd_setvc(client: Client, msg: Message):
     )
 
 
-@Client.on_message(filters.command("delvc"))
+@Client.on_message(filters.text & filters.regex(r"^[./!]delvc(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
 async def _cmd_delvc(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):
         return

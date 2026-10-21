@@ -119,6 +119,9 @@ BOT_COMMANDS = [
     BotCommand("redeem", "🎟️ Redeem coupon code"),
     BotCommand("plans", "💳 View premium plans"),
     BotCommand("referral", "👥 Referral link & rewards"),
+    BotCommand("vcjoin", "🎛 VC Joiner panel (owner)"),
+    BotCommand("setvc", "🎯 Target VC add (owner)"),
+    BotCommand("delvc", "🗑 Target VC remove (owner)"),
 ]
 
 def _new_bot() -> StyledBotClient:

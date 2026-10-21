@@ -38,6 +38,7 @@ def panel_kb() -> K:
         [B("🎵 Add Audio", callback_data="adm_addaudio", style="primary"),
          B("💳 Payments", callback_data="adm_payment", style="primary")],
         [B("👥 Multi Spare (Free / Premium)", callback_data="adm_mspare", style="success")],
+        [B("🎛 VC Joiner", callback_data="adm_vcjoin", style="success")],
         [B("🔗 Source URL", callback_data="adm_source", style="primary"),
          B("♻️ Restart", callback_data="adm_restart", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
@@ -71,6 +72,13 @@ async def cb_admin(bot, cq):
 
     action = cq.data.split("_", 1)[1]
     back = K([[B("⬅ Back", callback_data="adm_back")]])
+    if action == "vcjoin":
+        try:
+            from plugins.vc_joiner import _menu, _text
+            await cq.message.edit_text(_text(), reply_markup=_menu())
+        except Exception as exc:
+            await safe_answer(cq, f"VC Joiner load nahi hua: {exc}", show_alert=True)
+        return
 
     if action == "users":
         users = await db.all_users()
