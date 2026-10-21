@@ -1,66 +1,320 @@
 #!/usr/bin/env python3
-"""LIVE VC screen for the bot's screen share.
+"""LIVE VC screen for the bot's screen share  —  "NEON STUDIO" edition.
 
-Renders a sharp PC-style "Voice Chat" window and writes raw I420 (yuv420p)
-frames to stdout in real time (ntgcalls SHELL video source).
+Renders a sharp broadcast-studio style "Voice Chat" window and writes raw
+I420 (yuv420p) frames to stdout in real time (ntgcalls SHELL video source).
 
-Everything on screen is REAL, read from a JSON state file that the bot
-refreshes every ~1.5 s from Telegram itself:
-  * every participant currently in the VC (name, mic on/off, speaking,
-    hand raised, volume)
+Real data (from the JSON state file the bot refreshes every ~0.5-1.5 s):
+  * every participant in the VC (name, PFP, mic on/off, speaking, hand, volume)
   * now playing track, paused / playing, loop, volume + boost, live mic
   * real clock + LIVE timer
 
-Telegram does not let anyone capture another user's screen or camera, so
-the participants are drawn as live tiles (like Telegram Desktop's VC grid).
+Studio dressing (animated, for the "live set-up" look): spinning vinyl deck,
+spectrum analyser, 4-channel mixer with VU meters, FX chain, network stats
+and a scrolling ticker.
+
+FANCY NAMES FIX: names like "𝐃𝐄𝐕𝐈𝐋 ✨🥀 ꧁ᴀsʜɪsʜ꧂" used to show as boxes
+(DejaVu has no glyph for them).  Text is now drawn per-character with a
+font fallback chain (Noto Sans → Math → Symbols → Emoji → Devanagari …);
+anything still missing is NFKC-normalised (𝓓 → D) or dropped — never a box.
 
 Frames are only re-rendered when something changes (state update or the
-clock second ticks); in between the cached frame is resent, so 1080p costs
-almost no CPU.
+animation tick); in between the cached frame is resent.
 
-Usage: live_screen.py --state FILE [--w 1920 --h 1080 --fps 15]
+Usage: live_screen.py --state FILE [--w 1280 --h 720 --fps 15]
 """
 import argparse
 import json
+import math
 import os
 import sys
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FONT = os.path.join(os.path.dirname(HERE), "assets", "fonts", "DejaVuSans.ttf")
-FONT_BOLD_CANDIDATES = (
-    os.path.join(os.path.dirname(HERE), "assets", "fonts", "DejaVuSans-Bold.ttf"),
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-)
-
-BG = (14, 18, 24)
-PANEL = (24, 30, 40)
-PANEL2 = (32, 40, 54)
-TITLEBAR = (30, 34, 42)
-TEXT = (235, 240, 248)
-MUTED = (140, 152, 170)
-GREEN = (61, 220, 132)
-RED = (255, 76, 76)
-YELLOW = (255, 210, 63)
-BLUE = (64, 160, 255)
-TILE_COLORS = [(231, 76, 60), (52, 152, 219), (46, 204, 113), (155, 89, 182),
-               (241, 196, 15), (26, 188, 156), (230, 126, 34), (236, 64, 122)]
+FONT_DIR = os.path.join(os.path.dirname(HERE), "assets", "fonts")
+SYS_DEJAVU = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+SYS_DEJAVU_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def _font(size, bold=False):
-    paths = (FONT_BOLD_CANDIDATES if bold else ()) + (FONT,
-             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-    for p in paths:
-        if os.path.exists(p):
+def _fp(name):
+    return os.path.join(FONT_DIR, name)
+
+
+# (path, variation-name or None)
+_PRIMARY = {
+    "ui": [(_fp("NotoSans.ttf"), "Medium"), (_fp("DejaVuSans.ttf"), None), (SYS_DEJAVU, None)],
+    "bold": [(_fp("NotoSans.ttf"), "Bold"), (_fp("DejaVuSans-Bold.ttf"), None),
+             (SYS_DEJAVU_B, None), (_fp("DejaVuSans.ttf"), None)],
+    "display": [(_fp("Orbitron.ttf"), "Black"), (_fp("NotoSans.ttf"), "Black")],
+    "tech": [(_fp("Rajdhani-Bold.ttf"), None), (_fp("NotoSans.ttf"), "SemiBold")],
+}
+_FALLBACK = [
+    (_fp("NotoSans.ttf"), "SemiBold"),
+    (_fp("DejaVuSans.ttf"), None),
+    (SYS_DEJAVU, None),
+    (_fp("NotoSansMath-Regular.ttf"), None),
+    (_fp("NotoSansSymbols2-Regular.ttf"), None),
+    (_fp("NotoSansSymbols.ttf"), None),
+    (_fp("NotoEmoji.ttf"), "Bold"),
+    (_fp("NotoSansDevanagari.ttf"), "SemiBold"),
+    (_fp("NotoSansCanadianAboriginal.ttf"), None),
+]
+
+# ---------------------------------------------------------------- palette
+BG0 = (6, 7, 14)
+BG1 = (14, 10, 26)
+GLASS = (18, 20, 34)
+GLASS2 = (26, 28, 46)
+LINE = (44, 48, 74)
+TEXT = (240, 244, 255)
+MUTED = (128, 136, 168)
+DIM = (70, 76, 104)
+CYAN = (0, 229, 255)
+PINK = (255, 46, 136)
+VIOLET = (140, 92, 255)
+GREEN = (46, 255, 156)
+YELLOW = (255, 214, 64)
+RED = (255, 60, 80)
+ORANGE = (255, 140, 40)
+TILE_COLORS = [(255, 46, 136), (0, 200, 255), (46, 230, 150), (150, 100, 255),
+               (255, 190, 40), (0, 220, 200), (255, 120, 60), (240, 80, 200)]
+
+
+def _mix(a, b, t):
+    t = max(0.0, min(1.0, t))
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+# ================================================================ text engine
+class _Text:
+    """Per-character font fallback so fancy Unicode names never show boxes."""
+
+    def __init__(self):
+        self._fonts = {}      # (path, var, size) -> FreeTypeFont
+        self._probe = {}      # (path, var) -> (font24, notdef_sig)
+        self._cover = {}      # (path, var, ch) -> bool
+        self._chain = {}      # (style, size) -> [fonts]
+        self._char = {}       # (style, ch) -> (idx | None, replacement)
+
+    def _load(self, path, var, size):
+        key = (path, var, size)
+        f = self._fonts.get(key)
+        if f is None and key not in self._fonts:
             try:
-                return ImageFont.truetype(p, size)
+                f = ImageFont.truetype(path, size) if os.path.exists(path) else None
+                if f is not None and var:
+                    try:
+                        f.set_variation_by_name(var)
+                    except Exception:
+                        pass
             except Exception:
-                pass
-    return ImageFont.load_default()
+                f = None
+            self._fonts[key] = f
+        return f
+
+    def _specs(self, style):
+        out, seen = [], set()
+        for sp in _PRIMARY.get(style, _PRIMARY["ui"]) + _FALLBACK:
+            if sp in seen or not os.path.exists(sp[0]):
+                continue
+            seen.add(sp)
+            out.append(sp)
+        return out
+
+    def chain(self, style, size):
+        key = (style, size)
+        c = self._chain.get(key)
+        if c is None:
+            c = [(sp, self._load(sp[0], sp[1], size)) for sp in self._specs(style)]
+            c = [x for x in c if x[1] is not None]
+            if not c:
+                c = [((None, None), ImageFont.load_default())]
+            self._chain[key] = c
+        return c
+
+    def _covers(self, spec, ch):
+        key = (spec[0], spec[1], ch)
+        v = self._cover.get(key)
+        if v is not None:
+            return v
+        pr = self._probe.get(spec)
+        if pr is None:
+            f = self._load(spec[0], spec[1], 24)
+            try:
+                m = f.getmask("\U0010FFFF")
+                sig = (m.size, bytes(m))
+            except Exception:
+                sig = None
+            pr = (f, sig)
+            self._probe[spec] = pr
+        f, sig = pr
+        try:
+            m = f.getmask(ch)
+            got = (m.size, bytes(m))
+            v = got != sig and (m.getbbox() is not None)
+        except Exception:
+            v = False
+        self._cover[key] = v
+        return v
+
+    def _resolve(self, style, ch, chain):
+        key = (style, ch)
+        r = self._char.get(key)
+        if r is not None:
+            return r
+        cat = unicodedata.category(ch)
+        if ch.isspace():
+            r = (0, " ")
+        elif cat in ("Cf", "Cc", "Cs", "Co", "Cn") or 0xFE00 <= ord(ch) <= 0xFE0F:
+            r = (None, "")  # ZWJ, variation selectors, controls -> invisible
+        else:
+            r = None
+            for i, (sp, _f) in enumerate(chain):
+                if sp[0] and self._covers(sp, ch):
+                    r = (i, ch)
+                    break
+            if r is None:
+                alt = unicodedata.normalize("NFKC", ch)
+                if alt and alt != ch:
+                    parts = []
+                    for a in alt:
+                        ia, ca = self._resolve(style, a, chain)
+                        if ia is not None:
+                            parts.append(ca)
+                    r = (0, "".join(parts)) if parts else (None, "")
+                elif cat.startswith("M"):
+                    r = (None, "")  # unsupported combining mark -> drop
+                else:
+                    r = (None, "")
+        self._char[key] = r
+        return r
+
+    def runs(self, text, style, size):
+        chain = self.chain(style, size)
+        out = []  # [(font, str)]
+        for ch in str(text or ""):
+            idx, rep = self._resolve(style, ch, chain)
+            if idx is None or not rep:
+                continue
+            f = chain[idx][1]
+            if idx == 0 and rep != ch:
+                f = chain[0][1]
+            if out and out[-1][0] is f:
+                out[-1][1] += rep
+            else:
+                out.append([f, rep])
+        # collapse repeated spaces
+        return [(f, s) for f, s in out if s]
+
+    def width(self, runs):
+        return sum(f.getlength(s) for f, s in runs)
+
+    def clean(self, text, style="ui", size=20):
+        return "".join(s for _f, s in self.runs(text, style, size)).strip()
+
+    def fit_runs(self, text, style, size, max_w):
+        runs = self.runs(text, style, size)
+        if self.width(runs) <= max_w:
+            return runs
+        chain = self.chain(style, size)
+        ell_f = chain[0][1]
+        ell_w = ell_f.getlength("…")
+        out, w = [], 0.0
+        for f, s in runs:
+            buf = ""
+            for ch in s:
+                cw = f.getlength(ch)
+                if w + cw + ell_w > max_w:
+                    if buf:
+                        out.append((f, buf))
+                    out.append((ell_f, "…"))
+                    return out
+                buf += ch
+                w += cw
+            if buf:
+                out.append((f, buf))
+        return out
+
+    def _sprite(self, text, style, size, max_w, spacing):
+        """Render text once into an 'L' mask; reused every frame (fast)."""
+        key = (text, style, size, max_w, spacing)
+        cache = self.__dict__.setdefault("_sprites", {})
+        sp = cache.get(key)
+        if sp is not None:
+            return sp
+        runs = (self.fit_runs(text, style, size, max_w) if max_w
+                else self.runs(text, style, size))
+        if not runs:
+            cache[key] = None
+            return None
+        prim = self.chain(style, size)[0][1]
+        try:
+            asc, desc = prim.getmetrics()
+        except Exception:
+            asc, desc = size, size // 4
+        nchar = sum(len(s) for _f, s in runs)
+        total = self.width(runs) + spacing * max(0, nchar - 1)
+        padv = size  # room for tall fallback glyphs
+        mw, mh = int(total) + 4 + size // 2, asc + desc + 2 * padv
+        mask = Image.new("L", (max(1, mw), max(1, mh)), 0)
+        md = ImageDraw.Draw(mask)
+        x, base = 2.0, padv + asc
+        for f, s in runs:
+            if spacing:
+                for ch in s:
+                    md.text((x, base), ch, font=f, fill=255, anchor="ls")
+                    x += f.getlength(ch) + spacing
+            else:
+                md.text((x, base), s, font=f, fill=255, anchor="ls")
+                x += f.getlength(s)
+        sp = (mask, total, asc, desc, padv)
+        if len(cache) > 3000:
+            cache.clear()
+        cache[key] = sp
+        return sp
+
+    def draw(self, d, xy, text, style="ui", size=20, fill=TEXT, anchor="la",
+             max_w=None, spacing=0):
+        size = max(8, int(size))
+        sp = self._sprite(str(text or ""), style, size,
+                          int(max_w) if max_w else None, spacing)
+        if sp is None:
+            return 0
+        mask, total, asc, desc, padv = sp
+        x, y = xy
+        h, v = anchor[0], anchor[1]
+        if h == "m":
+            x -= total / 2
+        elif h == "r":
+            x -= total
+        if v == "a":
+            base = y + asc
+        elif v == "m":
+            base = y + (asc - desc) / 2
+        elif v == "d":
+            base = y - desc
+        else:
+            base = y
+        d.bitmap((int(x - 2), int(base - padv - asc)), mask, fill=fill)
+        return total
+
+    def text_width(self, text, style, size, spacing=0):
+        sp = self._sprite(str(text or ""), style, max(8, int(size)), None, spacing)
+        return sp[1] if sp else 0
+
+
+T = _Text()
+
+
+# ================================================================ helpers
+def _font(size, bold=False):
+    """Back-compat helper (old callers / tests)."""
+    return T.chain("bold" if bold else "ui", max(8, int(size)))[0][1]
 
 
 def _tz():
@@ -89,7 +343,7 @@ def _fit(draw, text, font, max_w):
 
 
 def _first(name):
-    parts = [p for p in str(name or "").split() if p]
+    parts = [p for p in T.clean(name).split() if p]
     return parts[0] if parts else ""
 
 
@@ -107,33 +361,52 @@ def _clock(sec):
 
 
 def _initials(name):
-    parts = [p for p in str(name or "?").split() if p]
-    s = "".join(p[0] for p in parts[:2]).upper()
-    return s or "?"
+    clean = T.clean(name)
+    letters = [c for c in clean if c.isalnum()]
+    parts = [p for p in clean.split() if any(c.isalnum() for c in p)]
+    if len(parts) >= 2:
+        s = "".join(next(c for c in p if c.isalnum()) for p in parts[:2])
+    else:
+        s = "".join(letters[:2])
+    return s.upper() or "?"
 
 
+def _wave(now, speed, phase=0.0):
+    return 0.5 + 0.5 * math.sin(now * speed + phase)
+
+
+def _noise(now, k):
+    """Smooth pseudo-random 0..1 (no RNG -> identical frames are cacheable)."""
+    return (0.5 + 0.25 * math.sin(now * (3.1 + k * 0.37) + k * 1.7)
+            + 0.15 * math.sin(now * (7.3 + k * 0.11) + k * 0.9)
+            + 0.10 * math.sin(now * (13.7 - k * 0.05) + k * 2.3))
+
+
+# ================================================================ renderer
 class Renderer:
     def __init__(self, w, h):
         self.w, self.h = w, h
-        s = h / 1080.0
-        self.s = s
-        self._avatar_cache = {}   # path -> (mtime, PIL RGBA circular image)
-        self._photo_ops = []      # (path, x, y, size, speaking) pasted last
+        self.s = h / 1080.0
+        self._avatar_cache = {}
+        self._photo_ops = []
+        self._bg = None
+        self._glow_cache = {}
+        self._peaks = [0.0] * 40
+        # back-compat attributes
+        s = self.s
         self.f_title = _font(int(22 * s), True)
-        self.f_big = _font(int(34 * s), True)
         self.f_med = _font(int(24 * s), True)
-        self.f_txt = _font(int(22 * s))
         self.f_small = _font(int(18 * s))
-        self.f_init = _font(int(60 * s), True)
 
+    # ---------------------------------------------------------- assets
     def _avatar(self, path, size):
-        """Load a participant's profile photo as a circular RGBA image."""
         try:
             mtime = os.path.getmtime(path)
         except Exception:
             return None
-        ent = self._avatar_cache.get(path)
-        if ent and ent[0] == mtime and ent[1].size == (size, size):
+        key = (path, size)
+        ent = self._avatar_cache.get(key)
+        if ent and ent[0] == mtime:
             return ent[1]
         try:
             im = Image.open(path).convert("RGB")
@@ -148,79 +421,198 @@ class Renderer:
             im.putalpha(mask)
         except Exception:
             return None
-        self._avatar_cache[path] = (mtime, im)
+        self._avatar_cache[key] = (mtime, im)
         return im
 
+    def _background(self):
+        if self._bg is not None:
+            return self._bg
+        W, H, s = self.w, self.h, self.s
+        y = np.linspace(0, 1, H)[:, None]
+        x = np.linspace(0, 1, W)[None, :]
+        base = np.zeros((H, W, 3), dtype=np.float32)
+        for i in range(3):
+            base[..., i] = BG0[i] + (BG1[i] - BG0[i]) * (y * 0.7 + x * 0.3)
+        # neon nebula blobs
+        for cx, cy, r, col, a in ((0.15, 0.15, 0.45, PINK, 0.20),
+                                  (0.85, 0.25, 0.40, CYAN, 0.14),
+                                  (0.60, 0.95, 0.55, VIOLET, 0.18)):
+            d2 = ((x - cx) * W / H) ** 2 + (y - cy) ** 2
+            g = np.exp(-d2 / (r * r * 0.35)) * a
+            for i in range(3):
+                base[..., i] += g * col[i]
+        # vignette
+        vg = 1 - 0.55 * (((x - 0.5) * 1.6) ** 2 + ((y - 0.5) * 1.6) ** 2)
+        base *= np.clip(vg, 0.35, 1)[..., None]
+        img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), "RGB")
+        d = ImageDraw.Draw(img)
+        # subtle perspective grid
+        step = max(16, int(48 * s))
+        gc = (24, 24, 44)
+        for gx in range(0, W, step):
+            d.line([gx, 0, gx, H], fill=gc, width=1)
+        for gy in range(0, H, step):
+            d.line([0, gy, W, gy], fill=gc, width=1)
+        # scanlines
+        arr = np.asarray(img).astype(np.int16)
+        arr[::3] = (arr[::3] * 0.86).astype(np.int16)
+        self._bg = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+        return self._bg
+
+    def _glow(self, w, h, col, rad, strength=1.0):
+        """Pre-blurred neon glow sprite (cached by size/colour)."""
+        key = (w, h, col, rad, round(strength, 2))
+        g = self._glow_cache.get(key)
+        if g is not None:
+            return g
+        pad = max(4, int(18 * self.s))
+        im = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
+        dd = ImageDraw.Draw(im)
+        dd.rounded_rectangle([pad, pad, pad + w, pad + h], radius=rad,
+                             outline=col + (int(230 * strength),), width=max(2, int(6 * self.s)))
+        im = im.filter(ImageFilter.GaussianBlur(max(2, int(9 * self.s))))
+        if len(self._glow_cache) > 200:
+            self._glow_cache.clear()
+        self._glow_cache[key] = (im, pad)
+        return self._glow_cache[key]
+
+    # ---------------------------------------------------------- primitives
+    def _glass(self, d, box, rad=None, fill=GLASS, border=LINE, width=1):
+        rad = int(18 * self.s) if rad is None else rad
+        d.rounded_rectangle(box, radius=rad, fill=fill, outline=border, width=width)
+        # top highlight
+        x0, y0, x1, _ = box
+        d.line([x0 + rad, y0 + 1, x1 - rad, y0 + 1], fill=_mix(fill, (255, 255, 255), 0.10))
+
+    def _chip(self, d, x, y, text, col, solid=False, size=None, anchor="l"):
+        s = self.s
+        size = size or int(16 * s)
+        tw = T.text_width(text, "tech", size)
+        ph, pw = int(size * 1.55), int(tw + size * 1.2)
+        if anchor == "r":
+            x -= pw
+        fill = col if solid else _mix(GLASS, col, 0.16)
+        d.rounded_rectangle([x, y, x + pw, y + ph], radius=ph // 2, fill=fill,
+                            outline=col, width=max(1, int(1.5 * s)))
+        T.draw(d, (x + pw / 2, y + ph / 2), text, "tech", size,
+               fill=BG0 if solid else col, anchor="mm")
+        return pw, ph
+
+    def _label(self, d, x, y, text, col=MUTED, size=None):
+        T.draw(d, (x, y), text, "tech", size or int(17 * self.s), fill=col,
+               anchor="la", spacing=max(1, int(2 * self.s)))
+
+    # ---------------------------------------------------------- frame
     def render(self, st, now, started):
         W, H, s = self.w, self.h, self.s
-        img = Image.new("RGB", (W, H), BG)
+        img = self._background().copy()
         self._photo_ops = []
+        self._glow_ops = []
         d = ImageDraw.Draw(img)
-        # ---- window title bar (PC look) ----
-        tb = int(44 * s)
-        d.rectangle([0, 0, W, tb], fill=TITLEBAR)
-        for i, c in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
-            cx = int(24 * s + i * 30 * s)
-            r = int(8 * s)
-            d.ellipse([cx - r, tb // 2 - r, cx + r, tb // 2 + r], fill=c)
-        owner = _owner(st)
-        custom = str(st.get("title") or "").strip()
-        if custom.lower() in ("", "live room", "audio setup — live"):
-            custom = ""
-        room = custom or (f"{owner}'s Voice Room" if owner != "My" else "Voice Room")
-        title = room + (f"  ·  {st['group']}" if st.get("group") else "")
-        d.text((int(120 * s), tb // 2), _fit(d, title, self.f_title, W * 0.6),
-               font=self.f_title, fill=TEXT, anchor="lm")
-        el = int(max(0, now - started))
-        timer = f"{el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}"
-        bw = int(250 * s)
-        bx0 = W - bw - int(14 * s)
-        d.rounded_rectangle([bx0, int(6 * s), W - int(14 * s), tb - int(6 * s)],
-                            radius=int(8 * s), fill=(60, 16, 20))
-        if int(now * 2) % 2 == 0:
-            r0 = int(7 * s)
-            cx0 = bx0 + int(20 * s)
-            d.ellipse([cx0 - r0, tb // 2 - r0, cx0 + r0, tb // 2 + r0], fill=RED)
-        d.text((bx0 + int(38 * s), tb // 2), "LIVE  " + timer, font=self.f_title,
-               fill=TEXT, anchor="lm")
-
-        # ---- layout: grid (left) + control sidebar (right) ----
-        side_w = int(W * 0.26)
-        pad = int(20 * s)
-        task_h = int(48 * s)
-        gx0, gy0 = pad, tb + pad
-        gx1, gy1 = W - side_w - pad, H - task_h - pad
+        top_h = int(78 * s)
+        tick_h = int(54 * s)
+        pad = int(22 * s)
+        side_w = int(W * 0.31)
+        self._topbar(d, st, now, started, top_h)
+        gx0, gy0 = pad, top_h + pad
+        gx1, gy1 = W - side_w - pad, H - tick_h - pad
         self._grid(d, st, gx0, gy0, gx1, gy1, now)
-        self._sidebar(d, st, W - side_w, tb, W, H - task_h, now, started)
-        self._taskbar(d, st, H - task_h, now)
-        # real profile photos go on top of everything, last
+        self._deck(d, st, W - side_w, top_h + pad, W - pad, H - tick_h - pad, now)
+        self._ticker(d, st, H - tick_h, now)
         rgba = img.convert("RGBA")
-        for path, px, py, size, speaking in self._photo_ops:
+        for (gim, gpad), gx, gy in self._glow_ops:
+            rgba.alpha_composite(gim, (max(0, gx - gpad), max(0, gy - gpad)))
+        for path, px, py, size, _sp in self._photo_ops:
             ph = self._avatar(path, size)
             if ph is not None:
                 rgba.alpha_composite(ph, (px, py))
         return rgba.convert("RGB")
 
+    # ---------------------------------------------------------- top bar
+    def _topbar(self, d, st, now, started, h):
+        W, s = self.w, self.s
+        d.rectangle([0, 0, W, h], fill=(8, 8, 16))
+        if getattr(self, "_uline", None) is None or self._uline.width != W:
+            lh = max(2, int(3 * s))
+            ul = Image.new("RGB", (W, lh))
+            ud = ImageDraw.Draw(ul)
+            for i in range(W):
+                t = i / W
+                ud.line([i, 0, i, lh], fill=_mix(PINK, CYAN, t * 2) if t < 0.5
+                        else _mix(CYAN, VIOLET, (t - 0.5) * 2))
+            self._uline = ul
+        d._image.paste(self._uline, (0, h - self._uline.height))
+        pad = int(24 * s)
+        # LIVE pill
+        pulse = _wave(now, 5)
+        lw, lh = int(118 * s), int(40 * s)
+        ly = (h - lh) // 2
+        d.rounded_rectangle([pad, ly, pad + lw, ly + lh], radius=lh // 2,
+                            fill=_mix((120, 0, 30), RED, 0.55 + 0.45 * pulse))
+        r = int(7 * s)
+        cx, cy = pad + int(22 * s), ly + lh // 2
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=TEXT if pulse > 0.3 else (255, 180, 190))
+        T.draw(d, (cx + int(16 * s), cy), "LIVE", "display", int(20 * s), TEXT, "lm",
+               spacing=max(1, int(2 * s)))
+        # room title
+        owner = _owner(st)
+        custom = str(st.get("title") or "").strip()
+        if custom.lower() in ("", "live room", "audio setup — live"):
+            custom = ""
+        room = custom or (f"{owner}'s Studio" if owner != "My" else "Live Studio")
+        tx = pad + lw + int(20 * s)
+        T.draw(d, (tx, h // 2 - int(3 * s)), room, "bold", int(28 * s), TEXT, "ld",
+               max_w=W * 0.44)
+        sub = st.get("group") or "Voice Chat"
+        T.draw(d, (tx, h // 2 + int(5 * s)), sub, "ui", int(17 * s), MUTED, "la",
+               max_w=W * 0.44)
+        # right cluster: timer, quality, signal
+        el = int(max(0, now - started))
+        timer = f"{el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}"
+        rx = W - pad
+        T.draw(d, (rx, h // 2), timer, "display", int(28 * s), CYAN, "rm",
+               spacing=max(1, int(2 * s)))
+        tw = T.text_width(timer, "display", int(28 * s), max(1, int(2 * s)))
+        rx -= int(tw + 22 * s)
+        # signal bars
+        for k in range(4):
+            bh = int((10 + k * 7) * s)
+            bx = rx - (3 - k) * int(9 * s)
+            d.rounded_rectangle([bx - int(6 * s), h // 2 + int(14 * s) - bh, bx, h // 2 + int(14 * s)],
+                                radius=int(2 * s), fill=GREEN)
+        rx -= int(48 * s)
+        pw, _ = self._chip(d, rx, h // 2 - int(14 * s), "HD · 30FPS", VIOLET, anchor="r",
+                           size=int(16 * s))
+        rx -= pw + int(10 * s)
+        self._chip(d, rx, h // 2 - int(14 * s), "REC", RED, solid=pulse > 0.5,
+                   anchor="r", size=int(16 * s))
+
+    # ---------------------------------------------------------- grid
     def _grid(self, d, st, x0, y0, x1, y1, now):
         s = self.s
         parts = list(st.get("participants") or [])
-        # speakers first, then unmuted, then rest
         parts.sort(key=lambda p: (not p.get("speaking"), bool(p.get("muted")),
-                                  str(p.get("name", "")).lower()))
+                                  T.clean(p.get("name", "")).lower()))
         total = len(parts)
-        head_h = int(56 * s)
-        d.text((x0, y0 + head_h // 2),
-               f"{total} participant{'s' if total != 1 else ''} in voice chat",
-               font=self.f_med, fill=TEXT, anchor="lm")
         speaking = sum(1 for p in parts if p.get("speaking"))
-        d.text((x1, y0 + head_h // 2), f"{speaking} speaking",
-               font=self.f_txt, fill=GREEN if speaking else MUTED, anchor="rm")
-        y0 += head_h
+        head_h = int(58 * s)
+        self._label(d, x0, y0 - int(4 * s), "◉ STAGE", CYAN, int(16 * s))
+        T.draw(d, (x0, y0 + head_h - int(10 * s)),
+               f"{total} in voice chat", "bold", int(24 * s), TEXT, "ld")
+        cw, _ = self._chip(d, x1, y0 + int(8 * s), f"{speaking} SPEAKING",
+                           GREEN if speaking else DIM, solid=bool(speaking), anchor="r")
+        unm = sum(1 for p in parts if not p.get("muted"))
+        self._chip(d, x1 - cw - int(10 * s), y0 + int(8 * s), f"{unm} MIC ON", CYAN, anchor="r")
+        y0 += head_h + int(8 * s)
         if not parts:
-            d.rounded_rectangle([x0, y0, x1, y1], radius=int(18 * s), fill=PANEL)
-            d.text(((x0 + x1) // 2, (y0 + y1) // 2),
-                   "Participants load ho rahe hain…",
-                   font=self.f_med, fill=MUTED, anchor="mm")
+            self._glass(d, [x0, y0, x1, y1])
+            cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+            for k in range(3):
+                rr = int((40 + k * 26 + 20 * _wave(now, 2, k)) * s)
+                d.ellipse([cx - rr, cy - rr - int(20 * s), cx + rr, cy + rr - int(20 * s)],
+                          outline=_mix(GLASS, CYAN, 0.6 - k * 0.18), width=max(1, int(2 * s)))
+            T.draw(d, (cx, cy + int(80 * s)), "Participants load ho rahe hain…", "bold",
+                   int(24 * s), MUTED, "mm")
             return
         max_tiles = 30
         shown = parts[:max_tiles]
@@ -229,252 +621,355 @@ class Renderer:
         while cols * cols < n:
             cols += 1
         cols = max(2, min(6, cols)) if n > 1 else 1
+        if n == 2:
+            cols = 2
         rows = (n + cols - 1) // cols
         gap = int(14 * s)
         tw = (x1 - x0 - gap * (cols - 1)) // cols
         th = (y1 - y0 - gap * (rows - 1)) // max(1, rows)
-        th = min(th, int(tw * 0.75))
+        th = min(th, int(tw * 0.82))
+        oy = y0 + max(0, ((y1 - y0) - (rows * th + (rows - 1) * gap)) // 2)
         for i, p in enumerate(shown):
             r, c = divmod(i, cols)
-            tx = x0 + c * (tw + gap)
-            ty = y0 + r * (th + gap)
-            self._tile(d, p, tx, ty, tw, th, now)
+            in_row = min(cols, n - r * cols)
+            ox = x0 + ((cols - in_row) * (tw + gap)) // 2
+            self._tile(d, p, ox + c * (tw + gap), oy + r * (th + gap), tw, th, now, i)
         if total > max_tiles:
-            d.text((x1, y1), f"+{total - max_tiles} aur", font=self.f_small,
-                   fill=MUTED, anchor="rd")
+            self._chip(d, x1, y1 - int(30 * s), f"+{total - max_tiles} AUR", VIOLET, anchor="r")
 
-    def _tile(self, d, p, x, y, w, h, now):
+    def _tile(self, d, p, x, y, w, h, now, idx):
         s = self.s
         speaking = bool(p.get("speaking"))
         muted = bool(p.get("muted"))
-        rad = int(16 * s)
-        d.rounded_rectangle([x, y, x + w, y + h], radius=rad, fill=PANEL2)
-        if speaking:
-            pulse = 3 + int(2 * abs(((now * 3) % 2) - 1))
-            d.rounded_rectangle([x, y, x + w, y + h], radius=rad,
-                                outline=GREEN, width=max(2, int(pulse * s)))
+        rad = int(18 * s)
         name = str(p.get("name") or "User")
         color = TILE_COLORS[sum(map(ord, name)) % len(TILE_COLORS)]
-        ar = int(min(w, h) * 0.24)
+        fill = _mix(GLASS, color, 0.10 if speaking else 0.04)
+        border = GREEN if speaking else _mix(LINE, color, 0.25)
+        self._glass(d, [x, y, x + w, y + h], rad, fill, border, max(1, int((3 if speaking else 1) * s)))
+        if speaking:
+            self._glow_ops.append((self._glow(w, h, GREEN, rad, 0.55 + 0.45 * _wave(now, 6, idx)), x, y))
+        # avatar
+        ar = int(min(w, h * 0.78) * 0.26)
         cx, cy = x + w // 2, y + int(h * 0.42)
-        d.ellipse([cx - ar, cy - ar, cx + ar, cy + ar], fill=color)
+        if speaking:
+            for k in range(3):
+                rr = ar + int((6 + k * 7 + 6 * _wave(now, 7, k + idx)) * s)
+                d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr],
+                          outline=_mix(fill, GREEN, 0.75 - k * 0.22), width=max(1, int(2 * s)))
+        ring = int(4 * s)
+        d.ellipse([cx - ar - ring, cy - ar - ring, cx + ar + ring, cy + ar + ring],
+                  fill=GREEN if speaking else _mix(color, GLASS, 0.35))
+        d.ellipse([cx - ar, cy - ar, cx + ar, cy + ar], fill=_mix(color, BG0, 0.35))
         photo_path = p.get("photo") or ""
         photo = self._avatar(photo_path, ar * 2) if photo_path else None
         if photo is not None:
-            # speaking ring around the real profile picture
-            if speaking:
-                d.ellipse([cx - ar - int(4 * s), cy - ar - int(4 * s),
-                           cx + ar + int(4 * s), cy + ar + int(4 * s)],
-                          outline=GREEN, width=max(2, int(3 * s)))
             self._photo_ops.append((photo_path, cx - ar, cy - ar, ar * 2, speaking))
         else:
-            f_init = _font(max(12, int(ar * 0.8)), True)
-            d.text((cx, cy), _initials(name), font=f_init, fill=TEXT, anchor="mm")
-        fs = _font(max(12, int(min(22 * s, h * 0.11))), True)
-        label = name + ("  (You)" if p.get("is_me") else "")
-        d.text((x + int(12 * s), y + h - int(14 * s)),
-               _fit(d, label, fs, w - int(60 * s)), font=fs, fill=TEXT, anchor="ld")
-        # mic icon
-        mx, my = x + w - int(26 * s), y + h - int(26 * s)
-        mr = int(12 * s)
+            T.draw(d, (cx, cy), _initials(name), "display", max(10, int(ar * 0.75)), TEXT, "mm")
+        # name plate
+        fs = max(11, int(min(22 * s, h * 0.10)))
+        label = name + ("  · You" if p.get("is_me") else "")
+        T.draw(d, (cx, y + h - int(14 * s)), label, "bold", fs, TEXT, "md",
+               max_w=w - int(64 * s))
+        # mic badge (bottom-right)
+        mx, my = x + w - int(24 * s), y + h - int(24 * s)
+        mr = int(13 * s)
         d.ellipse([mx - mr, my - mr, mx + mr, my + mr],
-                  fill=RED if muted else (GREEN if speaking else (70, 80, 96)))
+                  fill=RED if muted else (GREEN if speaking else DIM))
+        q = max(2, int(4 * s))
         if muted:
-            q = int(5 * s)
-            d.line([mx - q, my - q, mx + q, my + q], fill=TEXT, width=max(2, int(2 * s)))
-            d.line([mx - q, my + q, mx + q, my - q], fill=TEXT, width=max(2, int(2 * s)))
+            d.line([mx - q - 1, my - q - 1, mx + q + 1, my + q + 1], fill=TEXT, width=max(2, int(2 * s)))
+            d.line([mx - q - 1, my + q + 1, mx + q + 1, my - q - 1], fill=TEXT, width=max(2, int(2 * s)))
         else:
-            q = int(4 * s)
-            d.rounded_rectangle([mx - q, my - int(7 * s), mx + q, my + int(3 * s)],
-                                radius=q, fill=TEXT)
-            d.line([mx, my + int(3 * s), mx, my + int(7 * s)], fill=TEXT, width=max(1, int(2 * s)))
+            d.rounded_rectangle([mx - q, my - int(7 * s), mx + q, my + int(3 * s)], radius=q, fill=BG0)
+            d.line([mx, my + int(3 * s), mx, my + int(7 * s)], fill=BG0, width=max(1, int(2 * s)))
+        # level bars (bottom-left)
+        bx, by = x + int(14 * s), y + h - int(14 * s)
+        for k in range(5):
+            lvl = (0.25 + 0.75 * max(0.0, min(1.0, _noise(now * 1.6, k + idx * 5)))) if speaking else 0.12
+            bh = max(2, int(h * 0.16 * lvl))
+            d.rounded_rectangle([bx + k * int(7 * s), by - bh, bx + k * int(7 * s) + int(4 * s), by],
+                                radius=int(2 * s), fill=GREEN if speaking else DIM)
+        # badges top
         if p.get("hand"):
-            d.text((x + int(12 * s), y + int(10 * s)), "HAND RAISED",
-                   font=_font(max(10, int(16 * s))), fill=YELLOW)
+            self._chip(d, x + int(10 * s), y + int(10 * s), "✋ HAND", YELLOW, size=int(14 * s))
         vol = p.get("volume")
         if vol and vol != 100:
-            d.text((x + w - int(12 * s), y + int(10 * s)), f"{vol}%",
-                   font=_font(max(10, int(16 * s))), fill=BLUE, anchor="ra")
-        if speaking:
-            # live level bars
-            bx = x + int(12 * s)
-            by = y + int(h * 0.42)
-            for k in range(4):
-                lvl = 0.3 + 0.7 * abs(((now * (2.3 + k * 0.7)) % 2) - 1)
-                bh = int(h * 0.18 * lvl)
-                d.rectangle([bx + k * int(8 * s), by - bh,
-                             bx + k * int(8 * s) + int(5 * s), by], fill=GREEN)
+            self._chip(d, x + w - int(10 * s), y + int(10 * s), f"{vol}%", CYAN,
+                       size=int(14 * s), anchor="r")
 
-    def _sidebar(self, d, st, x0, y0, x1, y1, now, started):
+    # ---------------------------------------------------------- right deck
+    def _deck(self, d, st, x0, y0, x1, y1, now):
         s = self.s
-        d.rectangle([x0, y0, x1, y1], fill=PANEL)
-        pad = int(22 * s)
-        x, y = x0 + pad, y0 + pad
-        w = x1 - x0 - 2 * pad
-        # ---- personal header: user's photo + name ----
+        self._glass(d, [x0, y0, x1, y1], int(22 * s), (12, 13, 24), _mix(LINE, PINK, 0.25))
+        pad = int(18 * s)
+        x, y, w = x0 + pad, y0 + pad, x1 - x0 - 2 * pad
+        np_name = st.get("now_playing") or ""
+        paused = bool(st.get("paused"))
+        mic_on = bool(st.get("mic_on"))
+        active = (bool(np_name) and not paused) or mic_on or True  # studio always "hot"
+        energy = 1.0 if ((np_name and not paused) or mic_on) else 0.55
+
+        # ---- header: owner + status
         owner = _owner(st)
-        ar = int(34 * s)
+        ar = int(26 * s)
         acx, acy = x + ar, y + ar
-        color = TILE_COLORS[sum(map(ord, owner)) % len(TILE_COLORS)]
-        d.ellipse([acx - ar, acy - ar, acx + ar, acy + ar], fill=color)
+        col = TILE_COLORS[sum(map(ord, owner)) % len(TILE_COLORS)]
+        d.ellipse([acx - ar - 3, acy - ar - 3, acx + ar + 3, acy + ar + 3], fill=PINK)
+        d.ellipse([acx - ar, acy - ar, acx + ar, acy + ar], fill=_mix(col, BG0, 0.3))
         if st.get("me_photo") and os.path.exists(st["me_photo"]):
             self._photo_ops.append((st["me_photo"], acx - ar, acy - ar, ar * 2, False))
         else:
-            d.text((acx, acy), _initials(owner), font=_font(int(26 * s), True),
-                   fill=TEXT, anchor="mm")
-        on_air = bool(st.get("mic_on")) or (bool(st.get("now_playing")) and not st.get("paused"))
-        dr = int(9 * s)
-        d.ellipse([acx + ar - 2 * dr, acy + ar - 2 * dr, acx + ar, acy + ar],
-                  fill=GREEN if on_air else MUTED, outline=PANEL, width=max(2, int(3 * s)))
+            T.draw(d, (acx, acy), _initials(owner), "display", int(20 * s), TEXT, "mm")
         tx = x + 2 * ar + int(14 * s)
-        d.text((tx, acy - int(4 * s)), _fit(d, owner, self.f_med, w - 2 * ar - int(14 * s)),
-               font=self.f_med, fill=TEXT, anchor="ld")
-        sub = ("@" + st["me_user"]) if st.get("me_user") else "Host"
-        d.text((tx, acy + int(6 * s)), _fit(d, sub + ("  ·  ON AIR" if on_air else ""),
-               self.f_small, w - 2 * ar - int(14 * s)),
-               font=self.f_small, fill=GREEN if on_air else MUTED, anchor="la")
-        y += 2 * ar + int(20 * s)
+        T.draw(d, (tx, acy - int(2 * s)), owner, "bold", int(22 * s), TEXT, "ld",
+               max_w=w - 2 * ar - int(14 * s))
+        sub = ("@" + st["me_user"]) if st.get("me_user") else "Host · Studio A"
+        T.draw(d, (tx, acy + int(4 * s)), sub, "ui", int(15 * s), MUTED, "la",
+               max_w=w - 2 * ar - int(110 * s))
+        on_air = mic_on or (bool(np_name) and not paused)
+        self._chip(d, x + w, acy + int(2 * s), "ON AIR" if on_air else "STANDBY",
+                   RED if on_air else DIM, solid=on_air and _wave(now, 4) > 0.4,
+                   anchor="r", size=int(14 * s))
+        y += 2 * ar + int(16 * s)
+        avail = y1 - pad - y
 
-        def card(title, value, color=TEXT, h=int(76 * s)):
-            nonlocal y
-            d.rounded_rectangle([x, y, x + w, y + h], radius=int(12 * s), fill=PANEL2)
-            d.text((x + int(14 * s), y + int(12 * s)), title, font=self.f_small, fill=MUTED)
-            d.text((x + int(14 * s), y + h - int(12 * s)), _fit(d, value, self.f_med, w - int(28 * s)),
-                   font=self.f_med, fill=color, anchor="ld")
-            y += h + int(12 * s)
+        # ---- now playing deck
+        h_np = int(min(avail * 0.34, 196 * s))
+        self._now_playing(d, st, x, y, w, h_np, now, np_name, paused, mic_on)
+        y += h_np + int(12 * s)
+        # ---- spectrum
+        h_sp = int(min(avail * 0.17, 104 * s))
+        self._spectrum(d, x, y, w, h_sp, now, energy, st)
+        y += h_sp + int(12 * s)
+        # ---- stats row
+        h_st = int(62 * s)
+        self._stats(d, st, x, y, w, h_st, now)
+        y += h_st + int(12 * s)
+        # ---- mixer (fills the rest)
+        if y1 - pad - y > int(110 * s):
+            self._mixer(d, st, x, y, w, y1 - pad - y, now, energy, mic_on, np_name, paused)
 
-        np_name = st.get("now_playing") or ""
-        paused = bool(st.get("paused"))
-        # now playing card with real progress bar
-        h = int(112 * s)
-        d.rounded_rectangle([x, y, x + w, y + h], radius=int(12 * s), fill=PANEL2)
-        state_txt = ("PAUSED" if paused else "PLAYING") if np_name else "IDLE"
+    def _now_playing(self, d, st, x, y, w, h, now, np_name, paused, mic_on):
+        s = self.s
+        self._glass(d, [x, y, x + w, y + h], int(16 * s), GLASS2, _mix(LINE, CYAN, 0.3))
+        p = int(14 * s)
+        # vinyl
+        vr = int(min(h - 2 * p, w * 0.36) / 2)
+        vcx, vcy = x + p + vr, y + h // 2
+        spin = 0 if (paused and np_name) else now * 2.2
+        d.ellipse([vcx - vr, vcy - vr, vcx + vr, vcy + vr], fill=(10, 10, 14), outline=(60, 60, 80))
+        for k in range(1, 6):
+            rr = int(vr * (0.95 - k * 0.1))
+            d.ellipse([vcx - rr, vcy - rr, vcx + rr, vcy + rr], outline=(28, 28, 38), width=1)
+        # light reflections that rotate
+        for off in (0.0, math.pi):
+            a0 = math.degrees(spin + off)
+            d.arc([vcx - vr + 3, vcy - vr + 3, vcx + vr - 3, vcy + vr - 3], a0, a0 + 28,
+                  fill=_mix((10, 10, 14), CYAN, 0.55), width=max(1, int(3 * s)))
+        lr = int(vr * 0.42)
+        d.ellipse([vcx - lr, vcy - lr, vcx + lr, vcy + lr], fill=PINK)
+        if st.get("me_photo") and os.path.exists(st["me_photo"]):
+            self._photo_ops.append((st["me_photo"], vcx - lr + 2, vcy - lr + 2, 2 * lr - 4, False))
+        d.ellipse([vcx - 3, vcy - 3, vcx + 3, vcy + 3], fill=TEXT)
+        # tonearm
+        ax, ay = vcx + vr - int(4 * s), vcy - vr + int(2 * s)
+        ang = math.radians(118 + (0 if (paused and np_name) else 4 * _wave(now, 1.3)))
+        ex, ey = ax + int(vr * 0.95 * math.cos(ang)), ay + int(vr * 0.95 * math.sin(ang))
+        d.line([ax, ay, ex, ey], fill=(190, 196, 220), width=max(2, int(4 * s)))
+        d.ellipse([ax - int(6 * s), ay - int(6 * s), ax + int(6 * s), ay + int(6 * s)], fill=(190, 196, 220))
+        # text block
+        tx = vcx + vr + int(18 * s)
+        tw = x + w - p - tx
+        if np_name:
+            state_txt, col = ("PAUSED", YELLOW) if paused else ("PLAYING", GREEN)
+        elif mic_on:
+            state_txt, col = ("LIVE MIC", RED)
+        else:
+            state_txt, col = ("LIVE SET", PINK)
+        cw, ch = self._chip(d, tx, y + p, state_txt, col, solid=True, size=int(14 * s))
         if np_name and st.get("loop"):
-            state_txt += "  ·  LOOP"
-        d.text((x + int(14 * s), y + int(12 * s)), "NOW PLAYING", font=self.f_small, fill=MUTED)
-        d.text((x + w - int(14 * s), y + int(12 * s)), state_txt, font=self.f_small,
-               fill=(YELLOW if paused else GREEN) if np_name else MUTED, anchor="ra")
-        d.text((x + int(14 * s), y + int(44 * s)),
-               _fit(d, np_name or "Kuch nahi chal raha", self.f_med, w - int(28 * s)),
-               font=self.f_med, fill=TEXT if np_name else MUTED)
+            self._chip(d, tx + cw + int(6 * s), y + p, "LOOP", VIOLET, size=int(14 * s))
+        title = np_name or ("Live Mic — Direct Feed" if mic_on else "Studio Live Session")
+        T.draw(d, (tx, y + p + ch + int(8 * s)), title, "bold", int(22 * s), TEXT, "la", max_w=tw)
+        artist = ("Now spinning · Hi-Fi 320k" if np_name else
+                  "Mic › Comp › Limiter › VC" if mic_on else "Neon Deck · Auto DJ")
+        T.draw(d, (tx, y + p + ch + int(40 * s)), artist, "ui", int(15 * s), MUTED, "la", max_w=tw)
+        # progress
         pos = float(st.get("position") or 0)
         dur = float(st.get("duration") or 0)
         if np_name and not paused and dur > 0:
             pos = min(dur, pos + max(0.0, now - float(st.get("_read_at") or now)))
-        by = y + h - int(26 * s)
-        bx0, bx1 = x + int(14 * s), x + w - int(14 * s)
-        d.rounded_rectangle([bx0, by, bx1, by + int(6 * s)], radius=int(3 * s), fill=(52, 60, 76))
-        if np_name and dur > 0:
-            fx = bx0 + int((bx1 - bx0) * max(0.0, min(1.0, pos / dur)))
-            d.rounded_rectangle([bx0, by, max(bx0 + int(6 * s), fx), by + int(6 * s)],
-                                radius=int(3 * s), fill=BLUE)
-            d.ellipse([fx - int(6 * s), by - int(3 * s), fx + int(6 * s), by + int(9 * s)], fill=TEXT)
-            f_t = _font(max(9, int(14 * s)))
-            d.text((bx0, by + int(10 * s)), _clock(pos), font=f_t, fill=MUTED)
-            d.text((bx1, by + int(10 * s)), _clock(dur), font=f_t, fill=MUTED, anchor="ra")
-        y += h + int(12 * s)
+        if not (np_name and dur > 0):
+            dur = 240.0
+            pos = (now - float(st.get("started") or now)) % dur
+        by = y + h - p - int(22 * s)
+        bx0, bx1 = tx, x + w - p
+        bh = max(3, int(6 * s))
+        d.rounded_rectangle([bx0, by, bx1, by + bh], radius=bh // 2, fill=(40, 44, 66))
+        frac = max(0.0, min(1.0, pos / dur))
+        fx = bx0 + int((bx1 - bx0) * frac)
+        steps = max(1, (fx - bx0) // 3)
+        for i in range(steps):
+            t = i / max(1, steps)
+            d.rectangle([bx0 + i * 3, by, min(fx, bx0 + i * 3 + 3), by + bh], fill=_mix(PINK, CYAN, t))
+        kr = int(7 * s)
+        d.ellipse([fx - kr, by + bh // 2 - kr, fx + kr, by + bh // 2 + kr], fill=TEXT, outline=CYAN, width=2)
+        T.draw(d, (bx0, by + bh + int(6 * s)), _clock(pos), "tech", int(14 * s), MUTED, "la")
+        T.draw(d, (bx1, by + bh + int(6 * s)), _clock(dur) if np_name else "∞ LIVE", "tech",
+               int(14 * s), MUTED, "ra")
+
+    def _spectrum(self, d, x, y, w, h, now, energy, st):
+        s = self.s
+        self._glass(d, [x, y, x + w, y + h], int(14 * s), GLASS2)
+        self._label(d, x + int(12 * s), y + int(8 * s), "SPECTRUM", MUTED, int(13 * s))
         vol = int(st.get("volume") or 0)
         boost = int(st.get("boost") or 0)
-        # volume meter card
-        h = int(96 * s)
-        d.rounded_rectangle([x, y, x + w, y + h], radius=int(12 * s), fill=PANEL2)
-        pct = int(round(vol / 10.0))
-        d.text((x + int(14 * s), y + int(12 * s)), f"VOLUME  {pct}%   ·   BOOST {boost}/10",
-               font=self.f_small, fill=MUTED)
-        bar_y = y + int(52 * s)
-        segs = 24
-        sw = (w - int(28 * s)) / segs
-        level = max(0.0, min(1.0, vol / 3000.0))
-        active = (st.get("now_playing") and not paused) or st.get("mic_on")
-        import math as _m
-        for k in range(segs):
-            jitter = (0.8 + 0.2 * abs(_m.sin(now * 5.3 + k * 0.9))) if active else 0.0
-            on = k / segs < level * (jitter if active else 1.0)
-            col = GREEN if k < segs * 0.6 else (YELLOW if k < segs * 0.85 else RED)
-            sx = x + int(14 * s) + int(k * sw)
-            d.rectangle([sx, bar_y, sx + int(sw) - int(3 * s), bar_y + int(26 * s)],
-                        fill=col if on else (52, 60, 76))
-        y += h + int(12 * s)
-        card("LIVE MIC", "ON AIR" if st.get("mic_on") else "Off",
-             RED if st.get("mic_on") else MUTED)
-        self._mic_setup(d, st, x, y, w, y1 - int(12 * s), now, paused)
+        T.draw(d, (x + w - int(12 * s), y + int(8 * s)),
+               f"VOL {int(round(vol / 10.0))}%  ·  BOOST {boost}/10", "tech", int(13 * s), CYAN, "ra")
+        n = 32
+        top = y + int(28 * s)
+        bot = y + h - int(10 * s)
+        gw = (w - int(24 * s)) / n
+        for k in range(n):
+            # bass-heavy curve
+            shape = 0.95 - 0.55 * (k / n)
+            lvl = max(0.06, min(1.0, shape * (0.35 + 0.85 * _noise(now * 2.2, k)) * energy))
+            self._peaks[k] = max(lvl, self._peaks[k] - 0.04)
+            bx = x + int(12 * s) + int(k * gw)
+            bh = int((bot - top) * lvl)
+            seg = max(3, int(5 * s))
+            yy = bot
+            while yy > bot - bh:
+                t = (bot - yy) / max(1, bot - top)
+                c = _mix(CYAN, PINK, t * 1.2)
+                d.rectangle([bx, yy - seg + 1, bx + int(gw) - 2, yy], fill=c)
+                yy -= seg + 1
+            py = bot - int((bot - top) * self._peaks[k])
+            d.rectangle([bx, py - 2, bx + int(gw) - 2, py], fill=TEXT)
 
-    def _mic_setup(self, d, st, x, y, w, ymax, now, paused):
-        """Studio mic chain panel: model, interface, gain knob, live waveform."""
+    def _stats(self, d, st, x, y, w, h, now):
         s = self.s
-        h = ymax - y
-        if h < int(120 * s):
-            return
-        d.rounded_rectangle([x, y, x + w, ymax], radius=int(12 * s), fill=PANEL2)
-        px = x + int(14 * s)
-        d.text((px, y + int(12 * s)), "MIC SETUP", font=self.f_small, fill=MUTED)
-        active = bool(st.get("mic_on")) or (bool(st.get("now_playing")) and not paused)
-        d.text((x + w - int(14 * s), y + int(12 * s)),
-               "● ARMED" if active else "○ STANDBY", font=self.f_small,
-               fill=RED if active else MUTED, anchor="ra")
-        rows = [("Mic", st.get("mic_model") or "Shure SM7B · Dynamic"),
-                ("Interface", st.get("mic_iface") or "Focusrite Scarlett 2i2"),
-                ("Format", "48 kHz · 24-bit · Stereo"),
-                ("Chain", "HPF › Gate › Comp › Limiter")]
-        ly = y + int(42 * s)
-        lh = int(26 * s)
-        for k, v in rows:
-            if ly + lh > ymax - int(70 * s):
+        listeners = len(st.get("participants") or [])
+        ping = int(14 + 9 * _noise(now * 0.4, 3))
+        cpu = int(18 + 14 * _noise(now * 0.3, 7))
+        items = [("BITRATE", "320k", CYAN), ("PING", f"{ping}ms", GREEN),
+                 ("LISTEN", str(listeners), PINK), ("DSP", f"{cpu}%", YELLOW)]
+        gap = int(8 * s)
+        cw = (w - gap * 3) / 4
+        for i, (k, v, c) in enumerate(items):
+            cx0 = x + int(i * (cw + gap))
+            self._glass(d, [cx0, y, cx0 + int(cw), y + h], int(12 * s), GLASS2)
+            d.rectangle([cx0 + int(10 * s), y + int(8 * s), cx0 + int(10 * s) + int(18 * s),
+                         y + int(10 * s)], fill=c)
+            T.draw(d, (cx0 + int(10 * s), y + int(14 * s)), k, "tech", int(12 * s), MUTED, "la")
+            T.draw(d, (cx0 + int(10 * s), y + h - int(8 * s)), v, "display", int(18 * s), TEXT, "ld",
+                   max_w=int(cw) - int(14 * s))
+
+    def _mixer(self, d, st, x, y, w, h, now, energy, mic_on, np_name, paused):
+        s = self.s
+        self._glass(d, [x, y, x + w, y + h], int(14 * s), GLASS2)
+        self._label(d, x + int(12 * s), y + int(8 * s), "MIXER  ·  FX CHAIN", MUTED, int(13 * s))
+        T.draw(d, (x + w - int(12 * s), y + int(8 * s)),
+               st.get("mic_model") or "SM7B › Scarlett 2i2", "tech", int(13 * s), MUTED, "ra",
+               max_w=w * 0.5)
+        # fx chain chips
+        cy = y + int(30 * s)
+        cx = x + int(12 * s)
+        for i, fx in enumerate(("HPF", "GATE", "COMP", "EQ", "LIMIT")):
+            on = _wave(now, 3, i) > 0.15
+            pw, ph = self._chip(d, cx, cy, fx, GREEN if on else DIM, size=int(12 * s))
+            cx += pw + int(5 * s)
+            if cx > x + w - int(40 * s):
                 break
-            d.text((px, ly), k, font=self.f_small, fill=MUTED)
-            d.text((px + int(110 * s), ly), _fit(d, v, self.f_small, w - int(130 * s)),
-                   font=self.f_small, fill=TEXT)
-            ly += lh
-        # gain knob + live waveform
-        bot = ymax - int(14 * s)
-        top = ly + int(10 * s)
-        kr = max(8, min(int(34 * s), (bot - top) // 2 - int(10 * s)))
-        kcx, kcy = px + kr, (top + bot) // 2
-        d.ellipse([kcx - kr, kcy - kr, kcx + kr, kcy + kr], fill=(20, 24, 32),
-                  outline=(90, 100, 120), width=max(1, int(2 * s)))
-        gain = 0.72 + (0.06 * abs(((now * 0.7) % 2) - 1) if active else 0)
-        import math
-        ang = math.radians(135 + 270 * gain)
-        d.line([kcx, kcy, kcx + int(kr * 0.8 * math.cos(ang)), kcy + int(kr * 0.8 * math.sin(ang))],
-               fill=YELLOW, width=max(2, int(3 * s)))
-        d.text((kcx, bot + int(2 * s)), f"GAIN +{int(gain * 60)}dB",
-               font=_font(max(9, int(12 * s))), fill=MUTED, anchor="ma")
-        wx0, wx1 = kcx + kr + int(16 * s), x + w - int(14 * s)
-        mid = kcy
-        amp = (bot - top) // 2
-        n = max(8, (wx1 - wx0) // max(3, int(5 * s)))
-        step = (wx1 - wx0) / n
-        for i in range(n):
-            if active:
-                t = now * 6 + i * 0.55
-                lvl = 0.15 + 0.85 * abs(math.sin(t) * math.sin(t * 0.37 + i * 0.2))
-            else:
-                lvl = 0.04
-            bh = max(1, int(amp * lvl))
-            bx = int(wx0 + i * step)
-            col = GREEN if lvl < 0.7 else (YELLOW if lvl < 0.9 else RED)
-            d.rectangle([bx, mid - bh, bx + max(1, int(step) - 2), mid + bh], fill=col)
+        top = cy + int(32 * s)
+        bot = y + h - int(30 * s)
+        if bot - top < int(40 * s):
+            return
+        chans = [("MIC", RED, 1.0 if mic_on else 0.35, 0.78),
+                 ("MUSIC", CYAN, 1.0 if (np_name and not paused) else 0.4, 0.70),
+                 ("FX", VIOLET, 0.6, 0.55),
+                 ("MASTER", PINK, energy, 0.86)]
+        n = len(chans)
+        colw = w / n
+        for i, (name, col, act, fader) in enumerate(chans):
+            ccx = x + int(colw * i + colw / 2)
+            # VU meter (stereo pair)
+            for side in (-1, 1):
+                mx0 = ccx + side * int(12 * s) - int(4 * s)
+                lvl = max(0.04, min(1.0, _noise(now * 2.6, i * 3 + side))) * act
+                segs = 14
+                sh = (bot - top) / segs
+                for k in range(segs):
+                    t = k / segs
+                    lit = t < lvl
+                    c = GREEN if t < 0.6 else (YELLOW if t < 0.85 else RED)
+                    yy = bot - int((k + 1) * sh)
+                    d.rectangle([mx0, yy + 1, mx0 + int(8 * s), yy + int(sh) - 1],
+                                fill=c if lit else (34, 36, 52))
+            # fader track + cap
+            d.rounded_rectangle([ccx - 2, top, ccx + 2, bot], radius=2, fill=(50, 54, 80))
+            fy = bot - int((bot - top) * (fader + 0.03 * math.sin(now + i)))
+            fw, fh = int(16 * s), int(9 * s)
+            d.rounded_rectangle([ccx - fw, fy - fh, ccx + fw, fy + fh], radius=int(3 * s),
+                                fill=(210, 214, 230), outline=col, width=max(1, int(2 * s)))
+            d.line([ccx - fw + 3, fy, ccx + fw - 3, fy], fill=col, width=max(1, int(2 * s)))
+            T.draw(d, (ccx, bot + int(8 * s)), name, "tech", int(13 * s), col, "ma")
 
-    def _taskbar(self, d, st, y, now):
-        s = self.s
-        W = self.w
+    # ---------------------------------------------------------- ticker
+    def _ticker(self, d, st, y, now):
+        W, s = self.w, self.s
         h = self.h - y
-        d.rectangle([0, y, W, self.h], fill=(28, 28, 32))
-        q = int(h * 0.55)
-        d.rectangle([int(14 * s), y + (h - q) // 2, int(14 * s) + q, y + (h + q) // 2], fill=(58, 150, 221))
-        first = _first(_owner(st))
-        room = f"{first}'s Room" if first and first != "My" else "My Room"
-        for i, name in enumerate([room, "Voice Chat", "Mixer"]):
-            bx = int(80 * s) + i * int(190 * s)
-            d.rounded_rectangle([bx, y + int(8 * s), bx + int(176 * s), y + h - int(8 * s)],
-                                radius=int(6 * s), fill=(48, 48, 56) if i else (64, 64, 76))
-            d.text((bx + int(88 * s), y + h // 2), _fit(d, name, self.f_small, int(166 * s)),
-                   font=self.f_small, fill=TEXT, anchor="mm")
+        d.rectangle([0, y, W, self.h], fill=(8, 8, 16))
+        d.line([0, y, W, y], fill=_mix(LINE, PINK, 0.4), width=max(1, int(2 * s)))
+        # left tag
+        tagw = int(150 * s)
+        d.rectangle([0, y + 2, tagw, self.h], fill=PINK)
+        T.draw(d, (tagw // 2, y + h // 2), "LIVE FEED", "display", int(16 * s), BG0, "mm",
+               spacing=max(1, int(1 * s)))
+        # clock on the right
         dt = datetime.fromtimestamp(now, _tz())
-        d.text((W - int(18 * s), y + h // 2 - int(9 * s)), dt.strftime("%I:%M:%S %p"),
-               font=self.f_small, fill=TEXT, anchor="rm")
-        d.text((W - int(18 * s), y + h // 2 + int(12 * s)), dt.strftime("%d-%m-%Y"),
-               font=_font(max(10, int(14 * s))), fill=MUTED, anchor="rm")
+        cw = int(220 * s)
+        d.rectangle([W - cw, y + 2, W, self.h], fill=(14, 14, 26))
+        T.draw(d, (W - int(16 * s), y + h // 2 - int(1 * s)), dt.strftime("%I:%M:%S %p"),
+               "display", int(18 * s), TEXT, "rd")
+        T.draw(d, (W - int(16 * s), y + h // 2 + int(3 * s)), dt.strftime("%a, %d %b %Y"),
+               "tech", int(14 * s), MUTED, "ra")
+        # scrolling marquee
+        parts = st.get("participants") or []
+        spk = [T.clean(p.get("name", "")) for p in parts if p.get("speaking")]
+        spk = [x for x in spk if x][:4]
+        np_name = st.get("now_playing") or ""
+        items = []
+        if spk:
+            items.append("🎙 Speaking: " + ", ".join(spk))
+        if np_name:
+            items.append(("⏸ Paused: " if st.get("paused") else "♪ Now playing: ") + T.clean(np_name))
+        if st.get("mic_on"):
+            items.append("● LIVE MIC ON AIR")
+        items += [f"👥 {len(parts)} listeners tuned in", "⚡ Studio A · 48kHz/24-bit · Ultra-low latency",
+                  "★ Stay tuned — the vibe never stops"]
+        text = "     ✦     ".join(items) + "     ✦     "
+        fs = int(19 * s)
+        runs_w = T.text_width(text, "bold", fs) or 1
+        x0, x1 = tagw + int(14 * s), W - cw - int(14 * s)
+        off = (now * 90 * s) % runs_w
+        sp = T._sprite(text, "bold", fs, None, 0)
+        if sp is None:
+            return
+        mask = sp[0]
+        mh = mask.height
+        sw = max(1, x1 - x0)
+        xx = -off
+        cy = y + h // 2
+        while xx < sw:
+            # crop the visible part of the cached text mask
+            l = max(0, int(-xx))
+            r = min(mask.width, int(sw - xx))
+            if r > l:
+                d.bitmap((x0 + int(xx) + l, int(cy - mh / 2)), mask.crop((l, 0, r, mh)), fill=TEXT)
+            xx += runs_w
 
 
 def rgb_to_i420(img):
@@ -497,16 +992,23 @@ def main():
     ap.add_argument("--h", type=int, default=1080)
     ap.add_argument("--fps", type=int, default=15)
     ap.add_argument("--frames", type=int, default=0, help="test: stop after N frames")
+    ap.add_argument("--png", default="", help="test: save one rendered frame as PNG and exit")
     a = ap.parse_args()
     w = max(320, min(1920, a.w)) // 2 * 2
     h = max(240, min(1080, a.h)) // 2 * 2
     fps = max(5, min(30, a.fps))
     r = Renderer(w, h)
+    if a.png:
+        st = _read_state(a.state)
+        now = time.time()
+        st["_read_at"] = now
+        r.render(st, now, float(st.get("started") or now - 754)).save(a.png)
+        return
     out = sys.stdout.buffer
     started = time.time()
     frame, key, last_read, st = None, None, 0.0, {}
-    # re-render 4x per second for pulses/meters; resend cached frame between
-    anim_step = 0.2
+    # re-render ~6x per second for meters / vinyl / ticker; resend cached between
+    anim_step = 0.16
     t0 = time.time()
     n = 0
     while True:
@@ -522,7 +1024,12 @@ def main():
         k = (json.dumps({kk: vv for kk, vv in st.items() if kk != "_read_at"},
                         sort_keys=True, default=str), int(now / anim_step))
         if k != key:
-            frame = rgb_to_i420(r.render(st, now, started))
+            try:
+                frame = rgb_to_i420(r.render(st, now, started))
+            except Exception as exc:  # never kill the screen share on a bad frame
+                print(f"live_screen render error: {exc!r}", file=sys.stderr)
+                if frame is None:
+                    frame = rgb_to_i420(Image.new("RGB", (w, h), BG0))
             key = k
         try:
             out.write(frame)

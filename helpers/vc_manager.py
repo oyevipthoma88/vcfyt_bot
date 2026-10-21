@@ -1533,7 +1533,8 @@ class UserVC:
                 "paused": bool(st.is_paused), "loop": bool(st.loop),
                 "volume": int(getattr(st, "relay_volume", 0) or 0),
                 "boost": int(getattr(st, "boost", 0) or 0),
-                "mic_on": bool(getattr(st, "mic_enabled", False)),
+                "mic_on": bool(getattr(st, "mic_enabled", False))
+                          or self._live_mic_audio(chat_id) is not None,
             }
             try:
                 tmp = path + ".tmp"

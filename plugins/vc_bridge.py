@@ -69,7 +69,7 @@ def loud_text(c: dict, live: bool, src=None, tgt=None, boost=False, spares=1) ->
     )
 
 
-def loud_kb(live: bool = False, page: str = "main") -> K:
+def loud_kb(live: bool = False, page: str = "main", ss: bool = False) -> K:
     nav = [B("🏠 Home", callback_data="menu:home", style="primary")]
     if page == "tune":
         return K([
@@ -114,6 +114,8 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
         [B("🔴 Mic OFF", callback_data="brc:off", style="danger") if live else
          B("🟢 Mic ON", callback_data="brc:on", style="success")],
         [B("👻 Ghost Mic", callback_data="gm:live", style="primary")],
+        [B(f"🖥 Live Screen: {'ON' if ss else 'OFF'}", callback_data="brc:ss",
+           style="success" if ss else "danger")],
 
         [B("🔉 Awaaz −", callback_data="brl:drive:-2", style="primary"),
          B("🔊 Awaaz +", callback_data="brl:drive:2", style="success")],
@@ -124,13 +126,54 @@ def loud_kb(live: bool = False, page: str = "main") -> K:
     ])
 
 
+def _bridge_ss(b) -> bool:
+    """Is the live screen share ON for the Live Mic's target VC?"""
+    try:
+        return bool(b and getattr(b.relay.state(b.target_chat), "ss_on", False))
+    except Exception:
+        return False
+
+
+async def _toggle_bridge_ss(cq) -> None:
+    """Live Mic panel: Live Screen ON/OFF on the spare ID that is speaking."""
+    from helpers import vc_bridge
+    b = vc_bridge.get_bridge(cq.from_user.id)
+    if b is None:
+        await safe_answer(cq, "Pehle 🟢 Mic ON karo — phir Live Screen chalega.", show_alert=True)
+        return
+    want = not _bridge_ss(b)
+    try:
+        ok = await b.relay.set_screen_share(b.target_chat, want,
+                                            image_path="" if want else None)
+    except Exception as exc:
+        ok = False
+        try:
+            b.relay.state(b.target_chat).ss_error = str(exc)[:200]
+        except Exception:
+            pass
+    if ok:
+        await safe_answer(cq, "🖥 Live Screen " + ("ON" if want else "OFF"))
+    else:
+        err = ""
+        try:
+            err = getattr(b.relay.state(b.target_chat), "ss_error", "") or ""
+        except Exception:
+            pass
+        await safe_answer(cq, ("Live Screen nahi chal paya. " + err)[:190], show_alert=True)
+    try:
+        await open_panel_cb(cq)
+    except Exception:
+        pass
+
+
 @Client.on_callback_query(filters.regex(r"^brv:(tune|setup|more)$"))
 async def cb_mic_view(bot: Client, cq):
     from helpers import vc_bridge
     await safe_answer(cq)
     text, _ = await panel(cq.from_user.id)
-    live = vc_bridge.get_bridge(cq.from_user.id) is not None
-    await edit_screen(cq.message, text, reply_markup=loud_kb(live, cq.data.split(":")[1]))
+    b = vc_bridge.get_bridge(cq.from_user.id)
+    await edit_screen(cq.message, text,
+                      reply_markup=loud_kb(b is not None, cq.data.split(":")[1], _bridge_ss(b)))
 
 
 _STEP_SCREENS = {
@@ -329,7 +372,7 @@ async def panel(uid: int):
     live = b is not None
     st = b.status() if b else {}
     return (loud_text(c, live, src, tgt, st.get("boost", False), st.get("spares", 1)),
-            loud_kb(live))
+            loud_kb(live, ss=_bridge_ss(b)))
 
 
 class _CbMsg:
@@ -357,6 +400,8 @@ async def open_panel_cb(cq) -> None:
 @Client.on_callback_query(filters.regex(r"^brc:"))
 async def cb_mic_control(bot: Client, cq):
     action = cq.data.split(":", 1)[1]
+    if action == "ss":
+        return await _toggle_bridge_ss(cq)
     if action not in {"on", "off", "status", "leave", "loud", "help"}:
         return await safe_answer(cq, "?")
     await safe_answer(cq, {"on": "Mic ON ho raha hai…", "off": "Mic band…",
