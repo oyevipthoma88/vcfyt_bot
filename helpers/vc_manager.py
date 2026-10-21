@@ -643,6 +643,9 @@ class UserVC:
         logger.info("Mic blink for %s s in chat %s", seconds, chat_id)
         on = False
         while loop.time() < end:
+            if _check_ghost(self, chat_id):
+                logger.info("Ghost mode ON - mic blink aborted in %s", chat_id)
+                return
             on = not on
             await self._edit_self(chat_id, muted=not on)
             await asyncio.sleep(0.05)
@@ -1051,6 +1054,9 @@ class UserVC:
             st_ret.ghost_mute = True
             st_ret.mic_blink = False
             st_ret.mic_blink_secs = 0
+            task = getattr(st_ret, "mute_task", None)
+            if task and not task.done():
+                task.cancel()
         return st_ret
 
     def set_loop(self, chat_id: int, on: bool, count: int = -1) -> "ChatState":
