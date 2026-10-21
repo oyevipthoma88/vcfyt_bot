@@ -750,12 +750,25 @@ def build_ffmpeg_filter(
         # gaps/hiss get lifted to full scale too ("khar khar" in pauses).
         "agate=threshold=0.006:ratio=9:range=0.003:attack=1:release=150:knee=2",
         "aformat=channel_layouts=stereo",
-        ("dynaudnorm=f=100:g=5:p=0.89:m=15:r=0.5:s=0" if low_lat
-         else "dynaudnorm=f=100:g=5:p=0.89:m=15:r=0.5:s=0"),
+        ("dynaudnorm=f=100:g=7:p=0.92:m=15:r=0.6:s=0" if low_lat
+         else "dynaudnorm=f=100:g=7:p=0.92:m=15:r=0.6:s=0"),
     ]
+    # SOUND UPGRADE: mud cut + deep sub/punch bass + presence/air + crisp
+    # transients + wider stereo (louder feel on phone speakers).
+    filters.append("equalizer=f=320:t=q:w=1.2:g=-2.20")
     if bass_value:
-        filters.append(f"equalizer=f=90:t=q:w=1.0:g={_db(min(4.0, bass_value * 0.08))}")
-    filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(min(3.5, 0.5 + treble_value * 0.025))}")
+        filters.append(f"equalizer=f=65:t=q:w=1.1:g={_db(min(7.0, bass_value * 0.07))}")
+        filters.append(f"equalizer=f=110:t=q:w=1.0:g={_db(min(6.0, bass_value * 0.06))}")
+    pres_gain = min(4.5, 1.0 + treble_value * 0.03)
+    air_gain = min(3.5, treble_value * 0.025)
+    filters.append(f"equalizer=f=3400:t=q:w=1.1:g={_db(pres_gain)}")
+    filters.append(f"equalizer=f=6000:t=q:w=1.3:g={_db(pres_gain * 0.75)}")
+    if air_gain > 0:
+        filters.append(f"highshelf=f=10500:g={_db(air_gain)}")
+    if _has_filter("crystalizer"):
+        filters.append("crystalizer=i=1.4")
+    if _has_filter("extrastereo"):
+        filters.append("extrastereo=m=1.22")
     if use_echo and echo_value:
         d1 = 70 + echo_value * 22
         decay = min(0.45, 0.12 + echo_value * 0.03)
