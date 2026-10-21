@@ -141,35 +141,51 @@ async def _join_one(uvc, chat_id: int) -> bool:
         return False
     key = (uvc.owner_id, chat_id)
     try:
-        # Try Apex-style play(None) first
+        # 1) Try play(None) - some pytgcalls builds accept it
         try:
             await uvc.calls.play(chat_id, None)
             await uvc.calls.mute(chat_id)
             _joined[key] = True
-            logger.info("Joined %s -> %s (None stream)", uvc.owner_id, chat_id)
+            logger.info("Joined %s -> %s (None)", uvc.owner_id, chat_id)
             return True
         except Exception as e1:
-            logger.debug("play(None) failed %r — using silent file", e1)
+            logger.debug("play(None) failed: %r", e1)
 
-        # Fallback: silent opus file
-        from pytgcalls.types import MediaStream, AudioQuality
-        path = _silence_file()
-        if not path:
-            return False
-        stream = MediaStream(path, AudioQuality.LOW,
-                             video_flags=MediaStream.Flags.IGNORE)
-        await uvc.calls.play(chat_id, stream)
+        # 2) Fallback: silent SHELL stream - no ffprobe needed
+        from ntgcalls import MediaSource
+        from pytgcalls.types.raw import AudioParameters, AudioStream, Stream
+        try:
+            from pytgcalls.types import GroupCallConfig
+        except ImportError:
+            GroupCallConfig = None
+
+        cmd = (
+            "ffmpeg -hide_banner -loglevel error -nostdin -re "
+            "-f lavfi -i anullsrc=r=48000:cl=stereo "
+            "-f s16le -ar 48000 -ac 2 pipe:1"
+        )
+        audio = AudioStream(MediaSource.SHELL, cmd, AudioParameters(48000, 2))
+        stream = Stream(microphone=audio)
+        try:
+            if GroupCallConfig is not None:
+                await uvc.calls.play(
+                    chat_id, stream, GroupCallConfig(auto_start=False))
+            else:
+                await uvc.calls.play(chat_id, stream)
+        except Exception:
+            await uvc.calls.play(chat_id, stream)
         try:
             await uvc.calls.mute(chat_id)
         except Exception:
             pass
         _joined[key] = True
-        logger.info("Joined %s -> %s (silence file)", uvc.owner_id, chat_id)
+        logger.info("Joined %s -> %s (silent shell)", uvc.owner_id, chat_id)
         return True
     except Exception as exc:
         logger.warning("join %s -> %s failed: %r",
                        getattr(uvc, "owner_id", "?"), chat_id, exc)
         return False
+
 
 
 async def _leave_one(uvc, chat_id: int) -> None:
