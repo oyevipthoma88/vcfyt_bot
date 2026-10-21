@@ -29,6 +29,9 @@ _state = {"targets": [], "auto": "0"}
 _joined: dict = {}
 _auto_task: Optional[asyncio.Task] = None
 _lock = asyncio.Lock()
+_join_sem = asyncio.Semaphore(2)
+_client_sem = asyncio.Semaphore(3)
+_MAX_JOIN = int(os.environ.get('VCJ_MAX_JOIN', '10'))
 _silence_path: Optional[str] = None
 
 
@@ -160,7 +163,7 @@ async def _join_one(uvc, chat_id: int) -> bool:
             GroupCallConfig = None
 
         cmd = (
-            "ffmpeg -hide_banner -loglevel error -nostdin -re "
+            "ffmpeg -hide_banner -loglevel error -nostdin -re -threads 1 "
             "-f lavfi -i anullsrc=r=48000:cl=stereo "
             "-f s16le -ar 48000 -ac 2 pipe:1"
         )
@@ -202,12 +205,19 @@ async def _join_all_target(chat_id: int) -> dict:
         res = {"joined": 0, "failed": 0, "skipped": 0, "total": 0}
         uvs = await _all_uvcs()
         res["total"] = len(uvs)
+        joined_count = 0
         for uvc in uvs:
             if (uvc.owner_id, chat_id) in _joined:
                 res["skipped"] += 1
                 continue
-            ok = await _join_one(uvc, chat_id)
+            if joined_count >= _MAX_JOIN:
+                logger.warning("VCJ_MAX_JOIN=%s reached, skipping rest", _MAX_JOIN)
+                break
+            async with _join_sem:
+                ok = await _join_one(uvc, chat_id)
             res["joined" if ok else "failed"] += 1
+            if ok:
+                joined_count += 1
             await asyncio.sleep(2.0)  # rate limit
         return res
 
