@@ -349,6 +349,7 @@ class UserVC:
         self._call_chats: Dict[int, int] = {}
 
         self._stopped_chats: set[int] = set()
+        self._ss_locks: dict[int, asyncio.Lock] = {}
         self._lock = asyncio.Lock()
         self._reconnect_lock = asyncio.Lock()
         self.live_volume = Config.LIVE_BOOST_DEFAULT
@@ -920,11 +921,15 @@ class UserVC:
         Telegram lets a user account share a *presentation* video track next to
         its mic, so the bot shares a looping PC-style mic/mixer panel.
         """
-        # Serialize toggles per chat: rapid .ss on/off spam used to run several
-        # calls.play() at once and leave the call in a broken/blank state.
-        locks = self.__dict__.setdefault("_ss_locks", {})
-        lock = locks.setdefault(chat_id, asyncio.Lock())
+        # Serialize toggles per chat
+        lock = self._ss_locks.setdefault(chat_id, asyncio.Lock())
+        if lock.locked():
+            logger.warning("SS Toggle already in progress, skipping spam.")
+            return False
+            
         async with lock:
+            # 2-second cooldown before changing SS to let FFmpeg cleanly close old stream
+            await asyncio.sleep(2.0)
             if bool(getattr(self.state(chat_id), "ss_on", False)) == bool(on) \
                     and not on:
                 return True
