@@ -175,8 +175,13 @@ class Renderer:
         d.rectangle([x0, y0, x1, y1], fill=BG_MAIN)
         
         pad = int(16*s)
+        # Add Tech Grid Lines
+        grid_col = (20, 30, 45)
+        for gx in range(x0, x1, int(40*s)): d.line([gx, y0, gx, y1], fill=grid_col, width=1)
+        for gy in range(y0, y1, int(40*s)): d.line([x0, gy, x1, gy], fill=grid_col, width=1)
+        
         # Top Mini-Bar
-        d.rounded_rectangle([x0+pad, y0+pad, x1-pad, y0+pad+int(36*s)], radius=int(6*s), fill=BG_PANEL, outline=(30,45,60))
+        d.rounded_rectangle([x0+pad, y0+pad, x1-pad, y0+pad+int(36*s)], radius=int(6*s), fill=BG_PANEL, outline=(0,220,255))
         parts = list(st.get("participants") or [])
         d.text((x0+pad+int(16*s), y0+pad+int(18*s)), f"{len(parts)} / 100  •  Voice Chat", font=self.f_sub, fill=TEXT, anchor="lm")
         
@@ -202,16 +207,18 @@ class Renderer:
         speaking = bool(p.get("speaking"))
         muted = bool(p.get("muted"))
         
-        # Tile card
-        d.rounded_rectangle([x, y, x+w, y+h], radius=int(12*s), fill=TILE_BG, outline=(30, 45, 60), width=1)
+        # Tile card (Cyberpunk Glow)
+        d.rounded_rectangle([x, y, x+w, y+h], radius=int(12*s), fill=TILE_BG)
+        border_col = CYAN if speaking else (60, 80, 110)
+        d.rounded_rectangle([x, y, x+w, y+h], radius=int(12*s), outline=border_col, width=max(2, int(2*s)))
         if speaking:
-            d.rounded_rectangle([x-1, y-1, x+w+1, y+h+1], radius=int(12*s), outline=CYAN, width=max(2, int(2*s)))
+            d.rounded_rectangle([x-2, y-2, x+w+2, y+h+2], radius=int(12*s), outline=CYAN, width=2)
             
-        strip_h = int(45*s)
+        strip_h = int(40*s)
         d.rounded_rectangle([x, y+h-strip_h, x+w, y+h], radius=int(12*s), fill=(12, 18, 28))
         d.rectangle([x, y+h-strip_h, x+w, y+h-strip_h+int(12*s)], fill=(12, 18, 28))
         
-        ar = int(min(w, h-strip_h) * 0.3)
+        ar = int(min(w, h-strip_h) * 0.22)
         cx, cy = x+w//2, y+(h-strip_h)//2
         
         name = _sanitize_name(p.get("name") or "User")
@@ -250,8 +257,8 @@ class Renderer:
         y = y0 + pad
         
         # Header
-        d.text((x0+pad, y), "🎙 LIVE MIC", font=self.f_title, fill=CYAN, anchor="la")
-        d.text((x1-pad, y), "Powered by You", font=self.f_sub, fill=MUTED, anchor="ra")
+        d.rounded_rectangle([x0+pad, y, x1-pad, y+int(30*s)], radius=int(8*s), fill=(20, 30, 45), outline=PINK, width=2)
+        d.text((cx, y+int(15*s)), "LIVE MIC SYSTEM", font=self.f_title, fill=CYAN, anchor="mm")
         d.line([x0+pad, y+int(14*s), x1-pad, y+int(14*s)], fill=(30, 45, 60), width=1)
         y += int(40*s)
         
