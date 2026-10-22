@@ -744,73 +744,34 @@ def build_ffmpeg_filter(
     # ------------------------------------------------------------------
     import math as _m
     filters = [
-        "highpass=f=45",
+        "highpass=f=50",
         "aresample=48000",
-        # Gate the noise floor BEFORE the strict-0 dBFS push, otherwise the
-        # gaps/hiss get lifted to full scale too ("khar khar" in pauses).
-        "agate=threshold=0.006:ratio=9:range=0.003:attack=1:release=150:knee=2",
         "aformat=channel_layouts=stereo",
-        ("dynaudnorm=f=150:g=15:p=0.95:m=50:r=0.5:s=0:l=1,speechnorm=e=50:r=0.0001:l=1:p=0.95" if low_lat
-         else "dynaudnorm=f=150:g=15:p=0.95:m=50:r=0.5:s=0:l=1,speechnorm=e=50:r=0.0001:l=1:p=0.95"),
+        "agate=threshold=0.003:range=0.03:ratio=2:attack=5:release=250:knee=4",
+        "dynaudnorm=f=250:g=31:p=0.97:m=120:r=0.85:s=0:l=1",
+        "speechnorm=e=50:r=0.00001:l=1:p=0.98",
+        "equalizer=f=200:t=q:w=1.0:g=-2",
+        "equalizer=f=2500:t=q:w=1.2:g=4",
+        "equalizer=f=3800:t=q:w=1.2:g=3",
+        "equalizer=f=5500:t=q:w=1.5:g=2",
     ]
-    # SOUND UPGRADE: mud cut + deep sub/punch bass + presence/air + crisp
-    # transients + wider stereo (louder feel on phone speakers).
-    filters.append("equalizer=f=320:t=q:w=1.2:g=-2.20")
-    if bass_value:
-        filters.append(f"equalizer=f=65:t=q:w=1.1:g={_db(min(7.0, bass_value * 0.07))}")
-        filters.append(f"equalizer=f=110:t=q:w=1.0:g={_db(min(6.0, bass_value * 0.06))}")
-    pres_gain = min(4.5, 1.0 + treble_value * 0.03)
-    air_gain = min(3.5, treble_value * 0.025)
-    filters.append(f"equalizer=f=3400:t=q:w=1.1:g={_db(pres_gain)}")
-    filters.append(f"equalizer=f=6000:t=q:w=1.3:g={_db(pres_gain * 0.75)}")
-    if air_gain > 0:
-        filters.append(f"highshelf=f=10500:g={_db(air_gain)}")
-    if _has_filter("crystalizer"):
-        filters.append("crystalizer=i=1.4")
-    if _has_filter("extrastereo"):
-        filters.append("extrastereo=m=1.22")
-    if use_echo and echo_value:
-        d1 = 70 + echo_value * 22
-        decay = min(0.45, 0.12 + echo_value * 0.03)
-        filters.append(f"aecho=0.9:0.7:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
     if extra_filters:
         filters.append(extra_filters)
-    # Overdrive (vol >1000 / gain >300 / boost) = a bit more density, capped
-    # so the limiter never has to eat more than ~6 dB.
     over = max(0.0, (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX))
     g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
     push = min(1.0, over * 0.6 + g_over * 0.4 + boost_value * 0.02)
-    makeup = 10 ** ((2.0 + 2.0 * push) / 20.0)
-    filters.append("acompressor=threshold=0.08:ratio=4:attack=10:release=150:"
-                   f"makeup={makeup:.2f}:knee=6")
-    # LOUD FIX: the old +2..4.5 dB drive left peaks ~-10 dBFS, so played
-    # audio sounded "normal" (limiter never engaged).  Drive into the
-    # limiter so peaks sit at ~-1 dBTP and RMS lands near -9 dBFS.
-    filters.append(f"volume={_db(11.0 + 4.0 * push)}dB")
-    # LOUD ROOT FIX v2: the drive above already pushes the signal past
-    # 0 dBFS, but the old slow limiter (attack 5 / release 80) "pumped" it
-    # back down to ~-10 dBFS RMS = "normal" awaaz.  A tanh soft-clipper rounds
-    # the peaks smoothly and a fast limiter holds -0.5 dBTP, so the body of
-    # the sound stays at ~-4 dBFS RMS (louder than the live mic) without
-    # hard-clipping / khar-khar.
-    # MAX LOUD v3 (user: "pehle pura 0 dBFS tak jata tha, ab normal"):
-    # ceiling -0.5 dBTP (0.94) + 5 dB push kept peaks/body ~1-2 dB under the
-    # old full-scale wall.  Now +8 dB into tanh (+ cubic fallback when the
-    # ffmpeg build lacks asoftclip) and a fast brick-wall at 0 dBFS (0.999),
-    # so peaks sit on full scale and RMS rides ~-2.5 dBFS.
-    filters.append(f"volume={_db(_env_db('PLAYBACK_PUSH_DB', 16.0, high=24.0, low=0.0))}dB")
-    if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=tanh:threshold=1:output=1")
-    # STRICT 0 dBFS: second saturate + brick-wall pass so the body of every
-    # track (not only the peaks) rides at Telegram's full scale.
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:"
-                   "release=15:level=false")
-    filters.append("volume=4dB")
-    if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=tanh:threshold=1:output=1")
-    filters.append("volume=1dB")  # tanh tops out ~-0.8 dB -> lift to full scale
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:"
-                   "release=8:level=false")
+    makeup = 10 ** ((2.5 + 2.5 * push) / 20.0)
+    filters.append("acompressor=threshold=0.04:ratio=10:attack=5:release=100:"
+                   f"makeup={makeup:.2f}:knee=4")
+    filters.append("acompressor=threshold=0.015:ratio=20:attack=8:release=200:"
+                   "makeup=1.5:knee=6")
+    try:
+        _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 0)))
+    except ValueError:
+        _extra = 0.0
+    filters.append(f"volume={_db(5.0 + 3.0 * push + _extra)}dB")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=5:"
+                   "release=60:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
                        f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
