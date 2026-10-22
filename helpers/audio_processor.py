@@ -466,6 +466,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False))
 
 
+# MAX LOUDNESS V3
 def build_ffmpeg_filter(
     volume: int = None,
     bass: int = None,
@@ -564,10 +565,10 @@ def build_ffmpeg_filter(
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
             # ULTIMATE NUCLEAR LOUDNESS V2 (Multiband Compression + Saturation)
     filters.append("highpass=f=40")
-    filters.append("equalizer=f=100:t=q:w=1.0:g=20")
-    filters.append("equalizer=f=3000:t=q:w=1.0:g=20")
-    filters.append("equalizer=f=4000:t=q:w=1.0:g=12")  # Ear sensitivity boost
-    filters.append("equalizer=f=5000:t=q:w=1.0:g=12")  # Clarity boost
+    filters.append("equalizer=f=100:t=q:w=1.0:g=25")
+    filters.append("equalizer=f=3000:t=q:w=1.0:g=25")
+    filters.append("equalizer=f=4000:t=q:w=1.0:g=15")  # Ear sensitivity boost
+    filters.append("equalizer=f=5000:t=q:w=1.0:g=15")  # Clarity boost
     filters.append("mcompand=0.005,0.1|0.003,0.05|0.000625,0.0125|0.0001,0.025|0,0.025:6:-47/-40,-34/-34,-17/-33,0/-30")
     filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
     filters.append("speechnorm=e=50:r=0.0001:l=1")
@@ -575,7 +576,7 @@ def build_ffmpeg_filter(
     filters.append("acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=6")
     filters.append("acompressor=threshold=0.5:ratio=10:attack=1:release=50:makeup=3")
     if _has_filter("loudnorm"):
-        filters.append("loudnorm=I=-5:LRA=1:TP=0.0")
+        filters.append("loudnorm=I=-4:LRA=1:TP=0.0")
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:oversample=4:param=3.0")
     filters.append("acompressor=threshold=0.01:ratio=20:attack=0.1:release=20:makeup=4")
