@@ -2022,7 +2022,7 @@ async def cmd_spare(bot: Client, msg: Message):
             "👋 <b>Spare ID VC se nikal gayi</b> aur live mic band ho gaya: "
             f"<code>{cid}</code>")
         return
-    if is_active(uid):
+    if is_active(msg.from_user.id):
         await msg.reply_text("Live mic chal raha hai — spare ID pehle se VC me hai. Pehle <code>.mic off</code>.")
         return
     if action in {"join", "sit"}:
