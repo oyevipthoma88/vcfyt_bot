@@ -1535,8 +1535,8 @@ class UserVC:
                 "me_name": me_name, "me_user": me_user, "me_photo": me_photo,
                 "position": round(last_pos, 1),
                 "duration": round(_DURATIONS.get(st.current_file, 0.0) if st.current_file else 0.0, 1),
-                "now_playing": st.source_name if st.is_playing else "",
-                "paused": bool(st.is_paused), "loop": bool(st.loop),
+                "now_playing": "",  # FORCE live-mic mode (hide track info)
+                "paused": False, "loop": False,
                 "volume": int(getattr(st, "relay_volume", 0) or 0),
                 "boost": int(getattr(st, "boost", 0) or 0),
                 "mic_on": bool(getattr(st, "mic_enabled", False))
