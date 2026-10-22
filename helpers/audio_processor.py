@@ -561,32 +561,45 @@ def build_ffmpeg_filter(
         # and NO mic audio reached the VC.  New chain: every filter valid on
         # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
-        filters = [
+            # MAX LOUDNESS PUSH ENGINE
+    filters = [
         "highpass=f=60",
         "equalizer=f=80:t=q:w=1.0:g=8",      # Heavy Bass
         "equalizer=f=3000:t=q:w=1.2:g=8",    # Crystal Treble
         "equalizer=f=10000:t=q:w=1.0:g=5",   # Air/Presence
-        "acompressor=threshold=0.01:ratio=20:attack=1:release=50:makeup=15", # Extreme Compression
+        "acompressor=threshold=0.005:ratio=20:attack=1:release=50:makeup=20", # Extreme Compression
     ]
+    if bass_value:
+        filters.append(f"equalizer=f=90:t=q:w=1.0:g={_db(min(4.0, bass_value * 0.08))}")
+    filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(min(3.5, 0.5 + treble_value * 0.025))}")
+    if use_echo and echo_value:
+        d1 = 70 + echo_value * 22
+        decay = min(0.45, 0.12 + echo_value * 0.03)
+        filters.append(f"aecho=0.9:0.7:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
     if extra_filters:
         filters.append(extra_filters)
-        
+
     try:
         _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 6)))
     except ValueError:
         _extra = 6.0
+
+    # MAX LOUDNESS PUSH (+32dB Base + Extra + Slider Boost)
+    vol_boost = 0.0
+    if vol > VOLUME_CLEAN_MAX:
+        vol_boost = 12.0 * (vol - VOLUME_CLEAN_MAX) / (VOLUME_MAX - VOLUME_CLEAN_MAX)
         
-    # MAX LOUDNESS PUSH
-    filters.append(f"volume={_db(20.0 + _extra)}dB")
-    
+    filters.append(f"volume={_db(32.0 + _extra + vol_boost)}dB")
+
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:oversample=2")
-        
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=1:release=50:level=false")
-    
+
+    # Limiter at 0 dBFS (0.998 = -0.02dBFS)
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.998:attack=1:release=30:level=false")
+
     if vol < VOLUME_CLEAN_MAX:
-        filters.append("volume=0" if vol <= 0 else
-                       f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
+        filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
+        
     parts = [SYNC_RESAMPLE if _ARESAMPLE_RE.fullmatch(x) else x for x in filters]
     if _has_filter("asetnsamples"):
         parts.append(f"asetnsamples=n={AUDIO_FRAME_SAMPLES}:p=0")
