@@ -395,9 +395,9 @@ class Renderer:
         base = np.zeros((H, W, 3), dtype=np.float32)
         for i in range(3):
             base[..., i] = BG0[i] + (BG1[i] - BG0[i]) * (y * 0.7 + x * 0.3)
-        for cx, cy, r, col, a in ((0.12, 0.12, 0.40, PINK, 0.16),
-                                  (0.88, 0.20, 0.35, CYAN, 0.11),
-                                  (0.55, 0.92, 0.48, VIOLET, 0.14)):
+        for cx, cy, r, col, a in ((0.08, 0.18, 0.42, CYAN, 0.08),
+                                  (0.92, 0.78, 0.38, CYAN, 0.05),
+                                  (0.52, 0.04, 0.32, GREEN, 0.035)):
             d2 = ((x - cx) * W / H) ** 2 + (y - cy) ** 2
             g = np.exp(-d2 / (r * r * 0.35)) * a
             for i in range(3):
@@ -407,7 +407,7 @@ class Renderer:
         img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), "RGB")
         d = ImageDraw.Draw(img)
         step = max(16, int(44 * s))
-        gc = (22, 22, 42)
+        gc = (24, 31, 46)
         for gx in range(0, W, step):
             d.line([gx, 0, gx, H], fill=gc, width=1)
         for gy in range(0, H, step):
@@ -466,18 +466,9 @@ class Renderer:
         self._photo_ops = []
         self._glow_ops = []
         d = ImageDraw.Draw(img)
-        top_h = int(64 * s)
-        tick_h = int(48 * s)
-        pad = int(20 * s)
-        nav_w = int(178 * s)
-        side_w = int(W * 0.34)
-        self._topbar(d, st, now, started, top_h)
-        self._sidebar(d, st, nav_w, top_h, H - tick_h)
-        gx0, gy0 = nav_w + pad, top_h + pad
-        gx1, gy1 = W - side_w - pad, H - tick_h - pad
-        self._grid(d, st, gx0, gy0, gx1, gy1, now)
-        self._session_panel(d, st, W - side_w, top_h + pad, W - pad, H - tick_h - pad, now)
-        self._ticker(d, st, H - tick_h, now)
+        split = W // 2
+        self._telegram_panel(d, st, 0, 0, split, H, now)
+        self._mic_panel(d, st, split, 0, W, H, now)
         rgba = img.convert("RGBA")
         for (gim, gpad), gx, gy in self._glow_ops:
             rgba.alpha_composite(gim, (max(0, int(gx - gpad)), max(0, int(gy - gpad))))
@@ -486,6 +477,119 @@ class Renderer:
             if ph is not None:
                 rgba.alpha_composite(ph, (px, py))
         return rgba.convert("RGB")
+
+    def _avatar_draw(self, d, st, participant, cx, cy, radius, now, ring=CYAN):
+        name = str((participant or {}).get("name") or _owner(st) or "User")
+        photo = (participant or {}).get("photo") or (st.get("me_photo") if (participant or {}).get("is_me") else "")
+        active = bool((participant or {}).get("speaking")) and not bool((participant or {}).get("muted"))
+        if active:
+            ring = GREEN
+            for k in range(2):
+                rr = radius + int((7 + k * 7) * _wave(now, 4.5, k))
+                d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], outline=_mix(ring, BG0, 0.2), width=max(1, int(2 * self.s)))
+        d.ellipse([cx - radius - 3, cy - radius - 3, cx + radius + 3, cy + radius + 3], fill=ring)
+        d.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=(29, 58, 82))
+        if photo and os.path.exists(photo):
+            self._photo_ops.append((photo, cx - radius, cy - radius, radius * 2, active))
+        else:
+            T.draw(d, (cx, cy), _initials(name), "display", max(12, int(radius * 0.68)), TEXT, "mm")
+        return active
+
+    def _telegram_panel(self, d, st, x0, y0, x1, y1, now):
+        s = self.s
+        nav = int(118 * s)
+        header = int(62 * s)
+        d.rectangle([x0, y0, x1, y1], fill=(10, 17, 27))
+        d.rectangle([x0, y0, x1, header], fill=(16, 27, 39))
+        d.line([x0, header, x1, header], fill=(36, 75, 101), width=max(1, int(s)))
+        T.draw(d, (x0 + int(20 * s), header // 2), "Telegram", "bold", int(22 * s), TEXT, "lm")
+        T.draw(d, (x1 - int(20 * s), header // 2), "⋮", "bold", int(26 * s), MUTED, "rm")
+        d.rectangle([x0, header, x0 + nav, y1], fill=(9, 15, 24))
+        d.line([x0 + nav, header, x0 + nav, y1], fill=(31, 54, 70), width=max(1, int(s)))
+        owner = _owner(st)
+        me = {"name": owner, "is_me": True, "photo": st.get("me_photo", ""), "speaking": bool(st.get("mic_on"))}
+        self._avatar_draw(d, st, me, x0 + nav // 2, header + int(43 * s), int(25 * s), now)
+        T.draw(d, (x0 + nav // 2, header + int(82 * s)), "You", "ui", int(13 * s), TEXT, "ma")
+        for i, label in enumerate(("Chats", "Calls", "Contacts")):
+            yy = header + int((120 + i * 48) * s)
+            active = label == "Calls"
+            if active:
+                d.rounded_rectangle([x0 + int(8 * s), yy - int(17 * s), x0 + nav - int(8 * s), yy + int(17 * s)], radius=int(7 * s), fill=(22, 66, 94))
+            T.draw(d, (x0 + int(18 * s), yy), label, "ui", int(14 * s), CYAN if active else MUTED, "lm")
+        body_x = x0 + nav
+        d.rectangle([body_x, header, x1, y1], fill=(13, 22, 32))
+        pad = int(20 * s)
+        T.draw(d, (body_x + pad, header + int(25 * s)), "Voice chat", "bold", int(23 * s), TEXT, "la")
+        T.draw(d, (body_x + pad, header + int(51 * s)), f"{len(st.get('participants') or [])} members", "ui", int(13 * s), MUTED, "la")
+        d.ellipse([x1 - int(54 * s), header + int(20 * s), x1 - int(44 * s), header + int(30 * s)], fill=GREEN)
+        T.draw(d, (x1 - int(32 * s), header + int(25 * s)), "Live", "ui", int(13 * s), GREEN, "ra")
+        parts = list(st.get("participants") or [])[:8]
+        if not parts:
+            parts = [me]
+        grid_y = header + int(78 * s)
+        cols = 2
+        gap = int(10 * s)
+        tw = (x1 - body_x - 2 * pad - gap) // cols
+        th = int(142 * s)
+        for i, p in enumerate(parts):
+            row, col = divmod(i, cols)
+            x = body_x + pad + col * (tw + gap)
+            y = grid_y + row * (th + gap)
+            if y + th > y1 - int(35 * s):
+                break
+            muted = bool(p.get("muted"))
+            speaking = bool(p.get("speaking")) and not muted
+            self._glass(d, [x, y, x + tw, y + th], int(11 * s), (18, 31, 43), GREEN if speaking else (43, 68, 84), max(1, int(2 * s) if speaking else int(s)))
+            self._avatar_draw(d, st, p, x + int(43 * s), y + int(50 * s), int(28 * s), now)
+            name = str(p.get("name") or "User")
+            T.draw(d, (x + int(82 * s), y + int(35 * s)), name, "bold", int(14 * s), TEXT, "la", max_w=tw - int(94 * s))
+            T.draw(d, (x + int(82 * s), y + int(59 * s)), "Speaking" if speaking else ("Muted" if muted else "Listening"), "ui", int(12 * s), GREEN if speaking else (RED if muted else MUTED), "la")
+            d.ellipse([x + int(12 * s), y + th - int(24 * s), x + int(20 * s), y + th - int(16 * s)], fill=GREEN if speaking else (RED if muted else DIM))
+        T.draw(d, (body_x + pad, y1 - int(20 * s)), "Voice chat", "ui", int(12 * s), DIM, "la")
+
+    def _mic_panel(self, d, st, x0, y0, x1, y1, now):
+        s = self.s
+        d.rectangle([x0, y0, x1, y1], fill=(9, 15, 23))
+        d.line([x0, y0, x0, y1], fill=(53, 101, 127), width=max(1, int(2 * s)))
+        pad = int(24 * s)
+        T.draw(d, (x0 + pad, int(36 * s)), "Live microphone", "bold", int(24 * s), TEXT, "lm")
+        status = bool(st.get("mic_on"))
+        d.ellipse([x1 - int(94 * s), int(28 * s), x1 - int(82 * s), int(40 * s)], fill=GREEN if status else RED)
+        T.draw(d, (x1 - pad, int(34 * s)), "Connected" if status else "Muted", "ui", int(13 * s), GREEN if status else MUTED, "ra")
+        card_top, card_bottom = int(78 * s), int(405 * s)
+        self._glass(d, [x0 + pad, card_top, x1 - pad, card_bottom], int(16 * s), (15, 27, 38), (30, 112, 147))
+        owner = _owner(st)
+        me = {"name": owner, "is_me": True, "photo": st.get("me_photo", ""), "speaking": status}
+        cx, cy = (x0 + x1) // 2, int(220 * s)
+        self._avatar_draw(d, st, me, cx, cy, int(72 * s), now, CYAN)
+        T.draw(d, (cx, int(315 * s)), owner, "bold", int(20 * s), TEXT, "ma", max_w=x1 - x0 - 2 * pad)
+        T.draw(d, (cx, int(342 * s)), "Speaking" if status else "Microphone is off", "ui", int(14 * s), GREEN if status else MUTED, "ma")
+        base_y = int(382 * s)
+        for k in range(42):
+            lvl = (0.15 + 0.85 * _noise(now * 2.5, k)) if status else 0.06
+            bh = max(2, int(25 * s * lvl))
+            bx = x0 + pad + int(k * (x1 - x0 - 2 * pad) / 42)
+            d.rounded_rectangle([bx, base_y - bh, bx + int(3 * s), base_y], radius=int(s), fill=_mix(CYAN, GREEN, k / 41) if status else DIM)
+        controls_y = card_bottom + int(20 * s)
+        labels = (("Mic", status), ("Mute", not status), ("Hand raise", bool(st.get("hand"))), ("Settings", False))
+        gap = int(8 * s)
+        bw = (x1 - x0 - 2 * pad - 3 * gap) // 4
+        for i, (label, active) in enumerate(labels):
+            bx = x0 + pad + i * (bw + gap)
+            self._glass(d, [bx, controls_y, bx + bw, controls_y + int(62 * s)], int(9 * s), (20, 38, 51), CYAN if active else (45, 67, 79), max(1, int(2 * s) if active else int(s)))
+            T.draw(d, (bx + bw // 2, controls_y + int(24 * s)), label, "ui", int(13 * s), CYAN if active else TEXT, "mm")
+            T.draw(d, (bx + bw // 2, controls_y + int(46 * s)), "ON" if active else "OFF", "tech", int(10 * s), GREEN if active else MUTED, "mm")
+        meter_y = controls_y + int(88 * s)
+        for i, (label, value, col) in enumerate((("Voice volume", 0.84, CYAN), ("Monitor", 0.62, GREEN))):
+            yy = meter_y + i * int(56 * s)
+            T.draw(d, (x0 + pad, yy), label, "ui", int(14 * s), TEXT, "la")
+            x_start, x_end = x0 + int(145 * s), x1 - pad
+            d.rounded_rectangle([x_start, yy - int(3 * s), x_end, yy + int(3 * s)], radius=int(3 * s), fill=(36, 53, 67))
+            fx = x_start + int((x_end - x_start) * value)
+            d.rounded_rectangle([x_start, yy - int(3 * s), fx, yy + int(3 * s)], radius=int(3 * s), fill=col)
+            d.ellipse([fx - int(7 * s), yy - int(7 * s), fx + int(7 * s), yy + int(7 * s)], fill=TEXT, outline=col, width=max(1, int(2 * s)))
+            T.draw(d, (x1 - pad, yy), f"{int(value * 100)}%", "tech", int(12 * s), MUTED, "ra")
+        T.draw(d, (x0 + pad, y1 - int(22 * s)), "Microphone active" if status else "Microphone muted", "ui", int(13 * s), GREEN if status else MUTED, "la")
 
     def _topbar(self, d, st, now, started, h):
         W, s = self.w, self.s
