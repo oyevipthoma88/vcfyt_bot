@@ -996,11 +996,16 @@ class UserVC:
                 finally:
                     _KEEP_AUDIO_OPEN.reset(token)
             if source:
-                # Re-attach audio + screen in one stream, continuing from the
-                # same spot instead of restarting the recording.
+                # Re-attach audio + screen in one stream
                 pos = await self._current_position(chat_id)
-                await self._stream(chat_id, source, st.source_name, fast=True,
-                                   start_at=pos)
+                try:
+                    await self._stream(chat_id, source, st.source_name, fast=True,
+                                       start_at=pos)
+                except Exception as e:
+                    logger.warning("SS attach failed, reverting to audio-only: %r", e)
+                    st.ss_on = False
+                    await self._stream(chat_id, source, st.source_name, fast=True, start_at=pos)
+                    return False
                 if on and not st.ss_on:
                     # _stream fell back to audio-only: presentation refused.
                     st.ss_error = st.ss_error or (
