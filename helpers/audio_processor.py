@@ -563,8 +563,10 @@ def build_ffmpeg_filter(
         # and NO mic audio reached the VC.  New chain: every filter valid on
         # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
-            # ULTIMATE NUCLEAR LOUDNESS V2 (Multiband Compression + Saturation)
-    filters.append("highpass=f=40")
+                filters = []
+    # ULTIMATE NUCLEAR LOUDNESS V2 (Multiband Compression + Saturation)
+        filters = []
+filters.append("highpass=f=40")
     filters.append("equalizer=f=100:t=q:w=1.0:g=25")
     filters.append("equalizer=f=3000:t=q:w=1.0:g=25")
     filters.append("equalizer=f=4000:t=q:w=1.0:g=15")  # Ear sensitivity boost
