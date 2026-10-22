@@ -485,35 +485,28 @@ def build_ffmpeg_filter(
     ) -> str:
         if live:
             return build_live_mic_filter()
-            
-        low_lat = bool(stream)
+
         if volume is None: volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
         vol = clamp(volume, VOLUME_MIN, VOLUME_MAX)
-        
-        # NUCLEAR LOUDNESS V5 (Extremely Loud & Safe)
+
+        # CORRECT ORDER: Subtractive -> Dynamics -> Volume -> Saturation -> Limiter
         filters = [
             "highpass=f=50",
-            "equalizer=f=100:t=q:w=1.0:g=25",
-            "equalizer=f=3000:t=q:w=1.0:g=25",
-            "equalizer=f=4000:t=q:w=1.0:g=15",
-            "equalizer=f=5000:t=q:w=1.0:g=15",
-            f"volume={_db(40.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
+            "equalizer=f=100:t=q:w=1.0:g=20",
+            "equalizer=f=3000:t=q:w=1.0:g=20",
             "acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4",
+            "dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5",
+            f"volume={_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
         ]
-        
-        if extra_filters: 
+
+        if extra_filters:
             filters.append(extra_filters)
-        
-        if _has_filter("loudnorm"):
-            filters.append("loudnorm=I=-5:LRA=1:TP=-1.5")
-            
-        filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
-        
+
         if _has_filter("asoftclip"):
             filters.append("asoftclip=type=tanh:oversample=4")
-            
+
         filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=1:release=30:level=false")
-        
+
         return ",".join(filters)
 
 async def process_audio_to_file(
