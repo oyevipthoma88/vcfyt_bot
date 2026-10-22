@@ -160,14 +160,22 @@ def B(text: str, callback_data: str = None, style: str = None,
 
             style = "primary"
 
+    if isinstance(style, ButtonStyle):
+        style = style.value
     if icon_custom_emoji_id is None:
         from helpers.custom_emoji import button_icon
         icon_custom_emoji_id = button_icon(text)
-    if isinstance(style, ButtonStyle):
-        style = style.value
     if style:
         try:
-            button = _InlineKeyboardButton(text, style=style, **params)
+            display_text = text
+            if text[:1].isascii() and not text.startswith(tuple(_STYLE_EMOJI.values())):
+                display_text = f"{_STYLE_EMOJI.get(style, '')} {text}".strip()
+            button = _InlineKeyboardButton(display_text, style=style, **params)
+            if not icon_custom_emoji_id:
+                try:
+                    button.text = display_text
+                except (AttributeError, TypeError):
+                    pass
             if icon_custom_emoji_id:
                 button._bot_api_icon = icon_custom_emoji_id
                 # Premium icon buttons are sent through the Bot API, which
@@ -181,7 +189,7 @@ def B(text: str, callback_data: str = None, style: str = None,
     emoji = _STYLE_EMOJI.get(style, "")
     # Text pehle se emoji se shuru ho (ya premium icon ho) to prefix mat
     # chipkao — warna "✅ 🎤" double emoji aata tha aur premium icon toot-ta tha.
-    if icon_custom_emoji_id or (text[:1] and not text[:1].isascii()):
+    if text[:1] and not text[:1].isascii():
         emoji = ""
     if emoji and not text.startswith(tuple(_STYLE_EMOJI.values())):
         text = f"{emoji} {text}"
