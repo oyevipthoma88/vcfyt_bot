@@ -3,6 +3,7 @@ import asyncio
 import inspect
 import logging
 import os
+import shutil
 import random
 import time
 from collections import OrderedDict
@@ -1600,7 +1601,7 @@ class UserVC:
     def _screen_source(self, st, size=None, force_mode=None):
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
-        import shlex, sys as _sys
+        import shlex
         
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
         if chat_id is None: raise ValueError("No active chat")
@@ -1609,11 +1610,7 @@ class UserVC:
         if not task or task.done():
             st.ss_task = asyncio.create_task(self._ss_live_loop(chat_id))
             
-        # Absolute path to python3 in venv
-        py_bin = "/root/vcfyt_bot/venv/bin/python3"
-        if not os.path.exists(py_bin):
-            py_bin = _sys.executable or "python3"
-            
+        py_bin = shutil.which("python3") or "python3"
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_live_screen.py")
         
         ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
@@ -1626,10 +1623,7 @@ class UserVC:
             py_bin, script, "--state", self._ss_state_path(chat_id),
             "--w", str(ss_w), "--h", str(ss_h), "--fps", str(ss_fps)])
             
-        return VideoStream(
-            MediaSource.SHELL, cmd,
-            VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False),
-        )
+        return VideoStream(MediaSource.SHELL, cmd, VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False))
 
     def _raw_stream(self, st, audio):
         from pytgcalls.types.raw import Stream

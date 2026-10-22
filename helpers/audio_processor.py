@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 import re
 import random
 import tempfile
@@ -592,7 +593,7 @@ def build_stream_command(
         boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
         extra_filters=extra_filters, stream=True,
     ))
-    cmd = ["/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
            "-threads", "1"]
     if loop:
@@ -708,7 +709,7 @@ def build_fake_screen_command(
 
     # -re: produce frames in real time so the clock/LIVE timer/meters move
     # at true speed instead of racing ahead in the pipe buffer.
-    cmd = ["/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-threads", "1", "-re"]
     if os.path.exists(img):
         # BLUR FIX: pehle har frame par JPEG decode + lanczos scale + unsharp
