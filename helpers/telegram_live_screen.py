@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Telegram Desktop-style LIVE voice chat screen -> raw I420 to stdout."""
+"""Premium Cyberpunk Neon UI for Telegram VC."""
 import argparse, json, math, os, re, sys, time
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -7,16 +7,17 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 FDIR = os.path.join(os.path.dirname(HERE), "assets", "fonts")
 
-BG      = (23, 33, 43)       # Telegram Desktop Dark BG
-BG2     = (14, 22, 33)       # Bottom Bar
-TILE    = (28, 39, 51)       # Card BG
-TILE2   = (18, 28, 40)       # Name Strip
-TEXT    = (255, 255, 255)
-MUTED   = (112, 132, 153)
-GREEN   = (79, 174, 78)
-RED     = (229, 57, 53)
-BLUE    = (51, 144, 236)
-YELLOW  = (255, 210, 63)
+# Colors based on hint
+BG_DARK   = (8, 12, 20)
+PANEL     = (14, 20, 32)
+TILE_BG   = (16, 24, 38)
+TEXT      = (255, 255, 255)
+MUTED     = (120, 140, 165)
+NEON_CYAN = (0, 245, 255)
+NEON_PINK = (255, 20, 120)
+NEON_GRN  = (57, 255, 20)
+NEON_YEL  = (255, 210, 63)
+NEON_PURP = (180, 50, 255)
 
 AV_COLORS = [(231,76,60),(52,152,219),(46,204,113),(155,89,182),(241,196,15),(26,188,156),(230,126,34),(236,64,122)]
 _FONT_CACHE = {}
@@ -41,8 +42,7 @@ def _font(size, bold=False):
 def _sanitize_name(name):
     name = str(name or "User")
     clean = re.sub(r'[^a-zA-Z0-9\s]', '', name).strip()
-    if len(clean) < 2:
-        clean = re.sub(r'[^a-zA-Z0-9]', '', name)[:2].upper()
+    if len(clean) < 2: clean = re.sub(r'[^a-zA-Z0-9]', '', name)[:2].upper()
     return (clean or "User")[:16]
 
 def _tz():
@@ -75,11 +75,12 @@ class Renderer:
         self._av = {}
         self._ops = []
         s = self.s
-        self.f_title = _font(18*s, True)
-        self.f_sub   = _font(12*s)
+        self.f_logo  = _font(22*s, True)
+        self.f_title = _font(16*s, True)
+        self.f_sub   = _font(11*s)
         self.f_name  = _font(14*s, True)
         self.f_clock = _font(22*s, True)
-        self.f_date  = _font(10*s)
+        self.f_small = _font(10*s)
 
     def _avatar(self, path, size):
         try: mt = os.path.getmtime(path)
@@ -101,15 +102,23 @@ class Renderer:
 
     def render(self, st, now, started):
         W, H, s = self.w, self.h, self.s
-        img = Image.new("RGB", (W, H), BG)
+        img = Image.new("RGB", (W, H), BG_DARK)
         d = ImageDraw.Draw(img)
         self._ops = []
-        hh = int(60*s); bh = int(64*s)
-        side_w = int(W * 0.35)
-        self._header(d, st, now, started, hh)
-        self._grid(d, st, now, 0, hh, W-side_w, H-bh)
-        self._sidebar(d, st, now, W-side_w, hh, W, H-bh)
-        self._bottom(d, st, now, H-bh, H)
+        
+        # Layout ratios (approx hint image)
+        header_h = int(64*s)
+        bottom_h = int(56*s)
+        left_w = int(W * 0.16)
+        right_w = int(W * 0.35)
+        center_w = W - left_w - right_w
+        
+        self._header(d, st, now, started, header_h)
+        self._left_sidebar(d, st, now, left_w, header_h, H - bottom_h)
+        self._center_grid(d, st, now, left_w, header_h, left_w + center_w, H - bottom_h)
+        self._right_panel(d, st, now, W - right_w, header_h, W, H - bottom_h)
+        self._bottom_bar(d, st, now, H - bottom_h, H)
+        
         rgba = img.convert("RGBA")
         for path, x, y, size in self._ops:
             ph = self._avatar(path, size)
@@ -118,146 +127,216 @@ class Renderer:
 
     def _header(self, d, st, now, started, h):
         W, s = self.w, self.s
-        d.rectangle([0, 0, W, h], fill=BG)
-        d.line([0, h-1, W, h-1], fill=(16, 25, 33))
-        pad = int(16*s); r = int(18*s)
-        cx, cy = pad+r, h//2
-        d.ellipse([cx-r, cy-r, cx+r, cy+r], fill=BLUE)
-        tx = cx + r + int(14*s)
-        me_name = _sanitize_name(st.get("me_name") or "My Studio")
-        d.text((tx, h//2-int(8*s)), f"{me_name}'s Studio", font=self.f_title, fill=TEXT, anchor="ld")
-        parts = len(st.get("participants") or [])
-        d.text((tx, h//2+int(10*s)), f"Voice Chat · {parts} connected", font=self.f_sub, fill=MUTED, anchor="la")
+        d.rectangle([0, 0, W, h], fill=PANEL)
+        d.line([0, h-1, W, h-1], fill=(30, 40, 60), width=1)
         
+        # Logo & Title
+        pad = int(16*s)
+        cx = pad + int(16*s)
+        d.ellipse([cx-int(14*s), h//2-int(14*s), cx+int(14*s), h//2+int(14*s)], fill=NEON_CYAN)
+        
+        me_name = _sanitize_name(st.get("me_name") or "My Studio")
+        tx = cx + int(26*s)
+        d.text((tx, h//2-int(10*s)), f"{me_name} VC", font=self.f_title, fill=TEXT, anchor="ld")
+        d.text((tx, h//2+int(10*s)), "Voice Chat", font=self.f_sub, fill=MUTED, anchor="la")
+        
+        # Right: Live, Quality, Clock (12-hour)
         rx = W - pad
         dt = datetime.fromtimestamp(now, _tz())
-        d.text((rx, h//2-int(8*s)), dt.strftime("%H:%M:%S"), font=self.f_clock, fill=TEXT, anchor="rd")
-        d.text((rx, h//2+int(12*s)), dt.strftime("%a, %d %b"), font=self.f_date, fill=MUTED, anchor="rd")
-        rx -= int(90*s)
+        clock_str = dt.strftime("%I:%M:%S %p") # 12-hour format
+        d.text((rx, h//2), clock_str, font=self.f_clock, fill=TEXT, anchor="rm")
+        rx -= int(120*s)
         
-        lw, lh = int(120*s), int(28*s); ly = h//2 - lh//2
-        d.rounded_rectangle([rx-lw, ly, rx, ly+lh], radius=lh//2, fill=(60, 16, 20))
-        d.ellipse([rx-lw+int(12*s), h//2-int(5*s), rx-lw+int(22*s), h//2+int(5*s)], fill=RED)
-        d.text((rx-lw+int(28*s), h//2), "LIVE", font=_font(10*s, True), fill=TEXT, anchor="lm")
-        d.text((rx-int(10*s), h//2), _hms(now-started), font=_font(11*s, True), fill=TEXT, anchor="rm")
+        # Live indicator
+        d.ellipse([rx-int(40*s), h//2-int(4*s), rx-int(32*s), h//2+int(4*s)], fill=NEON_GRN)
+        d.text((rx-int(26*s), h//2), "Live", font=self.f_sub, fill=NEON_GRN, anchor="lm")
+        rx -= int(80*s)
+        
+        # Quality
+        d.text((rx, h//2), "Good", font=self.f_sub, fill=MUTED, anchor="rm")
 
-    def _grid(self, d, st, now, x0, y0, x1, y1):
+    def _left_sidebar(self, d, st, now, w, y0, y1):
         s = self.s
-        parts = list(st.get("participants") or [])
-        parts.sort(key=lambda p: (not p.get("speaking"), bool(p.get("muted")), _sanitize_name(p.get("name", "")).lower()))
-        n = len(parts)
-        if n == 0:
-            d.text(((x0+x1)//2, (y0+y1)//2), "Waiting for participants...", font=_font(16*s, True), fill=MUTED, anchor="mm")
-            return
+        d.rectangle([0, y0, w, y1], fill=PANEL)
+        d.line([w-1, y0, w-1, y1], fill=(30, 40, 60))
+        
+        pad = int(16*s)
+        y = y0 + pad
+        menu = ["Voice Chat", "Members", "Settings", "Commands", "Premium", "Help"]
+        
+        # Active item (Voice Chat)
+        d.rectangle([0, y, w, y+int(40*s)], fill=(20, 30, 50))
+        d.rectangle([0, y, int(4*s), y+int(40*s)], fill=NEON_CYAN)
+        
+        for item in menu:
+            col = NEON_CYAN if item == "Voice Chat" else MUTED
+            d.text((pad, y+int(20*s)), item, font=self.f_name, fill=col, anchor="lm")
+            y += int(50*s)
 
-        pad = int(20*s); gap = int(16*s)
-        aw, ah = x1-x0-2*pad, y1-y0-2*pad
+        # Bottom Profile
+        me_name = _sanitize_name(st.get("me_name") or "Owner")
+        d.text((pad, y1-pad-int(20*s)), f"@{me_name}", font=self.f_title, fill=NEON_PINK, anchor="ld")
+        d.text((pad, y1-pad), "VC Owner", font=self.f_small, fill=MUTED, anchor="ld")
+
+    def _center_grid(self, d, st, now, x0, y0, x1, y1):
+        s = self.s
+        d.rectangle([x0, y0, x1, y1], fill=BG_DARK)
         
-        # Telegram Grid Logic
-        if n == 1: cols, rows = 1, 1
-        elif n <= 4: cols, rows = 2, 2
-        elif n <= 6: cols, rows = 3, 2
-        elif n <= 9: cols, rows = 3, 3
-        else: cols, rows = 4, 3
+        # Top bar inside center
+        pad = int(16*s)
+        d.rounded_rectangle([x0+pad, y0+pad, x1-pad, y0+pad+int(40*s)], radius=int(8*s), fill=TILE_BG, outline=(30,40,60))
+        parts = list(st.get("participants") or [])
+        d.text((x0+pad+int(16*s), y0+pad+int(20*s)), f"{len(parts)} / 100  •  Voice Chat", font=self.f_sub, fill=TEXT, anchor="lm")
         
+        grid_y0 = y0 + pad + int(50*s)
+        n = len(parts)
+        if n == 0: return
+        
+        # Grid layout
+        cols = 2 if n <= 4 else 3
+        rows = (n + cols - 1) // cols
+        
+        gap = int(12*s)
+        aw, ah = (x1-x0) - 2*pad, (y1-grid_y0) - pad
         tw = (aw - gap*(cols-1))//cols
         th = (ah - gap*(rows-1))//rows
         
-        start_x = x0 + pad + (aw - (cols*tw + (cols-1)*gap))//2
-        start_y = y0 + pad + (ah - (rows*th + (rows-1)*gap))//2
-        
-        for i, p in enumerate(parts[:rows*cols]):
+        for i, p in enumerate(parts):
+            if i >= cols*rows: break
             r, c = divmod(i, cols)
-            self._tile(d, p, start_x+c*(tw+gap), start_y+r*(th+gap), tw, th, now)
+            tx = x0 + pad + c*(tw+gap)
+            ty = grid_y0 + r*(th+gap)
+            self._tile(d, p, tx, ty, tw, th, now)
 
     def _tile(self, d, p, x, y, w, h, now):
         s = self.s
-        speaking = bool(p.get("speaking")); muted = bool(p.get("muted"))
-        rad = int(16*s)
-        d.rounded_rectangle([x, y, x+w, y+h], radius=rad, fill=TILE)
+        speaking = bool(p.get("speaking"))
+        muted = bool(p.get("muted"))
+        
+        # Tile BG
+        d.rounded_rectangle([x, y, x+w, y+h], radius=int(12*s), fill=TILE_BG, outline=(30, 40, 60), width=1)
+        
+        # Glowing ring if speaking
         if speaking:
-            d.rounded_rectangle([x-2, y-2, x+w+2, y+h+2], radius=rad+2, outline=GREEN, width=max(2, int(3*s)))
+            d.rounded_rectangle([x, y, x+w, y+h], radius=int(12*s), outline=NEON_CYAN, width=max(2, int(2*s)))
+            
+        # Name strip at bottom
+        strip_h = int(45*s)
+        d.rounded_rectangle([x, y+h-strip_h, x+w, y+h], radius=int(12*s), fill=(12, 18, 28))
+        d.rectangle([x, y+h-strip_h, x+w, y+h-strip_h+int(12*s)], fill=(12, 18, 28))
         
-        strip_h = int(40*s)
-        d.rounded_rectangle([x, y+h-strip_h, x+w, y+h], radius=rad, fill=TILE2)
-        d.rectangle([x, y+h-strip_h, x+w, y+h-strip_h+rad], fill=TILE2)
-        
-        ar = int(min(w, h-strip_h) * 0.3)
+        # Avatar
+        ar = int(min(w, h-strip_h) * 0.28)
         cx, cy = x+w//2, y+(h-strip_h)//2
         
         name = _sanitize_name(p.get("name") or "User")
         col = AV_COLORS[sum(map(ord, name)) % len(AV_COLORS)]
         
+        # Neon Avatar Ring
+        ring_col = NEON_CYAN if speaking else (NEON_YEL if p.get("is_me") else (60,70,90))
+        d.ellipse([cx-ar-int(4*s), cy-ar-int(4*s), cx+ar+int(4*s), cy+ar+int(4*s)], outline=ring_col, width=max(2, int(2*s)))
         d.ellipse([cx-ar, cy-ar, cx+ar, cy+ar], fill=col)
+        
         photo = p.get("photo") or ""
-        if photo and os.path.exists(photo): 
+        if photo and os.path.exists(photo):
             self._ops.append((photo, cx-ar, cy-ar, ar*2))
-        else: 
+        else:
             d.text((cx, cy), name[:2].upper(), font=_font(int(ar*0.8), True), fill=TEXT, anchor="mm")
+            
+        # Name & Mic
+        d.text((x+int(12*s), y+h-int(22*s)), name, font=self.f_name, fill=TEXT, anchor="lm")
         
-        d.text((x+int(14*s), y+h-strip_h//2), _fit(d, name, self.f_name, w-int(50*s)), font=self.f_name, fill=TEXT, anchor="lm")
+        mr = int(10*s)
+        mx, my = x+w-int(20*s), y+h-int(22*s)
+        d.ellipse([mx-mr, my-mr, mx+mr, my+mr], fill=NEON_PINK if muted else NEON_GRN)
         
-        mr = int(12*s); mx, my = x+w-int(20*s), y+h-strip_h//2
-        d.ellipse([mx-mr, my-mr, mx+mr, my+mr], fill=RED if muted else (GREEN if speaking else (80,100,120)))
-        q = int(5*s)
+        # Small mic icon
+        q = int(4*s)
         if muted:
             d.line([mx-q,my-q,mx+q,my+q], fill=TEXT, width=max(2,int(2*s)))
             d.line([mx-q,my+q,mx+q,my-q], fill=TEXT, width=max(2,int(2*s)))
         else:
-            d.rounded_rectangle([mx-q,my-int(7*s),mx+q,my+int(3*s)], radius=q, fill=TEXT)
+            d.rounded_rectangle([mx-q,my-int(5*s),mx+q,my+int(2*s)], radius=q, fill=TEXT)
 
-    def _sidebar(self, d, st, now, x0, y0, x1, y1):
+    def _right_panel(self, d, st, now, x0, y0, x1, y1):
         s = self.s
-        d.rectangle([x0, y0, x1, y1], fill=(18, 26, 36))
-        d.line([x0, y0, x0, y1], fill=(16, 25, 33))
+        d.rectangle([x0, y0, x1, y1], fill=PANEL)
+        d.line([x0, y0, x0, y1], fill=(30, 40, 60))
         
-        pad = int(20*s); cx = (x0+x1)//2; y = y0+pad
-        d.text((cx, y), "SUPREME AUDIO CORE", font=_font(12*s, True), fill=(255, 45, 149), anchor="mm")
-        d.line([x0+pad, y+int(14*s), x1-pad, y+int(14*s)], fill=(255, 45, 149), width=1)
-        y += int(34*s)
+        pad = int(20*s)
+        cx = (x0+x1)//2
+        y = y0 + pad
         
-        img_r = int(45*s); img_cy = y + img_r
-        d.ellipse([cx-img_r, img_cy-img_r, cx+img_r, img_cy+img_r], fill=(14, 20, 28), outline=(0, 245, 255), width=max(2,int(3*s)))
-        d.rounded_rectangle([cx-int(12*s), img_cy-int(20*s), cx+int(12*s), img_cy+int(8*s)], radius=int(12*s), fill=(255, 45, 149))
-        y = img_cy + img_r + int(24*s)
+        # Header
+        d.text((cx, y), "LIVE MIC", font=self.f_title, fill=NEON_CYAN, anchor="mm")
+        d.line([x0+pad, y+int(16*s), x1-pad, y+int(16*s)], fill=(30, 40, 60), width=1)
+        y += int(36*s)
         
-        btn_w, btn_h = int(160*s), int(34*s)
-        d.rounded_rectangle([cx-btn_w//2, y, cx+btn_w//2, y+btn_h], radius=btn_h//2, fill=(229, 57, 53))
-        d.text((cx, y+btn_h//2), "SYSTEM LIVE", font=_font(12*s, True), fill=TEXT, anchor="mm")
-        y += btn_h + int(30*s)
+        # Glowing Mic Centerpiece
+        img_r = int(55*s)
+        img_cy = y + img_r
+        pulse = 0.5 + 0.5*math.sin(now*4.0)
         
-        d.text((x0+pad, y), "SIGNAL MODULATORS", font=_font(10*s, True), fill=(112, 132, 153), anchor="la")
-        y += int(22*s)
-        for label, val, max_val in [("OVERDRIVE",380,500), ("TIME WARP",0,100), ("BASS EQ",0,20), ("TREBLE EQ",0,20)]:
-            d.text((x0+pad, y), label, font=_font(10*s, True), fill=(180,190,200), anchor="la")
-            d.text((x1-pad, y), str(val), font=_font(10*s, True), fill=(255, 45, 149), anchor="ra")
-            y += int(18*s)
-            track_w = x1-x0-2*pad
-            d.line([x0+pad, y+int(2*s), x1-pad, y+int(2*s)], fill=(35,45,60), width=max(2,int(3*s)))
-            ratio = max(0, min(1, val/max_val)) if max_val else 0.5
-            d.line([x0+pad, y+int(2*s), x0+pad+int(track_w*ratio), y+int(2*s)], fill=(255, 45, 149), width=max(2,int(3*s)))
-            knob_x = x0+pad+int(track_w*ratio)
-            d.ellipse([knob_x-int(6*s), y-int(2*s), knob_x+int(6*s), y+int(6*s)], fill=TEXT, outline=(255, 45, 149), width=max(1,int(2*s)))
-            y += int(26*s)
-            
-        wave_y = y1 - int(70*s)
-        d.text((cx, wave_y-int(14*s)), "OUTPUT WAVEFORM", font=_font(10*s, True), fill=(0, 245, 255), anchor="mm")
-        n_bars = 30; bar_w = int((x1-x0-2*pad)/n_bars)
-        for i in range(n_bars):
-            bx = x0+pad+i*bar_w
-            hf = abs(math.sin(now*5+i*0.5)*math.cos(now*2+i*0.2))
-            bh = int((35*s)*hf)+int(2*s)
-            col = (255, 45, 149) if i<n_bars//3 else ((255, 210, 63) if i<2*n_bars//3 else (79, 174, 78))
-            cy_w = wave_y+int(28*s)
-            d.rectangle([bx, cy_w-bh, bx+bar_w-int(3*s), cy_w+bh], fill=col)
+        # Outer rings
+        d.ellipse([cx-img_r-int(10*s), img_cy-img_r-int(10*s), cx+img_r+int(10*s), img_cy+img_r+int(10*s)], outline=(255, 20, 120, 100), width=max(1, int(2*s)))
+        d.ellipse([cx-img_r, img_cy-img_r, cx+img_r, img_cy+img_r], fill=(20, 30, 45), outline=NEON_CYAN, width=max(2, int(3*s)))
+        
+        # Mic Icon inside
+        m_w, m_h = int(16*s), int(24*s)
+        d.rounded_rectangle([cx-m_w, img_cy-m_h, cx+m_w, img_cy+int(10*s)], radius=int(10*s), fill=NEON_CYAN)
+        d.arc([cx-int(24*s), img_cy-int(20*s), cx+int(24*s), img_cy+int(24*s)], start=0, end=180, fill=NEON_CYAN, width=max(2,int(4*s)))
+        
+        y = img_cy + img_r + int(30*s)
+        
+        # Waveforms (Left & Right of Mic)
+        wave_y = img_cy
+        for i in range(15):
+            offset = i * int(10*s)
+            h = int(abs(math.sin(now*5 + i*0.5)) * 30 * s)
+            # Left
+            d.line([cx - img_r - int(20*s) - offset, wave_y - h, cx - img_r - int(20*s) - offset, wave_y + h], fill=NEON_PINK, width=max(1,int(2*s)))
+            # Right
+            d.line([cx + img_r + int(20*s) + offset, wave_y - h, cx + img_r + int(20*s) + offset, wave_y + h], fill=NEON_PURP, width=max(1,int(2*s)))
 
-    def _bottom(self, d, st, now, y0, y1):
+        # Control Buttons (Row)
+        bw, bh = int(55*s), int(55*s)
+        gap = int(10*s)
+        tot_w = 5*bw + 4*gap
+        sx = cx - tot_w//2
+        by = y
+        
+        btns = [("Mic", NEON_CYAN), ("Share", (60,70,90)), ("Raise", (60,70,90)), ("Mute", (60,70,90)), ("Gear", (60,70,90))]
+        for lbl, col in btns:
+            d.rounded_rectangle([sx, by, sx+bw, by+bh], radius=int(8*s), fill=TILE_BG, outline=col)
+            if lbl == "Mic":
+                d.rounded_rectangle([sx+bw//2-int(4*s), by+bh//2-int(10*s), sx+bw//2+int(4*s), by+bh//2+int(2*s)], radius=int(4*s), fill=TEXT)
+            sx += bw + gap
+            
+        y = by + bh + int(30*s)
+        
+        # Sliders
+        sliders = [("Voice Volume", "85%", 0.85), ("Music Volume", "70%", 0.70)]
+        for lbl, val_str, ratio in sliders:
+            d.text((x0+pad, y), lbl, font=self.f_small, fill=TEXT, anchor="lm")
+            d.text((x1-pad, y), val_str, font=self.f_small, fill=NEON_CYAN, anchor="rm")
+            y += int(14*s)
+            track_w = (x1-x0) - 2*pad
+            d.line([x0+pad, y+int(2*s), x1-pad, y+int(2*s)], fill=(30,40,60), width=max(2,int(2*s)))
+            d.line([x0+pad, y+int(2*s), x0+pad+int(track_w*ratio), y+int(2*s)], fill=NEON_CYAN, width=max(2,int(2*s)))
+            kx = x0+pad+int(track_w*ratio)
+            d.ellipse([kx-int(5*s), y-int(2*s), kx+int(5*s), y+int(6*s)], fill=TEXT)
+            y += int(28*s)
+
+    def _bottom_bar(self, d, st, now, y0, y1):
         W, s = self.w, self.s
-        d.rectangle([0, y0, W, y1], fill=BG2)
-        d.line([0, y0, W, y0], fill=(16, 25, 33))
+        d.rectangle([0, y0, W, y1], fill=PANEL)
+        d.line([0, y0, W, y0], fill=(30, 40, 60))
         cy = y0 + (y1-y0)//2
-        d.ellipse([W//2-int(28*s), cy-int(24*s), W//2+int(28*s), cy+int(24*s)], fill=(40, 50, 65))
-        d.text((W-int(20*s), cy), datetime.fromtimestamp(now, _tz()).strftime("%H:%M"), font=_font(14*s, True), fill=MUTED, anchor="rm")
+        
+        me_name = _sanitize_name(st.get("me_name") or "Owner")
+        d.text((int(20*s), cy), f"{me_name} VC", font=self.f_title, fill=NEON_CYAN, anchor="lm")
+        
+        d.text((W//2, cy), "Talk Loud  •  Stay Active", font=self.f_title, fill=TEXT, anchor="mm")
 
 def _fit(d, text, font, max_w):
     text = str(text or "")
@@ -294,7 +373,7 @@ def main():
             out.write(frame); out.flush()
         except (BrokenPipeError, OSError): return
         n += 1
-        sl = t0 + n / fps - time.sleep  # small bug fix
+        sl = t0 + n / fps - time.time()
         if sl > 0: time.sleep(sl)
 
 if __name__ == "__main__":
