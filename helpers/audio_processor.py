@@ -497,7 +497,7 @@ def build_ffmpeg_filter(
             "equalizer=f=3000:t=q:w=1.0:g=25",
             "equalizer=f=4000:t=q:w=1.0:g=15",
             "equalizer=f=5000:t=q:w=1.0:g=15",
-            f"volume={_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
+            f"volume={_db(40.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
             "acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4",
         ]
         
@@ -505,14 +505,14 @@ def build_ffmpeg_filter(
             filters.append(extra_filters)
         
         if _has_filter("loudnorm"):
-            filters.append("loudnorm=I=-5:LRA=1:TP=0.0")
+            filters.append("loudnorm=I=-5:LRA=1:TP=-1.5")
             
         filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
         
         if _has_filter("asoftclip"):
             filters.append("asoftclip=type=tanh:oversample=4")
             
-        filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=1:release=30:level=false")
+        filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=1:release=30:level=false")
         
         return ",".join(filters)
 
