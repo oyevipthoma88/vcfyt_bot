@@ -697,10 +697,20 @@ class UserVC:
     def apply_mute_state(self, chat_id: int, muted_by_admin: bool):
         """Single entry point for admin mute / unmute transitions (idempotent;
         fed by both the pytgcalls participant update and the raw fallback)."""
-        if _check_ghost(self, chat_id):
-            logger.info("Ghost mode active in %s; apply_mute_state ignored", chat_id)
-            return
         st = self.chats.get(chat_id)
+        if _check_ghost(self, chat_id):
+            if st:
+                st.ghost_mute = True
+                st.mic_blink = False
+                st.mic_blink_secs = 0
+                st.admin_muted = bool(muted_by_admin)
+                st.unmute_flow = False
+                task = getattr(st, "mute_task", None)
+                if task and not task.done():
+                    task.cancel()
+                st.mute_task = None
+            logger.info("Ghost mode active in %s; mic blink forced off", chat_id)
+            return
         if not st:
             return
         if muted_by_admin and not st.admin_muted:
