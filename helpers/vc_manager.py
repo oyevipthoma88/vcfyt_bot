@@ -1539,7 +1539,7 @@ class UserVC:
                 "paused": False, "loop": False,
                 "volume": int(getattr(st, "relay_volume", 0) or 0),
                 "boost": int(getattr(st, "boost", 0) or 0),
-                "mic_on": bool(getattr(st, "mic_enabled", False))
+                "mic_on": True
                           or self._live_mic_audio(chat_id) is not None,
             }
             try:
