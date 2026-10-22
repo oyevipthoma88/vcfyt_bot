@@ -14,6 +14,7 @@ Pipeline:
 
 import array
 import asyncio
+import errno
 import json
 import logging
 import os
@@ -472,6 +473,10 @@ class LiveMicSession:
                 except OSError as exc:
                     if self._restarting or self._raw_fd is None:
                         continue
+                    if getattr(exc, "errno", None) == errno.EPIPE:
+                        self._pending = b""
+                        if await self._restart_ffmpeg(max_attempts=2):
+                            continue
                     logger.warning("Live mic feed write failed for user %s: %s",
                                    self.user_id, exc)
                     self._chan_log("LIVE_MIC_FEED_ERROR", {"Error": str(exc)})
