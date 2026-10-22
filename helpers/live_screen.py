@@ -566,14 +566,8 @@ class Renderer:
         sub = st.get("group") or "Voice Chat"
         T.draw(d, (tx, h // 2 + int(5 * s)), sub, "ui", int(17 * s), MUTED, "la",
                max_w=W * 0.44)
-        # right cluster: timer, quality, signal
-        el = int(max(0, now - started))
-        timer = f"{el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}"
+        # right cluster: signal only (timer removed - live mic look)
         rx = W - pad
-        T.draw(d, (rx, h // 2), timer, "display", int(28 * s), CYAN, "rm",
-               spacing=max(1, int(2 * s)))
-        tw = T.text_width(timer, "display", int(28 * s), max(1, int(2 * s)))
-        rx -= int(tw + 22 * s)
         # signal bars
         for k in range(4):
             bh = int((10 + k * 7) * s)
