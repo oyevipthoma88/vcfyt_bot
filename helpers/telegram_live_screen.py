@@ -15,6 +15,13 @@ TILE2   = (18, 28, 40)
 TEXT    = (255, 255, 255)
 MUTED   = (112, 132, 153)
 DIM     = (109, 127, 143)
+PANEL      = (18, 22, 30)
+NEON_PINK  = (255, 45, 149)
+NEON_CYAN  = (0, 245, 255)
+NEON_LIME  = (57, 255, 20)
+NEON_GREEN = (0, 255, 136)
+NEON_YEL   = (255, 230, 0)
+NEON_RED   = (255, 51, 51)
 BLUE    = (100, 181, 239)
 BLUE_D  = (51, 144, 236)
 GREEN   = (79, 174, 78)
@@ -159,8 +166,11 @@ class Renderer:
         self._ops = []
         hh = int(60*s)
         bh = int(64*s)
+        side_w = int(280*s) if W >= 900 else 0
         self._header(d, st, now, started, hh)
-        self._grid(d, st, now, 0, hh, W, H-bh)
+        self._grid(d, st, now, 0, hh, W-side_w, H-bh)
+        if side_w > 0:
+            self._sidebar(d, st, now, W-side_w, hh, W, H-bh)
         self._bottom(d, st, now, H-bh, H)
         rgba = img.convert("RGBA")
         for path, x, y, size in self._ops:
@@ -329,6 +339,90 @@ class Renderer:
                font=_font(13*s, True), fill=MUTED, anchor="rd")
         d.text((rx, cy + int(9*s)), dt.strftime("%d %b %Y"),
                font=self.f_tiny, fill=DIM, anchor="rd")
+
+    def _sidebar(self, d, st, now, x0, y0, x1, y1):
+        s = self.s
+        d.rectangle([x0, y0, x1, y1], fill=PANEL)
+        d.line([x0, y0, x0, y1], fill=NEON_CYAN, width=max(1, int(1*s)))
+        pad = int(12*s)
+        cx = (x0 + x1) // 2
+        y = y0 + pad
+        d.text((cx, y), "◉ MIC SETUP", font=_font(11*s, True), fill=NEON_PINK, anchor="mm")
+        y += int(17*s)
+        d.line([x0+pad, y, x1-pad, y], fill=NEON_PINK, width=max(1, int(1*s)))
+        y += int(8*s)
+        d.text((x0+pad, y), "Shure SM7B", font=_font(10*s, True), fill=TEXT, anchor="la")
+        d.text((x1-pad, y), "● ON", font=_font(9*s, True), fill=NEON_GREEN, anchor="ra")
+        y += int(13*s)
+        d.text((x0+pad, y), "Focusrite 2i2 · 48kHz", font=_font(8*s), fill=MUTED, anchor="la")
+        y += int(16*s)
+        kr = int(26*s)
+        kcx, kcy = cx, y + kr
+        d.ellipse([kcx-kr, kcy-kr, kcx+kr, kcy+kr], fill=(10, 14, 22),
+                  outline=NEON_PINK, width=max(2, int(2*s)))
+        d.ellipse([kcx-kr+int(4*s), kcy-kr+int(4*s), kcx+kr-int(4*s), kcy+kr-int(4*s)],
+                  outline=NEON_PINK, width=max(1, int(1*s)))
+        ang_deg = -135 + 270 * (0.65 + 0.08 * math.sin(now * 1.8))
+        ang = math.radians(ang_deg)
+        d.line([kcx, kcy, kcx + kr*0.85*math.cos(ang), kcy + kr*0.85*math.sin(ang)],
+               fill=NEON_CYAN, width=max(2, int(2*s)))
+        d.ellipse([kcx-int(3*s), kcy-int(3*s), kcx+int(3*s), kcy+int(3*s)], fill=NEON_CYAN)
+        d.text((cx, kcy + kr + int(9*s)), "GAIN", font=_font(8*s, True), fill=MUTED, anchor="mm")
+        y = kcy + kr + int(22*s)
+        d.text((x0+pad, y), "PEAK", font=_font(8*s, True), fill=NEON_CYAN, anchor="la")
+        d.text((x1-pad, y), "-3.2 dB", font=_font(8*s, True), fill=NEON_LIME, anchor="ra")
+        y += int(11*s)
+        bar_h = int(45*s)
+        n_bars = 12
+        bar_w = int(5*s)
+        gap = max(1, int(1*s))
+        bx0 = cx - (n_bars * (bar_w + gap)) // 2
+        for i in range(n_bars):
+            bx = bx0 + i * (bar_w + gap)
+            lvl = 0.3 + 0.65 * abs(math.sin(now * 3.1 + i * 0.4))
+            is_on = i / n_bars < lvl
+            if i >= 10: col = NEON_RED if is_on else (40, 20, 25)
+            elif i >= 8: col = NEON_YEL if is_on else (40, 35, 20)
+            else: col = NEON_LIME if is_on else (20, 40, 25)
+            bh_i = bar_h // n_bars - 1
+            seg_y = y + bar_h - (i+1) * (bar_h // n_bars)
+            d.rectangle([bx, seg_y, bx + bar_w, seg_y + bh_i], fill=col)
+        y += bar_h + int(12*s)
+        d.text((x0+pad, y), "◈ DM CONTROL", font=_font(9*s, True), fill=NEON_CYAN, anchor="la")
+        y += int(13*s)
+        toggles = [("DYNAMIC", NEON_GREEN), ("COMPRESSOR", NEON_GREEN),
+                   ("DE-ESSER", NEON_CYAN), ("LIMITER", NEON_PINK)]
+        sw_w, sw_h = int(22*s), int(10*s)
+        for label, col in toggles:
+            kn = x0 + pad
+            d.rounded_rectangle([kn, y, kn+sw_w, y+sw_h], radius=sw_h//2, fill=col)
+            kx = kn + sw_w - sw_h + int(1*s)
+            d.ellipse([kx, y + int(1*s), kx + sw_h - int(2*s), y + sw_h - int(1*s)], fill=TEXT)
+            d.text((kn + sw_w + int(8*s), y + sw_h//2), label,
+                   font=_font(7*s, True), fill=TEXT, anchor="lm")
+            y += sw_h + int(6*s)
+        y += int(4*s)
+        d.text((x0+pad, y), "▣ OUTPUT", font=_font(9*s, True), fill=NEON_LIME, anchor="la")
+        y += int(13*s)
+        for ch, phase in (("L", 0.0), ("R", 0.8)):
+            d.text((x0+pad, y + int(1*s)), ch, font=_font(8*s, True), fill=NEON_CYAN, anchor="la")
+            bx = x0 + pad + int(14*s)
+            bw = x1 - pad - bx - int(2*s)
+            lvl = 0.3 + 0.65 * abs(math.sin(now * 2.7 + phase))
+            d.rectangle([bx, y, bx + int(bw*lvl), y + int(6*s)], fill=NEON_LIME)
+            d.rectangle([bx + int(bw*lvl), y, bx + bw, y + int(6*s)], fill=(30, 40, 50))
+            y += int(10*s)
+        y += int(6*s)
+        d.rounded_rectangle([x0+pad, y, x0+pad+int(52*s), y+int(16*s)],
+                            radius=int(8*s), fill=(60, 16, 20))
+        pulse = 0.5 + 0.5 * abs(math.sin(now * 2.5))
+        dot_col = tuple(int(NEON_RED[i]*pulse + (100, 20, 20)[i]*(1-pulse)) for i in range(3))
+        d.ellipse([x0+pad+int(6*s), y+int(5*s), x0+pad+int(12*s), y+int(11*s)], fill=dot_col)
+        d.text((x0+pad+int(16*s), y+int(8*s)), "REC",
+               font=_font(8*s, True), fill=TEXT, anchor="lm")
+        d.text((x1-pad, y+int(8*s)), "48k·24b",
+               font=_font(7*s), fill=MUTED, anchor="rm")
+
 
 
 def rgb_to_i420(img):

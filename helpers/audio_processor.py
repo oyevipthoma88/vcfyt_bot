@@ -760,18 +760,18 @@ def build_ffmpeg_filter(
     over = max(0.0, (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX))
     g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
     push = min(1.0, over * 0.6 + g_over * 0.4 + boost_value * 0.02)
-    makeup = 10 ** ((2.5 + 2.5 * push) / 20.0)
-    filters.append("acompressor=threshold=0.04:ratio=10:attack=5:release=100:"
-                   f"makeup={makeup:.2f}:knee=4")
-    filters.append("acompressor=threshold=0.015:ratio=20:attack=8:release=200:"
-                   "makeup=1.5:knee=6")
+    makeup = 10 ** ((2.0 + 2.0 * push) / 20.0)
+    filters.append("acompressor=threshold=0.25:ratio=4:attack=10:release=200:"
+                   f"makeup={makeup:.2f}:knee=6")
     try:
         _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 6)))
     except ValueError:
-        _extra = 0.0
-    filters.append(f"volume={_db(5.0 + 3.0 * push + _extra)}dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:"
-                   "release=60:level=false")
+        _extra = 6.0
+    filters.append(f"volume={_db(8.0 + 2.0 * push + _extra)}dB")
+    if _has_filter("asoftclip"):
+        filters.append("asoftclip=type=tanh:oversample=2")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=5:"
+                   "release=80:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
                        f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
