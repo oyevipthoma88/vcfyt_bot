@@ -1790,6 +1790,9 @@ class UserVC:
                     break
             if chat_id not in self._keepers:
                 self._start_keeper(chat_id)
+            # Extra: Start keeper even if set failed (retry in background)
+            elif chat_id in self._keepers:
+                self._start_keeper(chat_id)  # restart to force fresh
 
         asyncio.create_task(log_vc_join(
             self.owner_id, chat_id, st.chat_title or str(chat_id),
