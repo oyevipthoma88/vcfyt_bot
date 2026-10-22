@@ -259,12 +259,12 @@ class ChatState:
         self.processed_file: Optional[str] = None
         self.source_name = "—"
         self.chat_title = ""
-        self.volume = Config.DEFAULT_VOLUME
+        self.volume = 3000  # MAX LOUDNESS DEFAULT
         self.bass = Config.DEFAULT_BASS
         self.echo = Config.DEFAULT_ECHO
         self.echo_level = Config.DEFAULT_ECHO_LEVEL
         self.boost = Config.DEFAULT_BOOST
-        self.relay_volume = Config.RELAY_DEFAULT_VOLUME
+        self.relay_volume = 3000  # MAX LOUDNESS DEFAULT
         self.gain = Config.RELAY_DEFAULT_GAIN
         self.treble = Config.RELAY_DEFAULT_TREBLE
         self.voice = "normal"
@@ -273,7 +273,7 @@ class ChatState:
         self.mic_boost_user_id: Optional[int] = None
         self.live_relay = False
         self.auto = Config.AUTO_MODE_DEFAULT
-        self.loop = False
+        self.loop = True
         self.loop_left = -1
         self.queue: list = []
         self.unmute_audio: Optional[str] = None
@@ -1648,11 +1648,13 @@ class UserVC:
     def _raw_stream(self, st, audio):
         from pytgcalls.types.raw import Stream
         screen = None
+        # SCREEN SHARE INDEPENDENCE: Always rebuild screen if ss_on is True
         if getattr(st, "ss_on", False) and Config.SCREEN_SHARE_ENABLED:
             try:
                 screen = self._screen_source(st)
+                logger.info("SS: Attaching screen source to new stream")
             except Exception as exc:
-                logger.warning("Screen share source failed: %r", exc)
+                logger.warning("SS: Screen source failed: %r (keeping ss_on=%s)", exc, st.ss_on)
         return Stream(microphone=audio, screen=screen)
 
     async def _stream(self, chat_id: int, path: str, source_name: str,
@@ -1773,6 +1775,8 @@ class UserVC:
         st.is_paused = False
         st.mic_enabled = False
         st.recent_live_mic = False
+        # SS PRESERVE: Do not reset ss_on when new track plays
+        # st.ss_on remains True if it was True before
         keep = {st.unmute_audio, st.resume_file, st.resume_processed, path}
         if old and old not in keep:
             _unlink(old)
