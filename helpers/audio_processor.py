@@ -497,7 +497,7 @@ def build_ffmpeg_filter(
             "equalizer=f=3000:t=q:w=1.0:g=25",
             "equalizer=f=4000:t=q:w=1.0:g=15",
             "equalizer=f=5000:t=q:w=1.0:g=15",
-            f"volume={{_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}}dB",
+            f"volume={_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
             "acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4",
         ]
         
