@@ -935,17 +935,12 @@ class UserVC:
                 
             prev = st.ss_on
             st.ss_on = bool(on)
-            if image_path is not None:
-                st.ss_image = image_path if os.path.exists(image_path or "") else ""
-            if title is not None:
-                st.ss_title = title
-                
+            
             try:
                 in_call = chat_id in (await self._active_call_ids())
             except Exception:
                 in_call = chat_id in self.chats
                 
-            # If currently playing, update the stream without restarting audio
             if in_call and getattr(st, "last_mic", None):
                 try:
                     from pytgcalls.types.raw import Stream
@@ -954,21 +949,17 @@ class UserVC:
                     logger.info("SS: Seamless toggle to %s successful", on)
                     return True
                 except Exception as exc:
-                    logger.warning("Seamless SS toggle failed (%r); using full restart", exc)
+                    logger.warning("Seamless SS failed (%r); reverting to audio-only", exc)
+                    st.ss_on = prev # Revert
+                    # Restore audio only so it doesn't freeze
+                    try:
+                        from pytgcalls.types.raw import Stream
+                        await self.calls.play(chat_id, Stream(microphone=st.last_mic, screen=None), GroupCallConfig(auto_start=False))
+                    except Exception:
+                        pass
+                    return False
             
-            # Fallback to full restart only if seamless fails
-            source = st.current_file if (st.current_file and os.path.exists(st.current_file or "")) else None
-            if source:
-                pos = await self._current_position(chat_id)
-                await self._stream(chat_id, source, st.source_name, fast=True, start_at=pos)
-                return True
-                
-            if on:
-                from pytgcalls.types.raw import Stream
-                screen = self._screen_source(st)
-                await self.calls.play(chat_id, Stream(microphone=None, screen=screen), GroupCallConfig(auto_start=False))
-                return True
-            return True
+            return False
 
     def _live_mic_audio(self, chat_id: int):
         """Mic stream of a live-mic session that streams through THIS account."""
@@ -1624,7 +1615,7 @@ class UserVC:
     def _screen_source(self, st, size=None, force_mode=None):
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
-        import shlex, sys as _sys
+        import os
         
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
         if chat_id is None: raise ValueError("No active chat")
@@ -1633,8 +1624,12 @@ class UserVC:
         if not task or task.done():
             st.ss_task = asyncio.create_task(self._ss_live_loop(chat_id))
             
-        # Use sys.executable to get the exact venv python path
-        py_bin = _sys.executable or "/root/vcfyt_bot/venv/bin/python3"
+        # Hardcoded Python path
+        py_bin = "/root/vcfyt_bot/venv/bin/python3"
+        if not os.path.exists(py_bin):
+            import sys
+            py_bin = sys.executable or "python3"
+            
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_live_screen.py")
         
         ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
@@ -1643,9 +1638,8 @@ class UserVC:
         if size:
             ss_w, ss_h, ss_fps = size
             
-        cmd = " ".join(shlex.quote(x) for x in [
-            py_bin, script, "--state", self._ss_state_path(chat_id),
-            "--w", str(ss_w), "--h", str(ss_h), "--fps", str(ss_fps)])
+        # Simple string join without shlex to prevent ShellError
+        cmd = f"{py_bin} {script} --state {self._ss_state_path(chat_id)} --w {ss_w} --h {ss_h} --fps {ss_fps}"
             
         return VideoStream(MediaSource.SHELL, cmd, VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False))
 

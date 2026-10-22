@@ -593,7 +593,7 @@ def build_stream_command(
         boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
         extra_filters=extra_filters, stream=True,
     ))
-    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+    cmd = ["/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
            "-threads", "1"]
     if loop:
@@ -615,7 +615,7 @@ def build_stream_command(
         "-ar", "48000", "-ac", "2", "-f", "s16le", "-flush_packets", "1",
         "pipe:1",
     ]
-    return shlex.join(cmd)
+    return " ".join(cmd)
 
 
 _SS_DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -709,7 +709,7 @@ def build_fake_screen_command(
 
     # -re: produce frames in real time so the clock/LIVE timer/meters move
     # at true speed instead of racing ahead in the pipe buffer.
-    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+    cmd = ["/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-threads", "1", "-re"]
     if os.path.exists(img):
         # BLUR FIX: pehle har frame par JPEG decode + lanczos scale + unsharp
