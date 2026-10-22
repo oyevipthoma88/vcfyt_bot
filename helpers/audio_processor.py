@@ -487,7 +487,7 @@ def build_ffmpeg_filter(
         if live:
             return build_live_mic_filter()
 
-        # Pure Aggressive Chain (No Normalizers, 100% Boost)
+        # FIX: Define filters list here so it never crashes
         filters = [
             "highpass=f=50",
             "equalizer=f=100:t=q:w=1.0:g=20",
