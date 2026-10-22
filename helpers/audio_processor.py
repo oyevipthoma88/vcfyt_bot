@@ -579,7 +579,7 @@ def build_ffmpeg_filter(
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:oversample=4:param=4.0")
     filters.append("acompressor=threshold=0.01:ratio=20:attack=0.1:release=20:makeup=4")
-    filters.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=0.1:release=10:level=false")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=10:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
         

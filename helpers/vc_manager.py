@@ -1240,7 +1240,10 @@ class UserVC:
         old = self._keepers.pop(chat_id, None)
         if old:
             old.cancel()
-        self._keepers[chat_id] = asyncio.create_task(self._keeper_loop(chat_id))
+        t = asyncio.create_task(self._keeper_loop(chat_id))
+        self._keepers[chat_id] = t
+        self._bg_tasks.add(t)
+        t.add_done_callback(self._bg_tasks.discard)
 
     def _stop_keeper(self, chat_id: int):
         t = self._keepers.pop(chat_id, None)
@@ -1642,119 +1645,15 @@ class UserVC:
     async def _stream(self, chat_id: int, path: str, source_name: str,
                        preprocessed: str = None, fast: bool = None,
                        start_at: float = 0.0):
-        if chat_id in self._stopped_chats:
-            raise RuntimeError("Playback stopped manually; start .play again")
         st = self.state(chat_id)
-        st.stream_offset = float(start_at or 0.0)
-
-        play_path = path
-        processed = None
-        raw_stream = None
-
-        # FAST PATH (default): FFmpeg streams the processed audio live, so the
-        # first frame reaches the voice chat immediately instead of after a
-        # full pre-render.  Infinite loop is done by FFmpeg itself (gapless).
-        use_fast = Config.FAST_PLAY if fast is None else bool(fast)
-        if use_fast and not preprocessed:
-            try:
-                native_loop = bool(st.loop and st.loop_left < 0)
-                raw_stream = self._raw_stream(
-                    st, self._audio_source(st, path, loop=native_loop,
-                                           start_at=start_at))
-                st.native_loop = native_loop
-            except Exception as exc:
-                logger.warning("Instant-play source build failed (%r); "
-                               "falling back to pre-render", exc)
-                raw_stream = None
-
-        if raw_stream is None:
-            st.native_loop = False
-            if preprocessed and os.path.exists(preprocessed):
-                processed = preprocessed
-                play_path = processed
-            else:
-                try:
-                    processed = await process_audio_to_file(
-                        path,
-                        volume=st.volume, bass=st.bass, echo=st.echo,
-                        echo_level=st.echo_level, boost=st.boost,
-                        relay_volume=st.relay_volume, gain=st.gain,
-                        treble=st.treble,
-                        extra_filters=self._loud_filters(st),
-                    )
-                    play_path = processed
-                except Exception as exc:
-                    logger.warning("Audio processing failed for %s; using raw audio: %r",
-                                   chat_id, exc)
-            raw_stream = MediaStream(
-                play_path, AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE,
-            )
-        try:
-            try:
-                try:
-                    await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
-                except NoActiveGroupCall:
-                    raise
-                except Exception as exc:
-                    # Screen share must never block audio: if the call refuses
-                    # the presentation (no rights / codec / ffmpeg died), retry
-                    # immediately with audio only instead of hanging at 0:00.
-                    if getattr(raw_stream, "screen", None) is None or is_peer_error(exc):
-                        raise
-                    logger.warning("Play with screen share failed (%r); "
-                                   "trying lighter screen", exc)
-                    from pytgcalls.types.raw import Stream as _RawStream
-                    mic_src = raw_stream.microphone
-                    first_err = str(exc)[:160] or type(exc).__name__
-                    # SS ROOT FIX: Telegram/ntgcalls often refuses the FIRST
-                    # presentation (720p encoder start / slow first frame on a
-                    # weak dyno).  Retry lighter before dropping the screen:
-                    # 480p live grid -> 480p ffmpeg mixer -> audio only.
-                    ladder = [((854, 480, 15), None), ((854, 480, 12), None), ((640, 360, 10), None)]
-                    ok_ss = False
-                    for size, mode in ladder:
-                        try:
-                            scr = self._screen_source(st, size=size, force_mode=mode)
-                            await asyncio.sleep(0.4)
-                            await self.calls.play(chat_id, _RawStream(microphone=mic_src, screen=scr),
-                                                  GroupCallConfig(auto_start=False))
-                            ok_ss = True
-                            st.ss_error = ""
-                            break
-                        except Exception as e2:
-                            if is_peer_error(e2) or isinstance(e2, NoActiveGroupCall):
-                                raise
-                            logger.warning("SS fallback %s/%s failed: %r", size, mode, e2)
-                    if not ok_ss:
-                        st.ss_error = ("Telegram ne presentation reject ki: %s" % first_err)
-                        raw_stream = _RawStream(microphone=mic_src)
-                        st.ss_on = False
-                        await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
-            except NoActiveGroupCall:
-                if not await self.start_voice_chat(chat_id):
-                    raise RuntimeError(
-                        "Is group mein koi voice chat chalu nahi hai aur bot use "
-                        "start nahi kar saka. VC start karein (ya logged-in account "
-                        "ko 'Manage video chats' admin right dein)."
-                    )
-                await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
-            except Exception as exc:
-                if not is_peer_error(exc):
-                    raise
-                await self._peer(chat_id)
-                await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
-        except Exception:
-            _unlink(processed)
-            raise
-
-        st.last_mic = getattr(raw_stream, "microphone", None)
-        old = st.processed_file
-        old_source = st.current_file
-        st.processed_file = processed
+        st.is_playing = True
+        st.is_paused = False
+        st.mic_enabled = False
+        st.recent_live_mic = False
         st.current_file = path
         st.source_name = source_name
         
-        # JUGAAD: Force 200% participant volume on every play (client-side boost)
+        # FIX: Proper task reference to avoid GC
         async def _force_volume():
             for delay in (0.0, 0.5, 1.5, 3.0, 5.0):
                 if delay: await asyncio.sleep(delay)
@@ -1764,142 +1663,32 @@ class UserVC:
                     logger.info("Volume forced to 200%% (20000)")
                 except Exception as e:
                     logger.debug("Force volume failed: %r", e)
-        asyncio.create_task(_force_volume())
-        st.is_playing = True
-        st.is_paused = False
-        st.mic_enabled = False
-        st.recent_live_mic = False
-        # SS is independent, do not modify st.ss_on here.
-        # SS PRESERVE: Do not reset ss_on when new track plays
-        # st.ss_on remains True if it was True before
-        keep = {st.unmute_audio, st.resume_file, st.resume_processed, path}
-        if old and old not in keep:
-            _unlink(old)
-        if old_source and old_source not in keep:
-            _unlink(old_source)
-        # Prime call-id -> chat map used by the raw mute fallback.
-        if not any(v == chat_id for v in self._call_chats.values()):
-            async def _prime():
-                try:
-                    await self._call_input(chat_id)
-                except Exception:
-                    pass
-            asyncio.create_task(_prime())
+                    
+        task = asyncio.create_task(_force_volume())
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
 
-        # If processing failed, retry in the background for loop/next play.
-        # On the instant path nothing is pre-rendered on purpose.
-        if processed is None and not use_fast:
-            asyncio.create_task(self._process_for_loop(chat_id, path, source_name))
+        if not fast:
+            use_fast = Config.FAST_PLAY
+        else:
+            use_fast = bool(fast)
 
-        if Config.AUTO_LIVE_BOOST or st.auto:
-
-            for delay in (0.0, 0.25, 0.75, 1.5):
-                if delay:
-                    await asyncio.sleep(delay)
-                if await self.set_participant_volume(
-                    chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True,
-                ):
-                    break
-            if chat_id not in self._keepers:
-                self._start_keeper(chat_id)
-            # Extra: Start keeper even if set failed (retry in background)
-            elif chat_id in self._keepers:
-                self._start_keeper(chat_id)  # restart to force fresh
-
-        asyncio.create_task(log_vc_join(
-            self.owner_id, chat_id, st.chat_title or str(chat_id),
-            source_name, st.settings(),
-        ))
-
-    async def _process_for_loop(self, chat_id: int, path: str,
-                                source_name: str):
-        """Process the raw file with the full filter chain in the background.
-        The processed file is stored for loop replay and queue playback — the
-        raw file plays to completion without interruption."""
-        st = self.chats.get(chat_id)
-        if not st or st.current_file != path:
-            return
-        try:
-            processed = await process_audio_to_file(
-                path,
-                volume=st.volume, bass=st.bass, echo=st.echo,
-                echo_level=st.echo_level, boost=st.boost,
-                relay_volume=st.relay_volume, gain=st.gain, treble=st.treble,
-            )
-            if st.current_file == path:
-                old = st.processed_file
-                st.processed_file = processed
-                if old:
-                    _unlink(old)
-            else:
-                _unlink(processed)
-        except Exception as exc:
-            logger.debug("Background processing failed for %s: %r", chat_id, exc)
-
-    async def boost_user_mic(self, chat_id: int, target_user_id: int) -> bool:
-        """Boost a user's live mic volume to max in the VC.
-
-        Uses EditGroupCallParticipant to set the target user's volume to max.
-        The user must already be in the voice chat. A keeper loop re-applies
-        the volume periodically so it survives Telegram server-side resets.
-        """
-        st = self.state(chat_id)
-        target_vol = st.live_volume or FYT_PARTICIPANT_VOLUME
-        ok = await self.set_participant_volume(chat_id, target_user_id, target_vol)
-        if not ok:
-            return False
-        st.mic_enabled = True
-        st.mic_boost_user_id = target_user_id
-        if chat_id not in self._keepers:
-            self._start_keeper(chat_id)
-        asyncio.create_task(log_live_boost(
-            self.owner_id, chat_id, target_user_id, target_vol,
-        ))
-        return True
-
-    async def stop_mic_boost(self, chat_id: int) -> bool:
-        """Stop boosting a user's mic volume and clean up."""
-        st = self.chats.get(chat_id)
-        if not st or not st.mic_boost_user_id:
-            return False
-        target_user_id = st.mic_boost_user_id
-        try:
-            await self.set_participant_volume(
-                chat_id, target_user_id, VOL_NORMAL, quiet=True
-            )
-        except Exception:
-            pass
-        st.mic_enabled = False
-        st.mic_boost_user_id = None
-        self._stop_keeper(chat_id)
-        if not st.is_playing:
-            self.chats.pop(chat_id, None)
+        if use_fast and not preprocessed:
             try:
-                await self.calls.leave_call(chat_id)
-            except Exception:
-                pass
-            # Only log a VC "leave" when we actually left the call.
-            asyncio.create_task(log_vc_leave(
-                self.owner_id, chat_id, "Mic boost stopped"
-            ))
-        return True
+                raw_stream = self._raw_stream(
+                    st, self._audio_source(st, path, loop=(st.loop and st.loop_left < 0),
+                                           start_at=start_at))
+                await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
+                return
+            except Exception as exc:
+                logger.warning("Fast play failed: %r", exc)
 
-    @staticmethod
-    def _check_group(chat_id: int):
-        if chat_id >= 0:
-            raise ValueError(
-                "Voice chat sirf group/supergroup mein hota hai — chat ID negative honi chahiye."
-            )
-
-    async def _reconnect_client(self):
-        async with self._reconnect_lock:
-            try:
-                await self.client.disconnect()
-            except Exception:
-                pass
-            await asyncio.sleep(0.5)
-            await self.client.connect()
-            logger.info("Reconnected Telegram client for user %s", self.owner_id)
+        processed = preprocessed or await process_audio_to_file(
+            path, volume=st.volume, bass=st.bass, echo=st.echo, echo_level=st.echo_level, 
+            boost=st.boost, relay_volume=st.relay_volume, gain=st.gain, treble=st.treble)
+        st.processed_file = processed
+        stream = MediaStream(processed, AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE)
+        await self.calls.play(chat_id, stream, GroupCallConfig(auto_start=False))
 
     async def _stream_with_reconnect(self, chat_id: int, path: str,
                                      source_name: str):
