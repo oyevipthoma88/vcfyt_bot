@@ -590,7 +590,7 @@ def build_ffmpeg_filter(
     if vol > VOLUME_CLEAN_MAX:
         vol_boost = 12.0 * (vol - VOLUME_CLEAN_MAX) / (VOLUME_MAX - VOLUME_CLEAN_MAX)
         
-    filters.append(f"volume={_db(32.0 + _extra + vol_boost)}dB")
+    filters.append(f"volume={_db(48.0 + _extra)}dB")
 
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:oversample=2")
