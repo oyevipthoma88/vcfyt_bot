@@ -562,41 +562,15 @@ def build_ffmpeg_filter(
         # and NO mic audio reached the VC.  New chain: every filter valid on
         # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
-            # MAX LOUDNESS PUSH ENGINE
-    filters = [
-        "highpass=f=60",
-        "equalizer=f=80:t=q:w=1.0:g=8",      # Heavy Bass
-        "equalizer=f=3000:t=q:w=1.2:g=8",    # Crystal Treble
-        "equalizer=f=10000:t=q:w=1.0:g=5",   # Air/Presence
-        "acompressor=threshold=0.005:ratio=20:attack=1:release=50:makeup=20", # Extreme Compression
-    ]
-    if bass_value:
-        filters.append(f"equalizer=f=90:t=q:w=1.0:g={_db(min(4.0, bass_value * 0.08))}")
-    filters.append(f"equalizer=f=3000:t=q:w=1.0:g={_db(min(3.5, 0.5 + treble_value * 0.025))}")
-    if use_echo and echo_value:
-        d1 = 70 + echo_value * 22
-        decay = min(0.45, 0.12 + echo_value * 0.03)
-        filters.append(f"aecho=0.9:0.7:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
-    if extra_filters:
-        filters.append(extra_filters)
-
-    try:
-        _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 6)))
-    except ValueError:
-        _extra = 6.0
-
-    # MAX LOUDNESS PUSH (+32dB Base + Extra + Slider Boost)
-    vol_boost = 0.0
-    if vol > VOLUME_CLEAN_MAX:
-        vol_boost = 12.0 * (vol - VOLUME_CLEAN_MAX) / (VOLUME_MAX - VOLUME_CLEAN_MAX)
-        
-    filters.append(f"volume={_db(48.0 + _extra)}dB")
-
+            # EXTREME LOUDNESS (FFmpeg speechnorm + dynaudnorm + double limiter)
+    filters.append("speechnorm=e=50:r=0.0001:l=1")
+    filters.append("dynaudnorm=f=150:g=31:p=0.95:m=100:r=0.5:s=0")
+    filters.append("volume=48dB")
+    filters.append("acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4")
+    filters.append("acompressor=threshold=0.5:ratio=10:attack=1:release=50:makeup=2")
     if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=tanh:oversample=2")
-
-    # Limiter at 0 dBFS (0.998 = -0.02dBFS)
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.998:attack=1:release=30:level=false")
+        filters.append("asoftclip=type=tanh:oversample=4:param=2.5")
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.1:release=10:level=false")
 
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
