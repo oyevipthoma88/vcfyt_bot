@@ -750,8 +750,8 @@ def build_ffmpeg_filter(
         # gaps/hiss get lifted to full scale too ("khar khar" in pauses).
         "agate=threshold=0.006:ratio=9:range=0.003:attack=1:release=150:knee=2",
         "aformat=channel_layouts=stereo",
-        ("dynaudnorm=f=100:g=7:p=0.92:m=15:r=0.6:s=0" if low_lat
-         else "dynaudnorm=f=100:g=7:p=0.92:m=15:r=0.6:s=0"),
+        ("dynaudnorm=f=150:g=15:p=0.95:m=50:r=0.5:s=0:l=1,speechnorm=e=50:r=0.0001:l=1:p=0.95" if low_lat
+         else "dynaudnorm=f=150:g=15:p=0.95:m=50:r=0.5:s=0:l=1,speechnorm=e=50:r=0.0001:l=1:p=0.95"),
     ]
     # SOUND UPGRADE: mud cut + deep sub/punch bass + presence/air + crisp
     # transients + wider stereo (louder feel on phone speakers).
@@ -803,13 +803,13 @@ def build_ffmpeg_filter(
         filters.append("asoftclip=type=tanh:threshold=1:output=1")
     # STRICT 0 dBFS: second saturate + brick-wall pass so the body of every
     # track (not only the peaks) rides at Telegram's full scale.
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.5:"
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:"
                    "release=15:level=false")
     filters.append("volume=4dB")
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:threshold=1:output=1")
     filters.append("volume=1dB")  # tanh tops out ~-0.8 dB -> lift to full scale
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.1:"
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:"
                    "release=8:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
