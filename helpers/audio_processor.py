@@ -468,126 +468,53 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
 
 # MAX LOUDNESS V3
 def build_ffmpeg_filter(
-    volume: int = None,
-    bass: int = None,
-    echo: bool = None,
-    echo_level: int = None,
-    boost: int = None,
-    relay_volume: int = None,
-    gain: int = None,
-    treble: int = None,
-    extra_filters: str = "",
-    live: bool = False,
-    pregain: float = None,
-    turbo: float = None,
-    clarity: float = None,
-    stream: bool = False,
-) -> str:
-    # stream=True: file playback piped live to the VC.  It keeps the full
-    # playback loudness but swaps look-ahead filters (37 s dynaudnorm window,
-    # 3 s loudnorm) for low-latency ones, otherwise the VC sits at 0:00.
-    if live:
-        # Live mic: route to the correct chain (fight/soft/default).
-        mode = _live_chain_mode()
-        if mode == "fight":
-            pass  # falls through to fight chain below
-        elif mode == "soft":
-            pass  # falls through to soft chain below
-        else:
+        volume: int = None,
+        bass: int = None,
+        echo: bool = None,
+        echo_level: int = None,
+        boost: int = None,
+        relay_volume: int = None,
+        gain: int = None,
+        treble: int = None,
+        extra_filters: str = "",
+        live: bool = False,
+        pregain: float = None,
+        turbo: float = None,
+        clarity: float = None,
+        stream: bool = False,
+    ) -> str:
+        if live:
             return build_live_mic_filter()
-    low_lat = bool(live or stream)
-    if volume is None:
-        volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
-    vol = clamp(volume, VOLUME_MIN, VOLUME_MAX)
-    bass_value = clamp(bass if bass is not None else Config.DEFAULT_BASS, BASS_MIN, BASS_MAX)
-    use_echo = Config.DEFAULT_ECHO if echo is None else bool(echo)
-    echo_value = clamp(echo_level if echo_level is not None else Config.DEFAULT_ECHO_LEVEL, LEVEL_MIN, LEVEL_MAX)
-    boost_value = clamp(boost if boost is not None else Config.DEFAULT_BOOST, LEVEL_MIN, LEVEL_MAX)
-    gain_value = clamp(gain if gain is not None else Config.RELAY_DEFAULT_GAIN, 0, GAIN_MAX)
-    treble_value = clamp(treble if treble is not None else Config.RELAY_DEFAULT_TREBLE, 0, TREBLE_MAX)
-
-    # NOTE: dynaudnorm's gaussian window is pure look-ahead latency
-    # (f=150ms x g=250 frames = ~37 seconds!).  That is fine for file playback
-    # but it made the live mic silent / seconds behind, so the live path uses a
-    # short window.
-    #
-    # LIVE CHAIN SELECTION
-    # --------------------
-    # Playback (file) audio is loud and punchy because it runs the big shared
-    # chain at the bottom of this function (+20 dB -> 3 compressors -> extra
-    # gain -> hard soft-clip -> limiter).  The live mic used a completely
-    # different, much gentler chain, which is exactly why the same voice
-    # sounded weaker/softer live than a played file.
-    #
-    # Default now: the live mic runs the SAME chain as playback, with only the
-    # two filters that are impossible live swapped for low-latency equivalents
-    # (short-window dynaudnorm instead of the 37 s gaussian window, speechnorm
-    # instead of loudnorm's 3 s look-ahead).  Playback is untouched.
-    #
-    # Set LIVE_MIC_CHAIN=soft to go back to the previous gentle live chain.
-    # LIVE MIC LOUDNESS BOOST: the live chain used weaker levelling than
-    # playback (speechnorm e=25, dynaudnorm g=5), so the same voice sounded
-    # softer live than a played file.  Now the live chain uses stronger
-    # levelling: speechnorm e=45 (up from 25) and dynaudnorm g=12 (up from 5),
-    # plus an extra +6 dB drive into the limiter.  Playback is untouched.
-    if live and _live_chain_mode() == "fight":
-        # ---------------------------------------------------------------
-        # LIVE MIC — FIGHT CHAIN (BRUTAL max loudness + zero khar-khar).
-        #
-        # VC fight me 2 users ek sath bolte hai. Opponent ki aawaz phone
-        # speaker se mic me leak hoti hai aur compressors me tumhari aawaz
-        # ko daba deti hai. Isliye:
-        #   - Dialogue enhance: speech ko background se boost
-        #   - Triple speechnorm: har dheema syllable bhi ceiling pe
-        #   - Crystalizer: transients sharp = consonants punchy
-        #   - Triple compressor: RMS ko absolute max tak push
-        #   - Extrastereo: stereo width badhao = phone speaker pe louder feel
-        #   - Haas: stereo widener (phone speaker psychoacoustic loudness)
-        # Silence between words = true digital silence.
-        # Voice sits at ~0 dBFS RMS — EXTREMELY loud and crystal clear.
-        # ---------------------------------------------------------------
-        # v20 ABSOLUTE MAX fight chain — voice at ~0 dBFS RMS.
-        try:
-            clarity_amt = max(0.0, min(35.0, float(35 if clarity is None else clarity))) / 35.0
-        except (TypeError, ValueError):
-            clarity_amt = 1.0
-        try:
-            drive_db = max(34.0, min(48.0, 34.0 + (float(pregain if pregain is not None else 200) / 200.0) * 14.0))
-        except (TypeError, ValueError):
-            drive_db = 48.0
-        final_db = 24.0 + 22.0 * (gain_value / float(GAIN_REF))
-        final_db = min(52.0, final_db + extra_loud_db())
-
-        # FIX: old chain used "dialoguenhance=recipe=default" — that option does
-        # not exist (and dialoguenhance needs stereo), so FFmpeg died on start
-        # and NO mic audio reached the VC.  New chain: every filter valid on
-        # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
-        # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
-            # ULTIMATE NUCLEAR LOUDNESS V2 (Multiband Compression + Saturation)
-    filters.append("highpass=f=40")
-    filters.append("equalizer=f=100:t=q:w=1.0:g=25")
-    filters.append("equalizer=f=3000:t=q:w=1.0:g=25")
-    filters.append("equalizer=f=4000:t=q:w=1.0:g=15")  # Ear sensitivity boost
-    filters.append("equalizer=f=5000:t=q:w=1.0:g=15")  # Clarity boost
-    filters.append("mcompand=0.005,0.1|0.003,0.05|0.000625,0.0125|0.0001,0.025|0,0.025:6:-47/-40,-34/-34,-17/-33,0/-30")
-    filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
-    filters.append("speechnorm=e=50:r=0.0001:l=1")
-    filters.append("volume=48dB")
-    filters.append("acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=6")
-    filters.append("acompressor=threshold=0.5:ratio=10:attack=1:release=50:makeup=3")
-    if _has_filter("loudnorm"):
-        filters.append("loudnorm=I=-4:LRA=1:TP=0.0")
-    if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=tanh:oversample=4:param=3.0")
-    filters.append("acompressor=threshold=0.01:ratio=20:attack=0.1:release=20:makeup=4")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=10:level=false")
-    if vol < VOLUME_CLEAN_MAX:
-        filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
+            
+        low_lat = bool(stream)
+        if volume is None: volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
+        vol = clamp(volume, VOLUME_MIN, VOLUME_MAX)
         
-    parts = [SYNC_RESAMPLE if _ARESAMPLE_RE.fullmatch(x) else x for x in filters]
-    if _has_filter("asetnsamples"):
-        parts.append(f"asetnsamples=n={AUDIO_FRAME_SAMPLES}:p=0")
-    return _sanitize_ffmpeg_filter(",".join(parts))
+        # NUCLEAR LOUDNESS V5 (Extremely Loud & Safe)
+        filters = [
+            "highpass=f=50",
+            "equalizer=f=100:t=q:w=1.0:g=25",
+            "equalizer=f=3000:t=q:w=1.0:g=25",
+            "equalizer=f=4000:t=q:w=1.0:g=15",
+            "equalizer=f=5000:t=q:w=1.0:g=15",
+            f"volume={{_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}}dB",
+            "acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4",
+        ]
+        
+        if extra_filters: 
+            filters.append(extra_filters)
+        
+        if _has_filter("loudnorm"):
+            filters.append("loudnorm=I=-5:LRA=1:TP=0.0")
+            
+        filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
+        
+        if _has_filter("asoftclip"):
+            filters.append("asoftclip=type=tanh:oversample=4")
+            
+        filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=1:release=30:level=false")
+        
+        return ",".join(filters)
 
 async def process_audio_to_file(
     input_path: str,
