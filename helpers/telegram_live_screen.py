@@ -32,14 +32,45 @@ AV_COLORS = [(231,76,60),(52,152,219),(46,204,113),(155,89,182),
              (241,196,15),(26,188,156),(230,126,34),(236,64,122)]
 
 
+_FONT_CACHE = {}
+
+# Multi-font fallback chain — fancy Unicode + emoji support
+_FALLBACK_PATHS = [
+    # DejaVu (base)
+    lambda base: os.path.join(base, "DejaVuSans-Bold.ttf"),
+    lambda base: os.path.join(base, "DejaVuSans.ttf"),
+    # Noto Core — Latin + Cyrillic + Greek + Arabic + Devanagari
+    lambda base: "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    lambda base: "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    # Noto Symbols (fancy Unicode, math, arrows)
+    lambda base: "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
+    lambda base: "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    # Symbola — widest Unicode coverage
+    lambda base: "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+    lambda base: "/usr/share/fonts/truetype/symbola/Symbola.ttf",
+    # Noto CJK
+    lambda base: "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+]
+
 def _font(size, bold=False):
-    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
-    for base in (FDIR, "/usr/share/fonts/truetype/dejavu"):
-        p = os.path.join(base, name)
-        if os.path.exists(p):
-            try: return ImageFont.truetype(p, max(8, int(size)))
-            except Exception: pass
-    return ImageFont.load_default()
+    size = max(8, int(size))
+    key = (size, bold)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    # Try bold first, then regular
+    for builder in _FALLBACK_PATHS:
+        for base in (FDIR, "/usr/share/fonts/truetype/dejavu"):
+            path = builder(base) if callable(builder) else builder
+            if path and os.path.exists(path):
+                try:
+                    f = ImageFont.truetype(path, size)
+                    _FONT_CACHE[key] = f
+                    return f
+                except Exception:
+                    continue
+    f = ImageFont.load_default()
+    _FONT_CACHE[key] = f
+    return f
 
 
 def _tz():
@@ -166,7 +197,7 @@ class Renderer:
         self._ops = []
         hh = int(60*s)
         bh = int(64*s)
-        side_w = int(280*s) if W >= 900 else 0
+        side_w = int(W * 0.42)  # ~50% split (42% for sidebar, 58% grid)
         self._header(d, st, now, started, hh)
         self._grid(d, st, now, 0, hh, W-side_w, H-bh)
         if side_w > 0:
