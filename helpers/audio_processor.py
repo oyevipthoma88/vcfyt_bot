@@ -767,6 +767,11 @@ def build_ffmpeg_filter(
         _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 6)))
     except ValueError:
         _extra = 6.0
+    # HUMAN TOUCH: Tremolo (subtle volume wobble like mic movement)
+    if _has_filter("tremolo"):
+        filters.append("tremolo=f=0.1:d=0.05")
+    # Fade-in (like unmuting mic)
+    filters.append("afade=t=in:st=0:d=0.8")
     filters.append(f"volume={_db(8.0 + 2.0 * push + _extra)}dB")
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:oversample=2")
@@ -879,6 +884,9 @@ def build_stream_command(
     if loop:
         # Native, gapless looping — no stream-end round trip, no re-processing.
         cmd += ["-stream_loop", "-1"]
+    if not start_at or start_at == 0:
+        # HUMAN TOUCH: Random start offset (0.2s to 1.5s) like clicking play
+        start_at = random.uniform(0.2, 1.5)
     if start_at and start_at > 0:
         cmd += ["-ss", f"{start_at:.2f}"]
     # Tiny probe window: FFmpeg starts emitting PCM straight away.

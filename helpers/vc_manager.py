@@ -721,7 +721,14 @@ class UserVC:
         st = self.state(chat_id)
         st.unmute_flow = False
         if st.hand_raise:
-            asyncio.create_task(self.raise_hand(chat_id, True))
+            # HUMAN TOUCH: 80% chance to raise hand, 1-3s delay (thinking)
+            if random.random() < 0.8:
+                delay = random.uniform(1.0, 3.0)
+                async def _delayed_raise():
+                    await asyncio.sleep(delay)
+                    await self.raise_hand(chat_id, True)
+                asyncio.create_task(_delayed_raise())
+                logger.info("Human delay: Hand raise in %.1fs for chat %s", delay, chat_id)
         # Remember where the recording was, so it continues from there later.
         if st.playing_unmute:
             # Muted again in the middle of the announcement: stop it, the
