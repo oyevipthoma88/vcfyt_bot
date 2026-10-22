@@ -1598,19 +1598,21 @@ class UserVC:
             await asyncio.sleep(0.5)
 
     def _screen_source(self, st, size=None, force_mode=None):
-        """Screen share: ALWAYS use the live VC grid (No old images)."""
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
-        import shlex
-        import sys as _sys
+        import shlex, sys as _sys
         
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
-        if chat_id is None:
-            raise ValueError("No active chat for screen share")
-            
+        if chat_id is None: raise ValueError("No active chat")
+        
         task = getattr(st, "ss_task", None)
         if not task or task.done():
-            st.ss_task = asyncio.get_running_loop().create_task(self._ss_live_loop(chat_id))
+            st.ss_task = asyncio.create_task(self._ss_live_loop(chat_id))
+            
+        # Absolute path to python3 in venv
+        py_bin = "/root/vcfyt_bot/venv/bin/python3"
+        if not os.path.exists(py_bin):
+            py_bin = _sys.executable or "python3"
             
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_live_screen.py")
         
@@ -1621,10 +1623,8 @@ class UserVC:
             ss_w, ss_h, ss_fps = size
             
         cmd = " ".join(shlex.quote(x) for x in [
-            _sys.executable or "python3", script,
-            "--state", self._ss_state_path(chat_id),
-            "--w", str(ss_w), "--h", str(ss_h),
-            "--fps", str(ss_fps)])
+            py_bin, script, "--state", self._ss_state_path(chat_id),
+            "--w", str(ss_w), "--h", str(ss_h), "--fps", str(ss_fps)])
             
         return VideoStream(
             MediaSource.SHELL, cmd,
