@@ -801,10 +801,9 @@ class UserVC:
             logger.info("Resumed recording in chat %s from beginning (0.0s)", chat_id)
             return True
         if st.is_paused and st.current_file:
-            # Nothing was parked: continue the paused track where it was.
             try:
-                await self.calls.resume(chat_id)
-                st.is_paused = False
+                # Stream from 0 instead of resuming from middle
+                await self._stream(chat_id, st.current_file, st.source_name, start_at=0)
                 return True
             except Exception:
                 pass

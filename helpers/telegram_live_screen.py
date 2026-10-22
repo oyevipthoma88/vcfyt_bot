@@ -12,10 +12,9 @@ BG2     = (8, 10, 15)
 TILE    = (24, 30, 42)
 TILE2   = (16, 21, 30)
 TEXT    = (255, 255, 255)
-MUTED   = (112, 132, 153)
+MUTED   = (140, 155, 170)
 GREEN   = (0, 255, 128)
 RED     = (255, 60, 60)
-YELLOW  = (255, 210, 63)
 CYAN    = (0, 245, 255)
 PINK    = (255, 45, 149)
 
@@ -77,7 +76,7 @@ class Renderer:
         s = self.s
         self.f_title = _font(18*s, True)
         self.f_sub   = _font(12*s)
-        self.f_name  = _font(14*s, True)
+        self.f_name  = _font(15*s, True)
         self.f_clock = _font(22*s, True)
         self.f_date  = _font(10*s)
 
@@ -144,18 +143,22 @@ class Renderer:
         parts = list(st.get("participants") or [])
         parts.sort(key=lambda p: (not p.get("speaking"), bool(p.get("muted")), _sanitize_name(p.get("name", "")).lower()))
         n = len(parts)
-        pad = int(20*s); gap = int(16*s)
-        aw, ah = x1-x0-2*pad, y1-y0-2*pad
-        if n <= 1: cols, rows = 1, 1
-        elif n <= 4: cols, rows = 2, 2
-        elif n <= 6: cols, rows = 3, 2
-        elif n <= 9: cols, rows = 3, 3
-        else: cols, rows = 4, 3
-        tw = (aw - gap*(cols-1))//cols
-        th = (ah - gap*(rows-1))//rows
         if n == 0:
             d.text(((x0+x1)//2, (y0+y1)//2), "Waiting for participants...", font=_font(16*s, True), fill=MUTED, anchor="mm")
             return
+
+        pad = int(16*s); gap = int(12*s)
+        aw, ah = x1-x0-2*pad, y1-y0-2*pad
+        
+        cols = 1
+        if n > 1: cols = 2
+        if n > 4: cols = 3
+        if n > 9: cols = 4
+        rows = (n + cols - 1) // cols
+        
+        tw = (aw - gap*(cols-1))//cols
+        th = (ah - gap*(rows-1))//rows
+        
         for i, p in enumerate(parts[:rows*cols]):
             r, c = divmod(i, cols)
             self._tile(d, p, x0+pad+c*(tw+gap), y0+pad+r*(th+gap), tw, th, now)
@@ -163,33 +166,38 @@ class Renderer:
     def _tile(self, d, p, x, y, w, h, now):
         s = self.s
         speaking = bool(p.get("speaking")); muted = bool(p.get("muted"))
-        rad = int(16*s)
+        rad = int(12*s)
         d.rounded_rectangle([x, y, x+w, y+h], radius=rad, fill=TILE, outline=(40,50,70), width=1)
         if speaking:
             d.rounded_rectangle([x-2, y-2, x+w+2, y+h+2], radius=rad+2, outline=GREEN, width=max(2, int(3*s)))
-        strip_h = int(40*s)
+        
+        strip_h = int(36*s)
         d.rounded_rectangle([x, y+h-strip_h, x+w, y+h], radius=rad, fill=TILE2)
         d.rectangle([x, y+h-strip_h, x+w, y+h-strip_h+rad], fill=TILE2)
         
-        ar = int(min(w, h-strip_h) * 0.4)
+        ar = int(min(w, h-strip_h) * 0.25)
         cx, cy = x+w//2, y+(h-strip_h)//2
+        
         name = _sanitize_name(p.get("name") or "User")
         col = AV_COLORS[sum(map(ord, name)) % len(AV_COLORS)]
         
         d.ellipse([cx-ar, cy-ar, cx+ar, cy+ar], fill=col)
         photo = p.get("photo") or ""
-        if photo: self._ops.append((photo, cx-ar, cy-ar, ar*2))
-        else: d.text((cx, cy), name[:2].upper(), font=_font(int(ar*0.8), True), fill=TEXT, anchor="mm")
+        if photo and os.path.exists(photo): 
+            self._ops.append((photo, cx-ar, cy-ar, ar*2))
+        else: 
+            d.text((cx, cy), name[:2].upper(), font=_font(int(ar*0.8), True), fill=TEXT, anchor="mm")
         
-        d.text((x+int(14*s), y+h-int(18*s)), _fit(d, name, self.f_name, w-int(50*s)), font=self.f_name, fill=TEXT, anchor="ld")
-        mr = int(12*s); mx, my = x+w-int(20*s), y+h-int(20*s)
+        d.text((x+int(12*s), y+h-strip_h//2), _fit(d, name, self.f_name, w-int(44*s)), font=self.f_name, fill=TEXT, anchor="lm")
+        
+        mr = int(10*s); mx, my = x+w-int(20*s), y+h-strip_h//2
         d.ellipse([mx-mr, my-mr, mx+mr, my+mr], fill=RED if muted else (GREEN if speaking else (80,100,120)))
-        q = int(5*s)
+        q = int(4*s)
         if muted:
             d.line([mx-q,my-q,mx+q,my+q], fill=TEXT, width=max(2,int(2*s)))
             d.line([mx-q,my+q,mx+q,my-q], fill=TEXT, width=max(2,int(2*s)))
         else:
-            d.rounded_rectangle([mx-q,my-int(7*s),mx+q,my+int(3*s)], radius=q, fill=TEXT)
+            d.rounded_rectangle([mx-q,my-int(6*s),mx+q,my+int(2*s)], radius=q, fill=TEXT)
 
     def _sidebar(self, d, st, now, x0, y0, x1, y1):
         s = self.s
@@ -219,10 +227,10 @@ class Renderer:
         y += btn_h + int(24*s)
         
         tw, th = int(70*s), int(24*s)
-        d.rounded_rectangle([cx-tw-int(10*s), y, cx-int(10*s), y+th], radius=int(4*s), outline=YELLOW, width=1, fill=(20,20,10))
-        d.text((cx-tw//2-int(10*s), y+th//2), "MIC [ON]", font=_font(9*s, True), fill=YELLOW, anchor="mm")
-        d.rounded_rectangle([cx+int(10*s), y, cx+tw+int(10*s), y+th], radius=int(4*s), outline=YELLOW, width=1, fill=(20,20,10))
-        d.text((cx+tw//2+int(10*s), y+th//2), "FX [OFF]", font=_font(9*s, True), fill=YELLOW, anchor="mm")
+        d.rounded_rectangle([cx-tw-int(10*s), y, cx-int(10*s), y+th], radius=int(4*s), outline=(255,210,63), width=1, fill=(20,20,10))
+        d.text((cx-tw//2-int(10*s), y+th//2), "MIC [ON]", font=_font(9*s, True), fill=(255,210,63), anchor="mm")
+        d.rounded_rectangle([cx+int(10*s), y, cx+tw+int(10*s), y+th], radius=int(4*s), outline=(255,210,63), width=1, fill=(20,20,10))
+        d.text((cx+tw//2+int(10*s), y+th//2), "FX [OFF]", font=_font(9*s, True), fill=(255,210,63), anchor="mm")
         y += th + int(24*s)
         
         d.text((x0+pad, y), "SIGNAL MODULATORS", font=_font(10*s, True), fill=MUTED, anchor="la")
@@ -246,7 +254,7 @@ class Renderer:
             bx = x0+pad+i*bar_w
             hf = abs(math.sin(now*5+i*0.5)*math.cos(now*2+i*0.2))
             bh = int((30*s)*hf)+int(2*s)
-            col = PINK if i<n_bars//3 else (YELLOW if i<2*n_bars//3 else GREEN)
+            col = PINK if i<n_bars//3 else ((255,210,63) if i<2*n_bars//3 else GREEN)
             cy_w = wave_y+int(24*s)
             d.rectangle([bx, cy_w-bh, bx+bar_w-int(2*s), cy_w+bh], fill=col)
 
