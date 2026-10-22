@@ -925,27 +925,50 @@ class UserVC:
     # FAKE SCREEN SHARE
     # ------------------------------------------------------------------
 
-    async def set_screen_share(self, chat_id: int, on: bool,
-                               image_path: str = None,
-                               title: str = None) -> bool:
-        """Turn the bot's presentation (screen share) on or off.
-
-        Telegram lets a user account share a *presentation* video track next to
-        its mic, so the bot shares a looping PC-style mic/mixer panel.
-        """
-        # Serialize toggles per chat
-        lock = self._ss_locks.setdefault(chat_id, asyncio.Lock())
-        if lock.locked():
-            logger.warning("SS Toggle already in progress, skipping spam.")
-            return False
-            
+    async def set_screen_share(self, chat_id: int, on: bool, image_path: str = None, title: str = None) -> bool:
+        locks = self.__dict__.setdefault("_ss_locks", {})
+        lock = locks.setdefault(chat_id, asyncio.Lock())
         async with lock:
-            # 2-second cooldown before changing SS to let FFmpeg cleanly close old stream
-            await asyncio.sleep(2.0)
-            if bool(getattr(self.state(chat_id), "ss_on", False)) == bool(on) \
-                    and not on:
+            st = self.state(chat_id)
+            if getattr(st, "ss_on", False) == on:
                 return True
-            return await self._set_screen_share_locked(chat_id, on, image_path, title)
+                
+            prev = st.ss_on
+            st.ss_on = bool(on)
+            if image_path is not None:
+                st.ss_image = image_path if os.path.exists(image_path or "") else ""
+            if title is not None:
+                st.ss_title = title
+                
+            try:
+                in_call = chat_id in (await self._active_call_ids())
+            except Exception:
+                in_call = chat_id in self.chats
+                
+            # If currently playing, update the stream without restarting audio
+            if in_call and getattr(st, "last_mic", None):
+                try:
+                    from pytgcalls.types.raw import Stream
+                    screen = self._screen_source(st) if on else None
+                    await self.calls.play(chat_id, Stream(microphone=st.last_mic, screen=screen), GroupCallConfig(auto_start=False))
+                    logger.info("SS: Seamless toggle to %s successful", on)
+                    return True
+                except Exception as exc:
+                    logger.warning("Seamless SS toggle failed (%r); using full restart", exc)
+            
+            # Fallback to full restart only if seamless fails
+            source = st.current_file if (st.current_file and os.path.exists(st.current_file or "")) else None
+            if source:
+                pos = await self._current_position(chat_id)
+                await self._stream(chat_id, source, st.source_name, fast=True, start_at=pos)
+                return True
+                
+            if on:
+                from pytgcalls.types.raw import Stream
+                screen = self._screen_source(st)
+                await self.calls.play(chat_id, Stream(microphone=None, screen=screen), GroupCallConfig(auto_start=False))
+                return True
+            return True
 
     def _live_mic_audio(self, chat_id: int):
         """Mic stream of a live-mic session that streams through THIS account."""
@@ -1601,7 +1624,7 @@ class UserVC:
     def _screen_source(self, st, size=None, force_mode=None):
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
-        import shlex
+        import shlex, sys as _sys
         
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
         if chat_id is None: raise ValueError("No active chat")
@@ -1610,7 +1633,8 @@ class UserVC:
         if not task or task.done():
             st.ss_task = asyncio.create_task(self._ss_live_loop(chat_id))
             
-        py_bin = shutil.which("python3") or "python3"
+        # Use sys.executable to get the exact venv python path
+        py_bin = _sys.executable or "/root/vcfyt_bot/venv/bin/python3"
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_live_screen.py")
         
         ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
