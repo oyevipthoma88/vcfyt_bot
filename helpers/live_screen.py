@@ -509,6 +509,7 @@ class Renderer:
         self._photo_ops = []
         self._glow_ops = []
         d = ImageDraw.Draw(img)
+        self._ghost_mute = bool(st.get("ghost_mute"))
         top_h = int(78 * s)
         tick_h = int(54 * s)
         pad = int(22 * s)
@@ -559,7 +560,7 @@ class Renderer:
         custom = str(st.get("title") or "").strip()
         if custom.lower() in ("", "live room", "audio setup — live"):
             custom = ""
-        room = custom or (f"{owner}'s Studio" if owner != "My" else "Live Studio")
+        room = custom or (f"{owner} live setup" if owner != "My" else "Live setup")
         tx = pad + lw + int(20 * s)
         T.draw(d, (tx, h // 2 - int(3 * s)), room, "bold", int(28 * s), TEXT, "ld",
                max_w=W * 0.44)
@@ -584,18 +585,19 @@ class Renderer:
     # ---------------------------------------------------------- grid
     def _grid(self, d, st, x0, y0, x1, y1, now):
         s = self.s
+        ghost = bool(st.get("ghost_mute"))
         parts = list(st.get("participants") or [])
         parts.sort(key=lambda p: (not p.get("speaking"), bool(p.get("muted")),
                                   T.clean(p.get("name", "")).lower()))
         total = len(parts)
-        speaking = sum(1 for p in parts if p.get("speaking"))
+        speaking = 0 if ghost else sum(1 for p in parts if p.get("speaking"))
         head_h = int(58 * s)
         self._label(d, x0, y0 - int(4 * s), "◉ STAGE", CYAN, int(16 * s))
         T.draw(d, (x0, y0 + head_h - int(10 * s)),
                f"{total} in voice chat", "bold", int(24 * s), TEXT, "ld")
         cw, _ = self._chip(d, x1, y0 + int(8 * s), f"{speaking} SPEAKING",
                            GREEN if speaking else DIM, solid=bool(speaking), anchor="r")
-        unm = sum(1 for p in parts if not p.get("muted"))
+        unm = 0 if ghost else sum(1 for p in parts if not p.get("muted"))
         self._chip(d, x1 - cw - int(10 * s), y0 + int(8 * s), f"{unm} MIC ON", CYAN, anchor="r")
         y0 += head_h + int(8 * s)
         if not parts:
@@ -633,8 +635,9 @@ class Renderer:
 
     def _tile(self, d, p, x, y, w, h, now, idx):
         s = self.s
-        speaking = bool(p.get("speaking"))
-        muted = bool(p.get("muted"))
+        ghost = bool(getattr(self, "_ghost_mute", False))
+        speaking = bool(p.get("speaking")) and not ghost
+        muted = bool(p.get("muted")) or ghost
         rad = int(18 * s)
         name = str(p.get("name") or "User")
         color = TILE_COLORS[sum(map(ord, name)) % len(TILE_COLORS)]
@@ -701,9 +704,11 @@ class Renderer:
         x, y, w = x0 + pad, y0 + pad, x1 - x0 - 2 * pad
         np_name = st.get("now_playing") or ""
         paused = bool(st.get("paused"))
-        mic_on = bool(st.get("mic_on"))
-        active = (bool(np_name) and not paused) or mic_on or True  # studio always "hot"
-        energy = 1.0 if ((np_name and not paused) or mic_on) else 0.55
+        ghost = bool(st.get("ghost_mute"))
+        mic_on = bool(st.get("mic_on")) and not ghost
+        audio_active = bool(st.get("audio_active")) or mic_on
+        active = (bool(np_name) and not paused) or audio_active or True
+        energy = 1.0 if ((np_name and not paused) or audio_active) else 0.55
 
         # ---- header: owner + status
         owner = _owner(st)
@@ -731,7 +736,7 @@ class Renderer:
 
         # ---- now playing deck
         h_np = int(min(avail * 0.34, 196 * s))
-        self._now_playing(d, st, x, y, w, h_np, now, np_name, paused, mic_on)
+        self._now_playing(d, st, x, y, w, h_np, now, np_name, paused, mic_on, audio_active, ghost)
         y += h_np + int(12 * s)
         # ---- spectrum
         h_sp = int(min(avail * 0.17, 104 * s))
@@ -745,7 +750,7 @@ class Renderer:
         if y1 - pad - y > int(110 * s):
             self._mixer(d, st, x, y, w, y1 - pad - y, now, energy, mic_on, np_name, paused)
 
-    def _now_playing(self, d, st, x, y, w, h, now, np_name, paused, mic_on):
+    def _now_playing(self, d, st, x, y, w, h, now, np_name, paused, mic_on, audio_active, ghost):
         s = self.s
         self._glass(d, [x, y, x + w, y + h], int(16 * s), GLASS2, _mix(LINE, CYAN, 0.3))
         p = int(14 * s)
@@ -778,6 +783,8 @@ class Renderer:
         tw = x + w - p - tx
         if np_name:
             state_txt, col = ("PAUSED", YELLOW) if paused else ("PLAYING", GREEN)
+        elif ghost:
+            state_txt, col = ("GHOST AUDIO", CYAN)
         elif mic_on:
             state_txt, col = ("LIVE MIC", RED)
         else:
@@ -785,9 +792,11 @@ class Renderer:
         cw, ch = self._chip(d, tx, y + p, state_txt, col, solid=True, size=int(14 * s))
         if np_name and st.get("loop"):
             self._chip(d, tx + cw + int(6 * s), y + p, "LOOP", VIOLET, size=int(14 * s))
-        title = np_name or ("Live Mic — Direct Feed" if mic_on else "Studio Live Session")
+        title = np_name or (f"{_owner(st)} live setup" if (mic_on or ghost) else "Studio Live Session")
         T.draw(d, (tx, y + p + ch + int(8 * s)), title, "bold", int(22 * s), TEXT, "la", max_w=tw)
+        self._mic_icon(d, x + w - p - int(18 * s), y + p + ch + int(22 * s), int(12 * s), mic_on, audio_active)
         artist = ("Now spinning · Hi-Fi 320k" if np_name else
+                  "Mic muted · audio relay active" if ghost else
                   "Mic › Comp › Limiter › VC" if mic_on else "Neon Deck · Auto DJ")
         T.draw(d, (tx, y + p + ch + int(40 * s)), artist, "ui", int(15 * s), MUTED, "la", max_w=tw)
         # progress
@@ -813,6 +822,20 @@ class Renderer:
         T.draw(d, (bx0, by + bh + int(6 * s)), _clock(pos), "tech", int(14 * s), MUTED, "la")
         T.draw(d, (bx1, by + bh + int(6 * s)), _clock(dur) if np_name else "∞ LIVE", "tech",
                int(14 * s), MUTED, "ra")
+
+    def _mic_icon(self, d, cx, cy, radius, mic_on, audio_active):
+        s = self.s
+        col = GREEN if mic_on else (CYAN if audio_active else DIM)
+        r = max(4, int(radius))
+        d.rounded_rectangle([cx - r // 2, cy - r, cx + r // 2, cy + r // 2], radius=max(2, r // 3), fill=col)
+        d.arc([cx - r, cy - r // 2, cx + r, cy + r], 0, 180, fill=col, width=max(1, int(2 * s)))
+        d.line([cx, cy + r // 2, cx, cy + r], fill=col, width=max(1, int(2 * s)))
+        d.line([cx - r // 2, cy + r, cx + r // 2, cy + r], fill=col, width=max(1, int(2 * s)))
+        if audio_active:
+            for k in range(2):
+                wave_r = r + int((5 + k * 5) * _wave(time.time(), 3.5, k))
+                d.arc([cx - wave_r, cy - wave_r, cx + wave_r, cy + wave_r], 205, 335,
+                      fill=_mix(col, TEXT, 0.25), width=max(1, int(s)))
 
     def _spectrum(self, d, x, y, w, h, now, energy, st):
         s = self.s
@@ -881,7 +904,7 @@ class Renderer:
         bot = y + h - int(30 * s)
         if bot - top < int(40 * s):
             return
-        chans = [("MIC", RED, 1.0 if mic_on else 0.35, 0.78),
+        chans = [("MIC", RED, 1.0 if (mic_on or st.get("ghost_mute")) else 0.35, 0.78),
                  ("MUSIC", CYAN, 1.0 if (np_name and not paused) else 0.4, 0.70),
                  ("FX", VIOLET, 0.6, 0.55),
                  ("MASTER", PINK, energy, 0.86)]
@@ -932,7 +955,7 @@ class Renderer:
                "tech", int(14 * s), MUTED, "ra")
         # scrolling marquee
         parts = st.get("participants") or []
-        spk = [T.clean(p.get("name", "")) for p in parts if p.get("speaking")]
+        spk = [] if st.get("ghost_mute") else [T.clean(p.get("name", "")) for p in parts if p.get("speaking")]
         spk = [x for x in spk if x][:4]
         np_name = st.get("now_playing") or ""
         items = []
@@ -940,8 +963,10 @@ class Renderer:
             items.append("🎙 Speaking: " + ", ".join(spk))
         if np_name:
             items.append(("⏸ Paused: " if st.get("paused") else "♪ Now playing: ") + T.clean(np_name))
-        if st.get("mic_on"):
-            items.append("● LIVE MIC ON AIR")
+        if st.get("ghost_mute"):
+            items.append("MIC OFF · AUDIO RELAY ACTIVE")
+        elif st.get("mic_on"):
+            items.append("LIVE MIC ON AIR")
         items += [f"👥 {len(parts)} listeners tuned in", "⚡ Studio A · 48kHz/24-bit · Ultra-low latency",
                   "★ Stay tuned — the vibe never stops"]
         text = "     ✦     ".join(items) + "     ✦     "
