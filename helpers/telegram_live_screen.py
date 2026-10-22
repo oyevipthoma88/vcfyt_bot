@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Premium live screen-share renderer for Telegram VC.
 
-Renders a broadcast-studio quality "Voice Chat" window frame-by-frame and
+Renders a natural live voice-chat window frame-by-frame and
 writes raw I420 (yuv420p) frames to stdout for ntgcalls SHELL video source.
 
 Design goals:
-  * Looks like a real, live broadcast — animated spectrum, VU meters, glowing
+  * Looks like a real, live call — animated activity bars, clear status, glowing
     speaking indicators, real clock, scrolling ticker, vinyl deck.
   * Premium dark aesthetic with neon accents (cyan / pink / green).
   * Per-character font fallback so fancy Unicode names never show boxes.
@@ -469,12 +469,14 @@ class Renderer:
         top_h = int(64 * s)
         tick_h = int(48 * s)
         pad = int(20 * s)
+        nav_w = int(178 * s)
         side_w = int(W * 0.34)
         self._topbar(d, st, now, started, top_h)
-        gx0, gy0 = pad, top_h + pad
+        self._sidebar(d, st, nav_w, top_h, H - tick_h)
+        gx0, gy0 = nav_w + pad, top_h + pad
         gx1, gy1 = W - side_w - pad, H - tick_h - pad
         self._grid(d, st, gx0, gy0, gx1, gy1, now)
-        self._deck(d, st, W - side_w, top_h + pad, W - pad, H - tick_h - pad, now)
+        self._session_panel(d, st, W - side_w, top_h + pad, W - pad, H - tick_h - pad, now)
         self._ticker(d, st, H - tick_h, now)
         rgba = img.convert("RGBA")
         for (gim, gpad), gx, gy in self._glow_ops:
@@ -510,14 +512,11 @@ class Renderer:
         T.draw(d, (cx + int(14 * s), cy), "LIVE", "display", int(18 * s), TEXT, "lm",
                spacing=max(1, int(2 * s)))
         owner = _owner(st)
-        custom = str(st.get("title") or "").strip()
-        if custom.lower() in ("", "live room", "audio setup — live"):
-            custom = ""
-        room = custom or (f"{owner}'s Studio" if owner != "My" else "Live Studio")
+        room = "Live voice chat"
         tx = pad + lw + int(18 * s)
         T.draw(d, (tx, h // 2 - int(3 * s)), room, "bold", int(24 * s), TEXT, "ld",
                max_w=W * 0.44)
-        sub = st.get("group") or "Voice Chat"
+        sub = "Connected now"
         T.draw(d, (tx, h // 2 + int(5 * s)), sub, "ui", int(15 * s), MUTED, "la",
                max_w=W * 0.44)
         rx = W - pad
@@ -533,6 +532,46 @@ class Renderer:
         self._chip(d, rx, h // 2 - int(12 * s), "REC", RED, solid=pulse > 0.5,
                    anchor="r", size=int(14 * s))
 
+    def _sidebar(self, d, st, w, y0, y1):
+        s = self.s
+        d.rectangle([0, y0, w, y1], fill=(11, 13, 22))
+        d.line([w - 1, y0, w - 1, y1], fill=LINE, width=max(1, int(s)))
+        pad = int(14 * s)
+        owner = _owner(st)
+        photo = st.get("me_photo") or ""
+        avatar = int(24 * s)
+        ax, ay = pad + avatar, y0 + int(28 * s)
+        d.ellipse([ax - avatar - 2, ay - avatar - 2, ax + avatar + 2, ay + avatar + 2], fill=CYAN)
+        d.ellipse([ax - avatar, ay - avatar, ax + avatar, ay + avatar], fill=(28, 54, 72))
+        if photo and os.path.exists(photo):
+            self._photo_ops.append((photo, ax - avatar, ay - avatar, avatar * 2, False))
+        else:
+            T.draw(d, (ax, ay), _initials(owner), "display", int(15 * s), TEXT, "mm")
+        T.draw(d, (ax + avatar + int(10 * s), ay - int(7 * s)), owner, "bold", int(15 * s), TEXT, "lm",
+               max_w=w - ax - avatar - int(18 * s))
+        T.draw(d, (ax + avatar + int(10 * s), ay + int(10 * s)), "online", "tech", int(12 * s), GREEN, "lm")
+        y = y0 + int(78 * s)
+        for label, active, col in (("Chats", False, MUTED), ("Calls", True, CYAN), ("Contacts", False, MUTED)):
+            if active:
+                d.rounded_rectangle([int(8 * s), y - int(17 * s), w - int(8 * s), y + int(17 * s)],
+                                    radius=int(8 * s), fill=(22, 38, 54))
+                d.rectangle([int(8 * s), y - int(17 * s), int(11 * s), y + int(17 * s)], fill=CYAN)
+            T.draw(d, (pad + int(8 * s), y), label, "ui", int(15 * s), col, "lm")
+            y += int(43 * s)
+        d.line([pad, y - int(12 * s), w - pad, y - int(12 * s)], fill=LINE, width=max(1, int(s)))
+        T.draw(d, (pad, y + int(14 * s)), "RECENT CALLS", "tech", int(11 * s), DIM, "la")
+        y += int(42 * s)
+        parts = list(st.get("participants") or [])
+        for i, participant in enumerate(parts[:5]):
+            name = str(participant.get("name") or "User")
+            active = bool(participant.get("speaking"))
+            dot = GREEN if active else DIM
+            d.ellipse([pad, y - int(4 * s), pad + int(8 * s), y + int(4 * s)], fill=dot)
+            T.draw(d, (pad + int(16 * s), y), name, "ui", int(12 * s), TEXT if active else MUTED, "lm",
+                   max_w=w - pad - int(22 * s))
+            y += int(30 * s)
+        T.draw(d, (pad, y1 - int(20 * s)), "Voice chat", "tech", int(12 * s), DIM, "ld")
+
     def _grid(self, d, st, x0, y0, x1, y1, now):
         s = self.s
         parts = list(st.get("participants") or [])
@@ -541,7 +580,7 @@ class Renderer:
         total = len(parts)
         speaking = sum(1 for p in parts if p.get("speaking"))
         head_h = int(50 * s)
-        self._label(d, x0, y0 - int(2 * s), "◉ STAGE", CYAN, int(15 * s))
+        self._label(d, x0, y0 - int(2 * s), "◉ VOICE CHAT", CYAN, int(15 * s))
         T.draw(d, (x0, y0 + head_h - int(8 * s)),
                f"{total} in voice chat", "bold", int(20 * s), TEXT, "ld")
         cw, _ = self._chip(d, x1, y0 + int(6 * s), f"{speaking} SPEAKING",
@@ -640,6 +679,91 @@ class Renderer:
             self._chip(d, x + w - int(8 * s), y + int(8 * s), f"{vol}%", CYAN,
                        size=int(13 * s), anchor="r")
 
+    def _session_panel(self, d, st, x0, y0, x1, y1, now):
+        s = self.s
+        self._glass(d, [x0, y0, x1, y1], int(20 * s), (12, 14, 24), _mix(LINE, CYAN, 0.28))
+        pad = int(16 * s)
+        x, y, w = x0 + pad, y0 + pad, x1 - x0 - 2 * pad
+        parts = list(st.get("participants") or [])
+        speakers = [p for p in parts if p.get("speaking") and not p.get("muted")]
+        active = speakers[0] if speakers else next((p for p in parts if p.get("is_me")), None)
+        active_name = str((active or {}).get("name") or _owner(st) or "Someone")
+        active_photo = ((active or {}).get("photo") or
+                        (st.get("me_photo") if (active or {}).get("is_me") else "") or "")
+        live = bool(speakers or st.get("mic_on"))
+
+        T.draw(d, (x, y), "LIVE SESSION", "tech", int(14 * s), CYAN, "la", spacing=max(1, int(s)))
+        T.draw(d, (x + w, y), "Connected", "tech", int(13 * s), GREEN, "ra")
+        y += int(28 * s)
+        d.line([x, y, x + w, y], fill=_mix(LINE, CYAN, 0.35), width=max(1, int(s)))
+        y += int(14 * s)
+
+        card_h = int(128 * s)
+        self._glass(d, [x, y, x + w, y + card_h], int(14 * s), GLASS2,
+                    GREEN if live else LINE, max(1, int((2 if live else 1) * s)))
+        avatar_r = int(32 * s)
+        ax, ay = x + int(48 * s), y + int(54 * s)
+        ring = GREEN if live else DIM
+        d.ellipse([ax - avatar_r - int(4 * s), ay - avatar_r - int(4 * s),
+                   ax + avatar_r + int(4 * s), ay + avatar_r + int(4 * s)], fill=ring)
+        d.ellipse([ax - avatar_r, ay - avatar_r, ax + avatar_r, ay + avatar_r],
+                  fill=_mix(CYAN if live else DIM, BG0, 0.35))
+        if active_photo and os.path.exists(active_photo):
+            self._photo_ops.append((active_photo, ax - avatar_r, ay - avatar_r, avatar_r * 2, live))
+        else:
+            T.draw(d, (ax, ay), _initials(active_name), "display", int(22 * s), TEXT, "mm")
+        tx = x + int(94 * s)
+        T.draw(d, (tx, y + int(36 * s)), active_name, "bold", int(19 * s), TEXT, "la",
+               max_w=w - int(110 * s))
+        T.draw(d, (tx, y + int(61 * s)), "Speaking now" if live else "In the call",
+               "ui", int(14 * s), GREEN if live else MUTED, "la")
+        bars_x = tx
+        bars_y = y + int(88 * s)
+        for k in range(20):
+            lvl = (0.18 + 0.82 * _noise(now * 2.5, k)) if live else 0.10
+            bar_h = max(2, int(17 * s * lvl))
+            col = _mix(CYAN, GREEN, k / 19) if live else DIM
+            d.rounded_rectangle([bars_x + k * int(6 * s), bars_y - bar_h,
+                                 bars_x + k * int(6 * s) + int(3 * s), bars_y],
+                                radius=max(1, int(s)), fill=col)
+        y += card_h + int(12 * s)
+
+        np_name = T.clean(st.get("now_playing") or "")
+        dur = float(st.get("duration") or 0)
+        pos = float(st.get("position") or 0)
+        if np_name and dur > 0:
+            self._glass(d, [x, y, x + w, y + int(92 * s)], int(12 * s), GLASS)
+            T.draw(d, (x + int(12 * s), y + int(18 * s)), "Currently playing", "tech",
+                   int(12 * s), MUTED, "la")
+            T.draw(d, (x + int(12 * s), y + int(42 * s)), np_name, "bold", int(16 * s), TEXT, "la",
+                   max_w=w - int(24 * s))
+            track_y = y + int(65 * s)
+            track_x0, track_x1 = x + int(12 * s), x + w - int(12 * s)
+            d.rounded_rectangle([track_x0, track_y, track_x1, track_y + int(5 * s)],
+                                radius=int(3 * s), fill=(48, 52, 76))
+            frac = max(0.0, min(1.0, pos / dur))
+            fx = track_x0 + int((track_x1 - track_x0) * frac)
+            d.rounded_rectangle([track_x0, track_y, fx, track_y + int(5 * s)],
+                                radius=int(3 * s), fill=CYAN)
+            T.draw(d, (track_x0, y + int(84 * s)), _clock(pos), "tech", int(12 * s), MUTED, "la")
+            T.draw(d, (track_x1, y + int(84 * s)), _clock(dur), "tech", int(12 * s), MUTED, "ra")
+            y += int(104 * s)
+
+        remaining = y1 - pad - y
+        if remaining > int(70 * s):
+            self._glass(d, [x, y, x + w, y + remaining], int(12 * s), GLASS)
+            T.draw(d, (x + int(12 * s), y + int(18 * s)), "PEOPLE IN THIS CALL", "tech",
+                   int(12 * s), MUTED, "la")
+            mini_y = y + int(42 * s)
+            for i, participant in enumerate(parts[:4]):
+                px = x + int(14 * s) + (i % 2) * int(w * 0.50)
+                py = mini_y + (i // 2) * int(34 * s)
+                name = str(participant.get("name") or "User")
+                dot = GREEN if participant.get("speaking") else (RED if participant.get("muted") else CYAN)
+                d.ellipse([px, py, px + int(8 * s), py + int(8 * s)], fill=dot)
+                T.draw(d, (px + int(14 * s), py + int(4 * s)), name, "ui", int(13 * s), TEXT,
+                       "lm", max_w=w * 0.42)
+
     def _deck(self, d, st, x0, y0, x1, y1, now):
         s = self.s
         self._glass(d, [x0, y0, x1, y1], int(20 * s), (12, 13, 24), _mix(LINE, PINK, 0.25))
@@ -664,11 +788,11 @@ class Renderer:
         tx = x + 2 * ar + int(12 * s)
         T.draw(d, (tx, acy - int(2 * s)), owner, "bold", int(20 * s), TEXT, "ld",
                max_w=w - 2 * ar - int(12 * s))
-        sub = ("@" + st["me_user"]) if st.get("me_user") else "Host · Studio A"
+        sub = ("@" + st["me_user"]) if st.get("me_user") else "Host"
         T.draw(d, (tx, acy + int(4 * s)), sub, "ui", int(14 * s), MUTED, "la",
                max_w=w - 2 * ar - int(100 * s))
         on_air = mic_on or (bool(np_name) and not paused)
-        self._chip(d, x + w, acy + int(2 * s), "ON AIR" if on_air else "STANDBY",
+        self._chip(d, x + w, acy + int(2 * s), "ACTIVE" if on_air else "IDLE",
                    RED if on_air else DIM, solid=on_air and _wave(now, 4) > 0.4,
                    anchor="r", size=int(13 * s))
         y += 2 * ar + int(14 * s)
@@ -722,7 +846,7 @@ class Renderer:
         cw, ch = self._chip(d, tx, y + p, state_txt, col, solid=True, size=int(13 * s))
         if np_name and st.get("loop"):
             self._chip(d, tx + cw + int(5 * s), y + p, "LOOP", VIOLET, size=int(13 * s))
-        title = np_name or ("Live Mic — Direct Feed" if mic_on else "Studio Live Session")
+        title = np_name or ("Microphone" if mic_on else "Voice chat")
         T.draw(d, (tx, y + p + ch + int(6 * s)), title, "bold", int(20 * s), TEXT, "la", max_w=tw)
         artist = ("Now spinning · Hi-Fi 320k" if np_name else
                   "Mic › Comp › Limiter › VC" if mic_on else "Neon Deck · Auto DJ")
@@ -753,11 +877,11 @@ class Renderer:
     def _spectrum(self, d, x, y, w, h, now, energy, st):
         s = self.s
         self._glass(d, [x, y, x + w, y + h], int(12 * s), GLASS2)
-        self._label(d, x + int(10 * s), y + int(7 * s), "SPECTRUM", MUTED, int(12 * s))
+        self._label(d, x + int(10 * s), y + int(7 * s), "VOICE ACTIVITY", MUTED, int(12 * s))
         vol = int(st.get("volume") or 0)
         boost = int(st.get("boost") or 0)
         T.draw(d, (x + w - int(10 * s), y + int(7 * s)),
-               f"VOL {int(round(vol / 10.0))}%  ·  BOOST {boost}/10", "tech", int(12 * s), CYAN, "ra")
+               f"VOLUME {int(round(vol / 10.0))}%  ·  LEVEL {boost}/10", "tech", int(12 * s), CYAN, "ra")
         n = 32
         top = y + int(24 * s)
         bot = y + h - int(8 * s)
@@ -799,9 +923,9 @@ class Renderer:
     def _mixer(self, d, st, x, y, w, h, now, energy, mic_on, np_name, paused):
         s = self.s
         self._glass(d, [x, y, x + w, y + h], int(12 * s), GLASS2)
-        self._label(d, x + int(10 * s), y + int(7 * s), "MIXER  ·  FX CHAIN", MUTED, int(12 * s))
+        self._label(d, x + int(10 * s), y + int(7 * s), "AUDIO LEVELS", MUTED, int(12 * s))
         T.draw(d, (x + w - int(10 * s), y + int(7 * s)),
-               st.get("mic_model") or "SM7B › Scarlett 2i2", "tech", int(12 * s), MUTED, "ra",
+               "Live connection", "tech", int(12 * s), MUTED, "ra",
                max_w=w * 0.5)
         cy = y + int(26 * s)
         cx = x + int(10 * s)
@@ -850,7 +974,7 @@ class Renderer:
         d.line([0, y, W, y], fill=_mix(LINE, PINK, 0.4), width=max(1, int(2 * s)))
         tagw = int(130 * s)
         d.rectangle([0, y + 2, tagw, self.h], fill=PINK)
-        T.draw(d, (tagw // 2, y + h // 2), "LIVE FEED", "display", int(15 * s), BG0, "mm",
+        T.draw(d, (tagw // 2, y + h // 2), "VOICE CHAT", "display", int(14 * s), BG0, "mm",
                spacing=max(1, int(1 * s)))
         dt = datetime.fromtimestamp(now, _tz())
         cw = int(200 * s)
@@ -865,14 +989,13 @@ class Renderer:
         np_name = st.get("now_playing") or ""
         items = []
         if spk:
-            items.append("🎙 Speaking: " + ", ".join(spk))
+            items.append("Speaking now: " + ", ".join(spk))
         if np_name:
-            items.append(("⏸ Paused: " if st.get("paused") else "♪ Now playing: ") + T.clean(np_name))
+            items.append(("Paused: " if st.get("paused") else "Playing: ") + T.clean(np_name))
         if st.get("mic_on"):
-            items.append("● LIVE MIC ON AIR")
-        items += [f"👥 {len(parts)} listeners tuned in", "⚡ Studio A · 48kHz/24-bit · Ultra-low latency",
-                  "★ Stay tuned — the vibe never stops"]
-        text = "     ✦     ".join(items) + "     ✦     "
+            items.append("Microphone active")
+        items += [f"{len(parts)} people in the call", "Connected live", "Voice chat is active"]
+        text = "     ·     ".join(items) + "     ·     "
         fs = int(17 * s)
         runs_w = T.text_width(text, "bold", fs) or 1
         x0, x1 = tagw + int(12 * s), W - cw - int(12 * s)
