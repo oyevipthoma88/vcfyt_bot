@@ -1463,6 +1463,7 @@ class UserVC:
         chats = {c.id: c for c in getattr(res, "chats", []) or []}
         speak = self.__dict__.get("_speak_ts", {})
         now = time.time()
+        ghost_mute = bool(getattr(self.chats.get(chat_id), "ghost_mute", False))
         out = []
         for p in getattr(res, "participants", []) or []:
             peer = getattr(p, "peer", None)
@@ -1479,7 +1480,7 @@ class UserVC:
             last = max(float(act), speak.get((chat_id, uid), 0))
             out.append({
                 "uid": uid, "name": name[:40], "muted": muted,
-                "speaking": (not muted) and (now - last) < 2.5,
+                "speaking": (not ghost_mute) and (not muted) and (now - last) < 2.5,
                 "hand": bool(getattr(p, "raise_hand_rating", None)),
                 "volume": int((getattr(p, "volume", None) or 10000) / 100),
                 "is_me": uid == self.account_id,
@@ -1577,8 +1578,12 @@ class UserVC:
                 "loop": bool(getattr(st, "loop", False)),
                 "volume": int(getattr(st, "relay_volume", 0) or 0),
                 "boost": int(getattr(st, "boost", 0) or 0),
-                "mic_on": bool(getattr(st, "mic_enabled", False)
-                               or self._live_mic_audio(chat_id) is not None),
+                "mic_on": (not bool(getattr(st, "ghost_mute", False))) and bool(
+                    getattr(st, "mic_enabled", False)
+                    or self._live_mic_audio(chat_id) is not None),
+                "ghost_mute": bool(getattr(st, "ghost_mute", False)),
+                "audio_active": bool(getattr(st, "mic_enabled", False)
+                                      or self._live_mic_audio(chat_id) is not None),
             }
             try:
                 tmp = path + ".tmp"
@@ -1607,9 +1612,7 @@ class UserVC:
             if not task or task.done():
                 st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
             _base = os.path.dirname(os.path.abspath(__file__))
-            script = os.path.join(_base, "telegram_live_screen.py")
-            if not os.path.exists(script):
-                script = os.path.join(_base, "live_screen.py")
+            script = os.path.join(_base, "live_screen.py")
             # GROUP VC LIMIT: Telegram accepts group screen share up to
             # 720p only — a 1080p presentation is refused outright
             # ("screen share accept nahi kiya").  Cap the live screen to the
