@@ -762,8 +762,18 @@ class UserVC:
             await self._self_unmute(chat_id)
             if st.admin_muted:
                 return
+            
+            # If .umplay is set, play it
             if await self.play_unmute_audio(chat_id):
                 return
+                
+            # If .umplay is NOT set, wait 5-10 seconds (human hesitation)
+            import random
+            delay = random.uniform(5.0, 10.0)
+            logger.info("No umplay set. Playing human delay of %.1fs in chat %s", delay, chat_id)
+            await asyncio.sleep(delay)
+            
+            # Then resume original audio from the BEGINNING
             await self._resume_after_mute(chat_id)
         finally:
             st.unmute_flow = False
@@ -779,8 +789,9 @@ class UserVC:
         st.resume_pos = 0.0
         st.resume_is_old = False
         if resume and os.path.exists(resume):
-            await self._stream(chat_id, resume, name, start_at=pos)
-            logger.info("Resumed recording in chat %s at %.1fs", chat_id, pos)
+            # Do NOT resume from pos (middle). Resume from 0 (beginning).
+            await self._stream(chat_id, resume, name, start_at=0)
+            logger.info("Resumed recording in chat %s from beginning (0.0s)", chat_id)
             return True
         if st.is_paused and st.current_file:
             # Nothing was parked: continue the paused track where it was.

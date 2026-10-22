@@ -129,30 +129,38 @@ def _font_name(size, bold=False):
 
 
 def _sanitize_name(name, size=14, bold=False):
-    """Strip invisible fillers and unrenderable chars (kills tofu boxes)."""
+    """Strict whitelist-based sanitizer to kill tofu boxes and invisible chars."""
+    import re
     name = str(name or "User")
-    # 1) drop invisible / control chars
-    clean = []
-    for ch in name:
-        cp = ord(ch)
+    
+    # Whitelist of safe Unicode blocks (Latin, Cyrillic, basic symbols)
+    allowed = [
+        (0x0020, 0x007E),  # Basic ASCII
+        (0x00A0, 0x00FF),  # Latin-1 Supplement
+        (0x0100, 0x017F),  # Latin Extended-A
+        (0x0400, 0x04FF),  # Cyrillic
+        (0x2000, 0x206F),  # General Punctuation
+        (0x20A0, 0x20CF),  # Currency
+        (0x2190, 0x21FF),  # Arrows
+        (0x2200, 0x22FF),  # Math
+        (0x2500, 0x257F),  # Box Drawing
+        (0x25A0, 0x25FF),  # Geometric Shapes
+        (0x2600, 0x26FF),  # Misc Symbols
+    ]
+    
+    def _is_safe(cp):
         if cp in _INVISIBLE or cp < 0x20:
-            continue
-        clean.append(ch)
-    name = "".join(clean).strip()
-    if not name:
-        return "User"
-    # 2) drop chars the name font can't render
-    f = _font_name(size, bold)
-    out = []
-    for ch in name:
-        try:
-            bbox = f.getbbox(ch)
-            if bbox and (bbox[2] - bbox[0]) > 0 and (bbox[3] - bbox[1]) > 0:
-                out.append(ch)
-            # else: skip (no tofu)
-        except Exception:
-            pass
-    return "".join(out)[:24] or "User"
+            return False
+        for lo, hi in allowed:
+            if lo <= cp <= hi:
+                return True
+        return False
+
+    # Strip unallowed chars (like hieroglyphs, weird modifiers)
+    clean = "".join(ch if _is_safe(ord(ch)) else "" for ch in name)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    
+    return clean[:24] or "User"
 
 
 def _hms(sec):
