@@ -562,221 +562,28 @@ def build_ffmpeg_filter(
         # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
         filters = [
-            "aresample=48000:first_pts=0:async=1",
-            "highpass=f=85",
-            "lowpass=f=14000",
-            "equalizer=f=350:t=q:w=1.2:g=-3.50",
-        ]
-        if _has_filter("afftdn"):
-            filters.append("afftdn=nr=10:nf=-50:tn=1")
-        if _has_filter("agate"):
-            filters.append("agate=range=0.001:threshold=0.0012:ratio=3:"
-                           "attack=3:release=150:knee=2:detection=rms")
-        filters.append(f"equalizer=f=1800:t=q:w=1.2:g={_db(5.0 + 2.0 * clarity_amt)}")  # v20: +2 dB
-        filters.append(f"equalizer=f=2800:t=q:w=1.1:g={_db(6.0 + 2.5 * clarity_amt)}")  # v20: +2 dB
-        filters.append(f"equalizer=f=4500:t=q:w=1.3:g={_db(4.0 + 1.5 * clarity_amt)}")  # v20: +1.5 dB
-        # v20: double speechnorm for extreme levelling
-        if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=24:c=2:r=0.001:f=0.001:p=0.97:l=1")
-            filters.append("speechnorm=e=12:c=2:r=0.0005:f=0.001:p=0.95:l=1")
-        # v20: triple compressor density stack
-        filters.append("acompressor=threshold=0.12:ratio=5.0:attack=2:release=50:makeup=6.0:knee=2")
-        filters.append("acompressor=threshold=0.06:ratio=10:attack=5:release=120:makeup=8:knee=6")
-        filters.append("acompressor=threshold=0.02:ratio=20:attack=10:release=300:makeup=12:knee=10")
-        if use_echo and echo_value:
-            d1 = 90 + echo_value * 20
-            decay = min(0.35, 0.10 + echo_value * 0.03)
-            filters.append(f"aecho=1.0:0.85:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}")
-        if extra_filters:
-            filters.append(extra_filters)
-        # v20: much more drive into limiter
-        filters.append(f"volume={_db(min(12.0, 4.0 + final_db * 0.12))}dB")
-        # v20: stereo widener + loudnorm for max loudness
-        if _has_filter("extrastereo"):
-            filters.append("extrastereo=m=2.0")
-        if _has_filter("loudnorm"):
-            filters.append("loudnorm=I=-5:LRA=1.0:TP=-0.01")
-        filters.append("alimiter=level_in=1.5:level_out=1:limit=0.95:"
-                       "attack=5:release=40:level=false:asc=1")
-        return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
-
-    if live and _live_chain_mode() == "soft":
-
-        # ---------------------------------------------------------------
-        # LIVE MIC — BROADCAST CHAIN (rewritten 28-Sep).
-        #
-        # Every earlier version tried to buy loudness with raw gain:
-        # +30 dB pre-amp -> two compressors with +14 dB makeup each
-        # -> +12/+12/+8 dB of EQ boosts -> +14 dB drive -> +18 dB turbo
-        # -> saturator -> two limiters.  That is ~90 dB of gain aimed at a
-        # 0 dBFS ceiling, so the limiters were flat-out the entire time.
-        # Result: no dynamics, no consonants, pumping noise floor — i.e.
-        # exactly the "aavaj bhi nahi, clarity bhi nahi" complaint.  Louder
-        # numbers were making the voice quieter to the ear.
-        #
-        # Real loudness = clean signal -> gentle shaping -> ONE leveller
-        # -> ONE compressor -> ONE brick-wall limiter, with total gain
-        # budgeted so the limiter only kisses peaks.  Opus (what Telegram
-        # actually sends) also needs ~3 dB of headroom or it adds its own
-        # crackle, so the ceiling is 0.94, not 0.99.
-        # ---------------------------------------------------------------
-
-        # clarity / turbo sliders are legacy 0-35 / 0-24 scales; map them to
-        # a few dB of tone and drive instead of double-digit boosts.
-        try:
-            clarity_v = max(0.0, min(35.0, float(18 if clarity is None else clarity)))
-        except (TypeError, ValueError):
-            clarity_v = 18.0
-        clarity_amt = clarity_v / 35.0          # 0 .. 1
-
-        filters = [
-            "aresample=48000:first_pts=0:async=1",
-            # Rumble / pocket handling noise only.
-            "highpass=f=90",
-            # Keep real speech brightness; above this is only mic hiss.
-            "lowpass=f=15000",
-            # Mains hum notch (phone mics pick this up in every room).
-            "equalizer=f=50:t=q:w=1.0:g=-5.00",
-        ]
-
-        # Denoise BEFORE any gain, gently.  Heavy denoise is what made the
-        # voice sound underwater in the previous build.
-        if _has_filter("afftdn"):
-            filters.append("afftdn=nr=10:nf=-45:tn=1")
-
-        # Boxiness cut — the single biggest clarity win, and it costs no level.
-        filters.append("equalizer=f=300:t=q:w=1.1:g=-4.50")
-
-        if bass_value:
-            filters.append(
-                f"lowshelf=f=140:g={_db(min(3.0, bass_value * 0.04))}")
-
-        # Intelligibility bands: a few dB, not twelve.
-        filters.append(f"equalizer=f=1800:t=q:w=1.3:g={_db(2.5 + 2.0 * clarity_amt)}")
-        filters.append(f"equalizer=f=3000:t=q:w=1.1:g={_db(3.0 + 2.5 * clarity_amt)}")
-        # Consonant bite (t/k/s) so words stay readable on phone speakers.
-        filters.append(f"equalizer=f=4800:t=q:w=1.6:g={_db(2.0 + 1.5 * clarity_amt)}")
-        # Air, scaled off the treble slider.
-        filters.append(f"highshelf=f=7000:g={_db(min(3.0, treble_value * 0.025))}")
-        # Add a very light upper-harmonic exciter for phone speakers, then
-        # de-ess it so the extra intelligibility does not become harsh hiss.
-        if _has_filter("aexciter"):
-            # This FFmpeg build requires aexciter ceil >= 9999 Hz.
-            filters.append("aexciter=amount=0.12:drive=1.8:freq=3500:ceil=10000")
-        if _has_filter("deesser") and os.environ.get("LIVE_MIC_DEESS", "0") == "1":
-            filters.append("deesser=i=0.20:m=0.35:f=0.50")
-        else:
-            filters.append("equalizer=f=7600:t=q:w=2.2:g=-3.00")
-
-        # GAIN BUDGET (clean + loud): total ~+30 dB max, ONE leveller,
-        # ONE compressor, ONE limiter that only touches peaks.  The previous
-        # chain stacked ~100 dB (28 dB pre-amp, 3 compressors, +20 dB, +24 dB
-        # drive) so the limiter clipped non-stop = loud noise, no words.
-        # LOUDNESS UPGRADE: pre-amp ceiling raised 9 dB -> 15 dB.  The limiter
-        # at the end still protects the ceiling, so this only lifts the quiet
-        # parts instead of clipping.
-        # v20 MAX: pre-amp up to 20 dB (was 15), limiter still owns ceiling.
-        try:
-            pregain_db = max(0.0, min(20.0, float(pregain if pregain is not None else 6.0) * 0.55))
-        except (TypeError, ValueError):
-            pregain_db = 12.0
-        if pregain_db:
-            filters.append(f"volume={_db(pregain_db)}dB")
-
-        # v20 MAX: speechnorm e=45 (was 25) for extreme levelling.
-        if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=45:c=2:r=0.0003:f=0.001:p=0.95:t=0.015:l=1")
-        else:
-            filters.append("dynaudnorm=f=10:g=8:p=0.95:m=15:r=0.9:s=0")
-
-        # v20 MAX: harder compressor + second density stage.
-        filters.append(
-            "acompressor=threshold=0.10:ratio=5.0:"
-            "attack=3:release=60:makeup=8.0:knee=3"
-        )
-        filters.append(
-            "acompressor=threshold=0.03:ratio=15:"
-            "attack=8:release=200:makeup=10.0:knee=6"
-        )
-
-        # Echo AFTER levelling: the leveller can't pump the echo tail up into
-        # mud, and switching echo off removes it completely.
-        if use_echo and echo_value:
-            d1 = 90 + echo_value * 20
-            decay = min(0.40, 0.12 + echo_value * 0.03)
-            filters.append(
-                f"aecho=1.0:0.85:{d1}|{d1 * 2}:{decay:.2f}|{decay * 0.5:.2f}"
-            )
-
-        if extra_filters:
-            filters.append(extra_filters)
-
-        # v20 MAX: turbo up to +15 dB + extra loud, plus stereo widener + loudnorm
-        try:
-            turbo_db = max(0.0, min(15.0, float(turbo or 0) * 0.55))
-        except (TypeError, ValueError):
-            turbo_db = 0.0
-        turbo_db += extra_loud_db()
-        if turbo_db:
-            filters.append(f"volume={_db(min(22.0, turbo_db))}dB")
-        if _has_filter("extrastereo"):
-            filters.append("extrastereo=m=2.0")
-        if _has_filter("loudnorm"):
-            filters.append("loudnorm=I=-5:LRA=1.0:TP=-0.01")
-        # v20: ceiling at 0.999 = maximum possible
-        filters.append("alimiter=level_in=2.0:level_out=1:limit=0.999:"
-                       "attack=1:release=30:level=false:asc=1")
-
-        return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(filters)))
-
-
-
-
-    # ------------------------------------------------------------------
-    # PLAYBACK v9 — CLEAN LOUD MASTER (root fix "aawaz fat rahi + kam aati").
-    # Old chain: 4 compressors + 2 tanh/cubic saturators + up to +30 dB push
-    # into limiters -> RMS -4 dBFS / +1 LUFS = practically a square wave.
-    # Telegram's Opus encoder + client loudness normalisation then turned
-    # that distorted wall DOWN, so it sounded both broken AND quiet.
-    # Now: ONE leveller, ONE gentle compressor, ONE look-ahead limiter at
-    # -1 dBTP.  Target ~-10 LUFS with real crest factor = loud on phone
-    # speakers, no crackle, no re-normalisation by Telegram.
-    # ------------------------------------------------------------------
-    import math as _m
-    filters = [
-        "highpass=f=50",
-        "aresample=48000",
-        "aformat=channel_layouts=stereo",
-        *(["agate=threshold=0.003:range=0.03:ratio=2:attack=5:release=250:knee=4"] if _has_filter("agate") else []),
-        "dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5",
-        *(["speechnorm=e=50:r=0.0001:l=1:p=0.95"] if _has_filter("speechnorm") else []),
-        "equalizer=f=200:t=q:w=1.0:g=-2",
-        "equalizer=f=2500:t=q:w=1.2:g=4",
-        "equalizer=f=3800:t=q:w=1.2:g=3",
-        "equalizer=f=5500:t=q:w=1.5:g=2",
+        "highpass=f=60",
+        "equalizer=f=80:t=q:w=1.0:g=8",      # Heavy Bass
+        "equalizer=f=3000:t=q:w=1.2:g=8",    # Crystal Treble
+        "equalizer=f=10000:t=q:w=1.0:g=5",   # Air/Presence
+        "acompressor=threshold=0.01:ratio=20:attack=1:release=50:makeup=15", # Extreme Compression
     ]
     if extra_filters:
         filters.append(extra_filters)
-    over = max(0.0, (vol - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX))
-    g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
-    push = min(1.0, over * 0.6 + g_over * 0.4 + boost_value * 0.02)
-    makeup = 10 ** ((2.0 + 2.0 * push) / 20.0)
-    filters.append("acompressor=threshold=0.25:ratio=4:attack=10:release=200:"
-                   f"makeup={makeup:.2f}:knee=6")
+        
     try:
         _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 6)))
     except ValueError:
         _extra = 6.0
-    # HUMAN TOUCH: Tremolo (subtle volume wobble like mic movement)
-    if _has_filter("tremolo"):
-        filters.append("tremolo=f=0.1:d=0.05")
-    # Fade-in (like unmuting mic)
-    filters.append("afade=t=in:st=0:d=0.8")
-    filters.append(f"volume={_db(8.0 + 2.0 * push + _extra)}dB")
+        
+    # MAX LOUDNESS PUSH
+    filters.append(f"volume={_db(20.0 + _extra)}dB")
+    
     if _has_filter("asoftclip"):
         filters.append("asoftclip=type=tanh:oversample=2")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=5:"
-                   "release=80:level=false")
+        
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.99:attack=1:release=50:level=false")
+    
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
                        f"volume={_db(20.0 * _m.log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
