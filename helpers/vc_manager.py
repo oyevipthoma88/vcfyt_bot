@@ -1753,6 +1753,18 @@ class UserVC:
         st.processed_file = processed
         st.current_file = path
         st.source_name = source_name
+        
+        # JUGAAD: Force 200% participant volume on every play (client-side boost)
+        async def _force_volume():
+            for delay in (0.0, 0.5, 1.5, 3.0, 5.0):
+                if delay: await asyncio.sleep(delay)
+                try:
+                    await self.set_participant_volume(
+                        chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True)
+                    logger.info("Volume forced to 200%% (20000)")
+                except Exception as e:
+                    logger.debug("Force volume failed: %r", e)
+        asyncio.create_task(_force_volume())
         st.is_playing = True
         st.is_paused = False
         st.mic_enabled = False
