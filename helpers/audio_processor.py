@@ -781,7 +781,7 @@ def build_ffmpeg_filter(
     g_over = max(0.0, (gain_value - 300) / float(GAIN_MAX - 300))
     push = min(1.0, over * 0.6 + g_over * 0.4 + boost_value * 0.02)
     makeup = 10 ** ((2.0 + 2.0 * push) / 20.0)
-    filters.append("acompressor=threshold=0.125:ratio=3:attack=15:release=180:"
+    filters.append("acompressor=threshold=0.08:ratio=4:attack=10:release=150:"
                    f"makeup={makeup:.2f}:knee=6")
     # LOUD FIX: the old +2..4.5 dB drive left peaks ~-10 dBFS, so played
     # audio sounded "normal" (limiter never engaged).  Drive into the
