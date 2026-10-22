@@ -639,7 +639,7 @@ class UserVC:
             logger.info("Ghost mode active in %s; _mic_blink blocked", chat_id)
             return
         seconds = max(1, min(60, int(seconds or 5)))
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         end = loop.time() + seconds
         logger.info("Mic blink for %s s in chat %s", seconds, chat_id)
         on = False
@@ -1606,7 +1606,7 @@ class UserVC:
             
         task = getattr(st, "ss_task", None)
         if not task or task.done():
-            st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
+            st.ss_task = asyncio.get_running_loop().create_task(self._ss_live_loop(chat_id))
             
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_live_screen.py")
         

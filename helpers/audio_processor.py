@@ -562,19 +562,24 @@ def build_ffmpeg_filter(
         # and NO mic audio reached the VC.  New chain: every filter valid on
         # mono input; whisper-level voice is lifted to ~-4 dBFS RMS, normal
         # voice to ~-2.4 dBFS RMS (max density, peak -0.9 dBFS), hiss -> silence.
-            # NUCLEAR LOUDNESS (Max Bass, Max Treble, Max Push)
-    filters.append("highpass=f=50")
-    filters.append("equalizer=f=100:t=q:w=1.0:g=15")      # +15dB Bass (Speaker blast)
-    filters.append("equalizer=f=3000:t=q:w=1.2:g=15")     # +15dB Treble (Clear voice)
+            # ULTIMATE NUCLEAR LOUDNESS (Broadcast Grade + 60dB Push)
+    filters.append("highpass=f=40")
+    filters.append("equalizer=f=100:t=q:w=1.0:g=20")      # +20dB Bass (Heavy Thump)
+    filters.append("equalizer=f=3000:t=q:w=1.0:g=20")     # +20dB Treble (Crystal Voice)
     filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
     filters.append("speechnorm=e=50:r=0.0001:l=1")
     filters.append("volume=60dB")                         # +60dB Insane Push
     filters.append("acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=6")
     filters.append("acompressor=threshold=0.5:ratio=10:attack=1:release=50:makeup=3")
+    
+    # FFmpeg Broadcast Loudness (Squeezes every drop of volume)
+    if _has_filter("loudnorm"):
+        filters.append("loudnorm=I=-5:LRA=1:TP=0.0")
+        
     if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=tanh:oversample=4:param=3.0")
+        filters.append("asoftclip=type=tanh:oversample=4:param=3.5")
+        
     filters.append("alimiter=level_in=1:level_out=1:limit=0.999:attack=0.1:release=10:level=false")
-
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else f"volume={_db(20.0 * __import__('math').log10(vol / float(VOLUME_CLEAN_MAX)))}dB")
         
