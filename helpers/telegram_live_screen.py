@@ -21,9 +21,7 @@ PINK    = (255, 45, 149)
 PURPLE  = (180, 50, 255)
 LIME    = (57, 255, 20)
 
-AV_COLORS = [(231,76,60),(52,152,219),(46,204,113),(155,89,182),
-             (241,196,15),(26,188,156),(230,126,34),(236,64,122)]
-
+AV_COLORS = [(231,76,60),(52,152,219),(46,204,113),(155,89,182),(241,196,15),(26,188,156),(230,126,34),(236,64,122)]
 _FONT_CACHE = {}
 _INVISIBLE = {0x3164, 0x2800, 0x200B, 0x200C, 0x200D, 0xFEFF, 0x00A0, 0x180E}
 
@@ -45,11 +43,9 @@ def _font(size, bold=False):
     return f
 
 def _sanitize_name(name):
-    """Strict filter to prevent tofu boxes."""
     name = str(name or "User")
     clean = re.sub(r'[^a-zA-Z0-9\s\-_\.]', '', name).strip()
-    if len(clean) < 2:
-        clean = re.sub(r'[^a-zA-Z0-9]', '', name)[:2].upper()
+    if len(clean) < 2: clean = re.sub(r'[^a-zA-Z0-9]', '', name)[:2].upper()
     return (clean or "User")[:18]
 
 def _tz():
@@ -141,7 +137,6 @@ class Renderer:
         d.text((rx, h//2+int(12*s)), dt.strftime("%a, %d %b"), font=self.f_date, fill=MUTED, anchor="rd")
         rx -= int(90*s)
         lw, lh = int(120*s), int(28*s); ly = h//2 - lh//2
-        pulse = 0.5 + 0.5*abs(math.sin(now*2.2))
         d.rounded_rectangle([rx-lw, ly, rx, ly+lh], radius=lh//2, fill=(60, 16, 20))
         d.ellipse([rx-lw+int(12*s), h//2-int(5*s), rx-lw+int(22*s), h//2+int(5*s)], fill=RED)
         d.text((rx-lw+int(28*s), h//2), "LIVE", font=_font(10*s, True), fill=TEXT, anchor="lm")
