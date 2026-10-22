@@ -187,12 +187,7 @@ async def _is_new_user(user_id: int) -> bool:
 
 
 async def check_access(user_id: int) -> dict:
-    """Return access gate result.
-
-    Returns:
-        {"allowed": bool, "reason": str, "usage_today": int, "limit": int,
-         "is_premium": bool, "is_new_user": bool}
-    """
+    """Return access gate result."""
     if Config.is_owner(user_id):
         return {"allowed": True, "reason": "owner", "usage_today": 0,
                 "limit": -1, "is_premium": True, "is_new_user": False}
@@ -231,14 +226,10 @@ async def revoke_premium_all(user_id: int) -> bool:
 
 
 async def redeem_coupon(user_id: int, code: str, username: str = "", name: str = "") -> dict:
-    """Redeem a coupon code. Returns {"ok": bool, "message": str, "plan": str}."""
     code = (code or "").strip().upper()
     if not code:
         return {"ok": False, "message": "Coupon code likhein.", "plan": None}
 
-    # Validate the coupon's plan BEFORE consuming a use.  Previously a coupon
-    # pointing at a removed/renamed plan was marked used and then failed to
-    # grant premium — the user lost the code for nothing.
     existing = await db.get_coupon(code)
     if not existing:
         return {"ok": False, "message": "Invalid coupon code.", "plan": None}
@@ -255,7 +246,6 @@ async def redeem_coupon(user_id: int, code: str, username: str = "", name: str =
     try:
         until_iso = await grant_premium(user_id, plan_id)
     except ValueError:
-        # Give the use back so the code is not burned.
         try:
             await db.refund_coupon(code)
         except Exception:
@@ -266,7 +256,7 @@ async def redeem_coupon(user_id: int, code: str, username: str = "", name: str =
     except Exception:
         pass
     label = next((p[1] for p in PAYMENT_PLANS if p[0] == plan_id), plan_id)
-    return {"ok": True, "message": f"✅ Premium mil gaya! Plan: {label} Until: {until_iso}",
+    return {"ok": True, "message": f"\u2705 Premium mil gaya! Plan: {label} Until: {until_iso}",
             "plan": plan_id}
 
 
@@ -279,10 +269,6 @@ async def set_qr_code(file_id: str):
 
 
 async def check_referral_milestones(user_id: int) -> list:
-    """Check and auto-claim any newly reached referral milestones.
-
-    Returns list of (milestone, hours) tuples that were claimed.
-    """
     count = await db.count_referrals(user_id)
     claimed = []
     for milestone, hours in REFERRAL_REWARDS:
@@ -293,12 +279,10 @@ async def check_referral_milestones(user_id: int) -> list:
     return claimed
 
 
-# ── Multi-spare (ek saath kai spare ID) — premium lock owner ke haath me ──
 MULTI_SPARE_KEY = "feature_multi_spare_premium"
 
 
 async def multi_spare_premium_only() -> bool:
-    """True = sirf premium users. Default OFF -> sab free use karein."""
     try:
         return str(await db.get_app_value(MULTI_SPARE_KEY) or "0") == "1"
     except Exception:
