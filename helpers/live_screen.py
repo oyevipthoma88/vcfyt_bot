@@ -926,9 +926,9 @@ class Renderer:
         dt = datetime.fromtimestamp(now, _tz())
         cw = int(220 * s)
         d.rectangle([W - cw, y + 2, W, self.h], fill=(14, 14, 26))
-        T.draw(d, (W - int(16 * s), y + h // 2 - int(1 * s)), "",
+        T.draw(d, (W - int(16 * s), y + h // 2 - int(1 * s)), dt.strftime("%I:%M:%S %p"),
                "display", int(18 * s), TEXT, "rd")
-        T.draw(d, (W - int(16 * s), y + h // 2 + int(3 * s)), "",
+        T.draw(d, (W - int(16 * s), y + h // 2 + int(3 * s)), dt.strftime("%a, %d %b %Y"),
                "tech", int(14 * s), MUTED, "ra")
         # scrolling marquee
         parts = st.get("participants") or []

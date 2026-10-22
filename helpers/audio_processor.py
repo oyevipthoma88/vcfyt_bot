@@ -747,9 +747,9 @@ def build_ffmpeg_filter(
         "highpass=f=50",
         "aresample=48000",
         "aformat=channel_layouts=stereo",
-        "agate=threshold=0.003:range=0.03:ratio=2:attack=5:release=250:knee=4",
-        "dynaudnorm=f=250:g=31:p=0.97:m=120:r=0.85:s=0:l=1",
-        "speechnorm=e=50:r=0.00001:l=1:p=0.98",
+        *(["agate=threshold=0.003:range=0.03:ratio=2:attack=5:release=250:knee=4"] if _has_filter("agate") else []),
+        "dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5",
+        *(["speechnorm=e=50:r=0.0001:l=1:p=0.95"] if _has_filter("speechnorm") else []),
         "equalizer=f=200:t=q:w=1.0:g=-2",
         "equalizer=f=2500:t=q:w=1.2:g=4",
         "equalizer=f=3800:t=q:w=1.2:g=3",
@@ -770,7 +770,7 @@ def build_ffmpeg_filter(
     except ValueError:
         _extra = 0.0
     filters.append(f"volume={_db(5.0 + 3.0 * push + _extra)}dB")
-    filters.append("alimiter=level_in=1:level_out=1:limit=0.97:attack=5:"
+    filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=5:"
                    "release=60:level=false")
     if vol < VOLUME_CLEAN_MAX:
         filters.append("volume=0" if vol <= 0 else
@@ -822,10 +822,10 @@ async def process_audio_to_file(
         # slams the audio to the ceiling.
         fallback = (
             "aresample=48000,"
-            "dynaudnorm=f=150:g=15:p=0.89:m=8:s=0,"
-            "acompressor=threshold=0.125:ratio=3:attack=15:release=180:makeup=1.6:knee=6,"
-            "volume=4dB,"
-            "alimiter=level_in=1:limit=0.89:attack=5:release=80:level=false"
+            "dynaudnorm=f=150:g=15:p=0.95:m=100:r=0.5,"
+            "acompressor=threshold=0.08:ratio=6:attack=10:release=150:makeup=2.0:knee=4,"
+            "volume=8dB,"
+            "alimiter=level_in=1:limit=0.95:attack=5:release=60:level=false"
         )
         code2, stderr2 = await _run(fallback)  # str now (stray comma made it a tuple)
         if code2 != 0 or not os.path.exists(output_path):
@@ -875,7 +875,7 @@ def build_stream_command(
     ))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
-           "-threads", "2"]
+           "-threads", "1"]
     if loop:
         # Native, gapless looping — no stream-end round trip, no re-processing.
         cmd += ["-stream_loop", "-1"]
@@ -987,7 +987,7 @@ def build_fake_screen_command(
     # -re: produce frames in real time so the clock/LIVE timer/meters move
     # at true speed instead of racing ahead in the pipe buffer.
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-           "-threads", "2", "-re"]
+           "-threads", "1", "-re"]
     if os.path.exists(img):
         # BLUR FIX: pehle har frame par JPEG decode + lanczos scale + unsharp
         # chalta tha (~0.4 core). Saath me WebRTC ka VP8 encoder bhi CPU

@@ -203,16 +203,27 @@ async def _leave_one(uvc, chat_id: int) -> None:
 async def _join_all_target(chat_id: int) -> dict:
     async with _lock:
         res = {"joined": 0, "failed": 0, "skipped": 0, "total": 0}
-        uvs = await _all_uvcs()
-        res["total"] = len(uvs)
+        uids = await _all_user_ids()
+        res["total"] = len(uids)
         joined_count = 0
-        for uvc in uvs:
-            if (uvc.owner_id, chat_id) in _joined:
-                res["skipped"] += 1
-                continue
+        for uid in uids:
             if joined_count >= _MAX_JOIN:
                 logger.warning("VCJ_MAX_JOIN=%s reached, skipping rest", _MAX_JOIN)
                 break
+            if (uid, chat_id) in _joined:
+                res["skipped"] += 1
+                continue
+            uvc = session_manager.users.get(uid)
+            if uvc is None:
+                async with _client_sem:
+                    try:
+                        uvc = await session_manager.get(uid)
+                    except Exception as exc:
+                        logger.debug("lazy load %s failed: %r", uid, exc)
+                        uvc = None
+            if uvc is None:
+                res["failed"] += 1
+                continue
             async with _join_sem:
                 ok = await _join_one(uvc, chat_id)
             res["joined" if ok else "failed"] += 1
@@ -225,11 +236,16 @@ async def _join_all_target(chat_id: int) -> dict:
 async def _leave_all_target(chat_id: int) -> dict:
     async with _lock:
         res = {"left": 0}
-        for uvc in await _all_uvcs():
-            if (uvc.owner_id, chat_id) in _joined:
-                await _leave_one(uvc, chat_id)
-                res["left"] += 1
-                await asyncio.sleep(1.0)
+        for uid, cid in list(_joined.keys()):
+            if cid != chat_id:
+                continue
+            uvc = session_manager.users.get(uid)
+            if uvc is None:
+                _joined.pop((uid, cid), None)
+                continue
+            await _leave_one(uvc, cid)
+            res["left"] += 1
+            await asyncio.sleep(1.0)
         return res
 
 
@@ -242,18 +258,22 @@ async def _auto_loop(client: Client) -> None:
             if _state.get("auto") == "1" and _state["targets"]:
                 for t in list(_state["targets"]):
                     cid = t["chat_id"]
-                    for uvc in await _all_uvcs():
-                        key = (uvc.owner_id, cid)
-                        if key in _joined:
-                            try:
-                                active = getattr(uvc.calls, "calls", None)
-                                if inspect.isawaitable(active):
-                                    active = await active
-                                if active and cid in active:
-                                    continue
-                            except Exception:
-                                pass
-                            _joined.pop(key, None)
+                    for uid, cid2 in list(_joined.keys()):
+                        if cid2 != cid:
+                            continue
+                        uvc = session_manager.users.get(uid)
+                        if uvc is None:
+                            _joined.pop((uid, cid2), None)
+                            continue
+                        try:
+                            active = getattr(uvc.calls, "calls", None)
+                            if inspect.isawaitable(active):
+                                active = await active
+                            if active and cid in active:
+                                continue
+                        except Exception:
+                            pass
+                        _joined.pop((uid, cid), None)
                         await _join_one(uvc, cid)
                         await asyncio.sleep(2.0)
         except asyncio.CancelledError:
@@ -403,14 +423,15 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
         return
 
     if action == "users":
-        uvs = await _all_uvcs()
-        if not uvs:
+        uids = await _all_user_ids()
+        if not uids:
             await cq.answer("Koi user stored nahi", show_alert=True)
             return
         lines = ["**👥 Stored users:**\n"]
-        for uvc in uvs[:30]:
-            nm = getattr(uvc, "account_name", "") or ""
-            lines.append(f"• `{uvc.owner_id}` {nm}".rstrip())
+        for uid in uids[:30]:
+            uvc = session_manager.users.get(uid)
+            nm = getattr(uvc, "account_name", "") if uvc else ""
+            lines.append(f"• `{uid}` {nm}".rstrip())
         if len(uvs) > 30:
             lines.append(f"_+{len(uvs)-30} aur..._")
         await cq.message.edit_text("\n".join(lines), reply_markup=_menu())
