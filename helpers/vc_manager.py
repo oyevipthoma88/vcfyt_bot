@@ -349,6 +349,7 @@ class UserVC:
         self._call_chats: Dict[int, int] = {}
 
         self._stopped_chats: set[int] = set()
+        self._bg_tasks = set()
         self._ss_locks: dict[int, asyncio.Lock] = {}
         self._lock = asyncio.Lock()
         self._reconnect_lock = asyncio.Lock()
@@ -1701,6 +1702,14 @@ class UserVC:
             if not await self._ensure_connected():
                 raise
             await self._stream(chat_id, path, source_name)
+
+
+    @staticmethod
+    def _check_group(chat_id: int):
+        if chat_id >= 0:
+            raise ValueError(
+                "Voice chat sirf group/supergroup mein hota hai — chat ID negative honi chahiye."
+            )
 
     async def play(self, chat_id: int, path: str, source_name: str = "audio",
                    chat_title: str = "", enqueue: bool = False,
