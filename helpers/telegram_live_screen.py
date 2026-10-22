@@ -148,16 +148,28 @@ def _sanitize_name(name, size=14, bold=False):
         (0x2600, 0x26FF),  # Misc Symbols
     ]
     
-    def _is_safe(cp):
+    f = _font_name(size, bold)
+    def _is_safe(ch):
+        cp = ord(ch)
         if cp in _INVISIBLE or cp < 0x20:
             return False
+        in_whitelist = False
         for lo, hi in allowed:
             if lo <= cp <= hi:
+                in_whitelist = True
+                break
+        if not in_whitelist:
+            return False
+        # Secondary check: font can actually render it?
+        try:
+            bbox = f.getbbox(ch)
+            if bbox and (bbox[2] - bbox[0]) > 0 and (bbox[3] - bbox[1]) > 0:
                 return True
+        except Exception:
+            pass
         return False
 
-    # Strip unallowed chars (like hieroglyphs, weird modifiers)
-    clean = "".join(ch if _is_safe(ord(ch)) else "" for ch in name)
+    clean = "".join(ch if _is_safe(ch) else "" for ch in name)
     clean = re.sub(r'\s+', ' ', clean).strip()
     
     return clean[:24] or "User"
