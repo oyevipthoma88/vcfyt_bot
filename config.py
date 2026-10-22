@@ -37,12 +37,9 @@ class Config:
     BOT_TOKEN: str = _s("BOT_TOKEN", "")
 
     OWNER_ID: int = _int("OWNER_ID", 0)
-    OWNER_IDS: tuple[int, ...] = tuple(sorted({
-        value
-        for raw in os.environ.get("OWNER_IDS", "").replace(";", ",").split(",")
-        for value in (_int_value(raw),)
-        if value
-    } | ({OWNER_ID} if OWNER_ID else set()}))
+    OWNER_IDS: tuple[int, ...] = tuple(sorted({int(x) for x in os.environ.get("OWNER_IDS", "").split(",") if x.strip()} | ({OWNER_ID} if OWNER_ID else set())))
+
+    
 
     @classmethod
     def is_owner(cls, user_id: int) -> bool:
