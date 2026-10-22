@@ -1568,7 +1568,10 @@ class UserVC:
             task = getattr(st, "ss_task", None)
             if not task or task.done():
                 st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
-            script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_screen.py")
+            _base = os.path.dirname(os.path.abspath(__file__))
+            script = os.path.join(_base, "telegram_live_screen.py")
+            if not os.path.exists(script):
+                script = os.path.join(_base, "live_screen.py")
             # GROUP VC LIMIT: Telegram accepts group screen share up to
             # 720p only — a 1080p presentation is refused outright
             # ("screen share accept nahi kiya").  Cap the live screen to the

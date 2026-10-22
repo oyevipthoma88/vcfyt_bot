@@ -766,7 +766,7 @@ def build_ffmpeg_filter(
     filters.append("acompressor=threshold=0.015:ratio=20:attack=8:release=200:"
                    "makeup=1.5:knee=6")
     try:
-        _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 0)))
+        _extra = max(0.0, min(12.0, float(os.environ.get("PLAY_EXTRA_DB", "") or 6)))
     except ValueError:
         _extra = 0.0
     filters.append(f"volume={_db(5.0 + 3.0 * push + _extra)}dB")
