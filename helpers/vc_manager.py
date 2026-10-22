@@ -1775,6 +1775,7 @@ class UserVC:
         st.is_paused = False
         st.mic_enabled = False
         st.recent_live_mic = False
+        # SS is independent, do not modify st.ss_on here.
         # SS PRESERVE: Do not reset ss_on when new track plays
         # st.ss_on remains True if it was True before
         keep = {st.unmute_audio, st.resume_file, st.resume_processed, path}
