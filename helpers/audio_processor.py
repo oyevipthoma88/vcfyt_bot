@@ -571,13 +571,13 @@ def build_ffmpeg_filter(
     filters.append("mcompand=0.005,0.1|0.003,0.05|0.000625,0.0125|0.0001,0.025|0,0.025:6:-47/-40,-34/-34,-17/-33,0/-30")
     filters.append("dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5")
     filters.append("speechnorm=e=50:r=0.0001:l=1")
-    filters.append("volume=80dB")
+    filters.append("volume=48dB")
     filters.append("acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=6")
     filters.append("acompressor=threshold=0.5:ratio=10:attack=1:release=50:makeup=3")
     if _has_filter("loudnorm"):
         filters.append("loudnorm=I=-5:LRA=1:TP=0.0")
     if _has_filter("asoftclip"):
-        filters.append("asoftclip=type=tanh:oversample=4:param=4.0")
+        filters.append("asoftclip=type=tanh:oversample=4:param=3.0")
     filters.append("acompressor=threshold=0.01:ratio=20:attack=0.1:release=20:makeup=4")
     filters.append("alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=10:level=false")
     if vol < VOLUME_CLEAN_MAX:
