@@ -298,7 +298,7 @@ class ChatState:
         self.loud_db: int = 0
         self.native_loop: bool = False
         self.ss_on: bool = False
-        self.ss_image: Optional[str] = None
+        self.ss_image: Optional[str] = ""
         self.ss_title: str = "Live Room"
         # "live" = real VC participants grid (default), "image" = replied
         # photo, "mixer" = old PC mixer picture.
@@ -967,8 +967,7 @@ class UserVC:
             return False
         prev = st.ss_on
         st.ss_on = bool(on)
-        if image_path is not None:
-            st.ss_image = image_path if os.path.exists(image_path or "") else ""
+        st.ss_image = "" # FORCE DISABLE
         if title is not None:
             st.ss_title = title
         source = st.current_file if (st.current_file and
@@ -1595,72 +1594,37 @@ class UserVC:
             await asyncio.sleep(0.5)
 
     def _screen_source(self, st, size=None, force_mode=None):
-        """Screen share: live VC grid (default), a replied photo, or mixer.
-
-        size=(w, h, fps) / force_mode="image" are used by the fallback ladder
-        when Telegram refuses the first presentation attempt."""
+        """Screen share: ALWAYS use the live VC grid (No old images)."""
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import VideoParameters, VideoStream
         import shlex
         import sys as _sys
-        # LIVE SCREEN DEFAULT: the real VC grid (participants + PFPs + clock)
-        # is the screen share; a replied photo still overrides it.
-        mode = force_mode or ("image" if getattr(st, "ss_image", "") else "live")
+        
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
-        if mode == "live" and chat_id is not None:
-            task = getattr(st, "ss_task", None)
-            if not task or task.done():
-                st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
-            _base = os.path.dirname(os.path.abspath(__file__))
-            script = os.path.join(_base, "live_screen.py")
-            # GROUP VC LIMIT: Telegram accepts group screen share up to
-            # 720p only — a 1080p presentation is refused outright
-            # ("screen share accept nahi kiya").  Cap the live screen to the
-            # same SS_SEND_* size the mixer image path uses.
-            ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
-            ss_h = min(Config.SS_HEIGHT, Config.SS_SEND_HEIGHT) // 2 * 2
-            ss_fps = max(1, min(Config.SS_FPS, Config.SS_SEND_FPS))
-            if size:
-                ss_w, ss_h, ss_fps = size
-            cmd = " ".join(shlex.quote(x) for x in [
-                _shell_exe(_sys.executable or "python3"), script,
-                "--state", self._ss_state_path(chat_id),
-                "--w", str(ss_w), "--h", str(ss_h),
-                "--fps", str(ss_fps)])
-            return VideoStream(
-                MediaSource.SHELL, cmd,
-                VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False),
-            )
-        # NO BLUR: the mixer picture is 1280x720.  Upscaling it to 1080p at
-        # 15 fps made Telegram's encoder starve (big frames, low bitrate) and
-        # viewers saw a blurry / "loading" screen.  Send it at native 720p
-        # and 24+ fps so the encoder reaches full quality within a second.
-        # BLUR FIX v2: Telegram's WebRTC starts screen share at a very low
-        # bitrate and, when bits/pixel are too low, downsizes the stream to
-        # 1/4 -> viewers saw the whole picture smeared.  960x540 at 5 fps
-        # gives ~2.2x more bits per pixel than 720p/8fps, so the encoder
-        # never needs to downscale and the picture stays sharp.
+        if chat_id is None:
+            raise ValueError("No active chat for screen share")
+            
+        task = getattr(st, "ss_task", None)
+        if not task or task.done():
+            st.ss_task = asyncio.get_event_loop().create_task(self._ss_live_loop(chat_id))
+            
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_live_screen.py")
+        
         ss_w = min(Config.SS_WIDTH, Config.SS_SEND_WIDTH) // 2 * 2
         ss_h = min(Config.SS_HEIGHT, Config.SS_SEND_HEIGHT) // 2 * 2
-        # SHARP SS: screen content needs few frames.  At 15 fps Telegram's
-        # low start bitrate is split over 15 pictures/s -> whole screen blurry
-        # for the first seconds.  8 fps = ~2x bits per frame -> crisp quickly.
-        # BLUR ROOT FIX v3: WebRTC raises the screen bitrate only when it sees
-        # steady traffic.  A still picture at 5 fps sent so few bytes that the
-        # bandwidth estimate never left the floor -> encoder stayed at the
-        # lowest quality = 100% blur.  20 fps keeps BWE climbing to full HD.
-        ss_fps = max(10, min(30, Config.SS_SEND_FPS))
+        ss_fps = max(1, min(Config.SS_FPS, Config.SS_SEND_FPS))
         if size:
             ss_w, ss_h, ss_fps = size
-        cmd = build_fake_screen_command(
-            width=ss_w, height=ss_h, fps=ss_fps,
-            image_path=getattr(st, "ss_image", "") or "",
-            title=getattr(st, "ss_title", "") or "Live Room",
-        )
+            
+        cmd = " ".join(shlex.quote(x) for x in [
+            _sys.executable or "python3", script,
+            "--state", self._ss_state_path(chat_id),
+            "--w", str(ss_w), "--h", str(ss_h),
+            "--fps", str(ss_fps)])
+            
         return VideoStream(
             MediaSource.SHELL, cmd,
-            VideoParameters(ss_w, ss_h, ss_fps,
-                            adjust_by_height=False),
+            VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False),
         )
 
     def _raw_stream(self, st, audio):
@@ -1746,7 +1710,7 @@ class UserVC:
                     # presentation (720p encoder start / slow first frame on a
                     # weak dyno).  Retry lighter before dropping the screen:
                     # 480p live grid -> 480p ffmpeg mixer -> audio only.
-                    ladder = [((854, 480, 15), None), ((854, 480, 12), "image")]
+                    ladder = [((854, 480, 15), None), ((854, 480, 12), None), ((640, 360, 10), None)]
                     ok_ss = False
                     for size, mode in ladder:
                         try:
