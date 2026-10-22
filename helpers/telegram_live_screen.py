@@ -287,9 +287,17 @@ class Renderer:
         self._ic_telegram(d, cx, cy, r)
         tx = cx + r + int(14*s)
         parts = len(st.get("participants") or [])
-        d.text((tx, h//2 - int(8*s)), "STUDIO LIVE", font=_font(14*s, True),
+        me_name = st.get("me_name") or "My Studio"
+        
+        # Strip invisible fancy chars for clean title
+        try:
+            me_name = _sanitize_name(me_name, 14, True)
+        except Exception:
+            pass
+            
+        d.text((tx, h//2 - int(8*s)), f"{me_name}'s Studio", font=_font(14*s, True),
                fill=NEON_CYAN, anchor="ld")
-        d.text((tx, h//2 + int(9*s)), f"{parts} connected", font=self.f_sub,
+        d.text((tx, h//2 + int(9*s)), f"Voice Chat · {parts} connected", font=self.f_sub,
                fill=MUTED, anchor="la")
         rx = W - pad
         dt = datetime.fromtimestamp(now, _tz())
@@ -442,87 +450,104 @@ class Renderer:
 
     def _sidebar(self, d, st, now, x0, y0, x1, y1):
         s = self.s
-        d.rectangle([x0, y0, x1, y1], fill=PANEL)
-        d.line([x0, y0, x0, y1], fill=NEON_CYAN, width=max(1, int(1*s)))
-        pad = int(12*s)
+        # Deep Cyberpunk/Hacker background
+        d.rectangle([x0, y0, x1, y1], fill=(10, 12, 18))
+        
+        # Grid lines for tech look
+        grid_col = (20, 25, 35)
+        for gx in range(x0, x1, int(30*s)):
+            d.line([gx, y0, gx, y1], fill=grid_col, width=1)
+        for gy in range(y0, y1, int(30*s)):
+            d.line([x0, gy, x1, gy], fill=grid_col, width=1)
+
+        pad = int(14*s)
         cx = (x0 + x1) // 2
         y = y0 + pad
-        d.text((cx, y), "◉ MIC SETUP", font=_font(11*s, True), fill=NEON_PINK, anchor="mm")
-        y += int(17*s)
-        d.line([x0+pad, y, x1-pad, y], fill=NEON_PINK, width=max(1, int(1*s)))
-        y += int(8*s)
-        d.text((x0+pad, y), "Shure SM7B", font=_font(10*s, True), fill=TEXT, anchor="la")
-        d.text((x1-pad, y), "● ON", font=_font(9*s, True), fill=NEON_GREEN, anchor="ra")
-        y += int(13*s)
-        d.text((x0+pad, y), "Focusrite 2i2 · 48kHz", font=_font(8*s), fill=MUTED, anchor="la")
-        y += int(16*s)
-        kr = int(26*s)
-        kcx, kcy = cx, y + kr
-        d.ellipse([kcx-kr, kcy-kr, kcx+kr, kcy+kr], fill=(10, 14, 22),
-                  outline=NEON_PINK, width=max(2, int(2*s)))
-        d.ellipse([kcx-kr+int(4*s), kcy-kr+int(4*s), kcx+kr-int(4*s), kcy+kr-int(4*s)],
-                  outline=NEON_PINK, width=max(1, int(1*s)))
-        ang_deg = -135 + 270 * (0.65 + 0.08 * math.sin(now * 1.8))
-        ang = math.radians(ang_deg)
-        d.line([kcx, kcy, kcx + kr*0.85*math.cos(ang), kcy + kr*0.85*math.sin(ang)],
-               fill=NEON_CYAN, width=max(2, int(2*s)))
-        d.ellipse([kcx-int(3*s), kcy-int(3*s), kcx+int(3*s), kcy+int(3*s)], fill=NEON_CYAN)
-        d.text((cx, kcy + kr + int(9*s)), "GAIN", font=_font(8*s, True), fill=MUTED, anchor="mm")
-        y = kcy + kr + int(22*s)
-        d.text((x0+pad, y), "PEAK", font=_font(8*s, True), fill=NEON_CYAN, anchor="la")
-        d.text((x1-pad, y), "-3.2 dB", font=_font(8*s, True), fill=NEON_LIME, anchor="ra")
-        y += int(11*s)
-        bar_h = int(45*s)
-        n_bars = 12
-        bar_w = int(5*s)
-        gap = max(1, int(1*s))
-        bx0 = cx - (n_bars * (bar_w + gap)) // 2
-        for i in range(n_bars):
-            bx = bx0 + i * (bar_w + gap)
-            lvl = 0.3 + 0.65 * abs(math.sin(now * 3.1 + i * 0.4))
-            is_on = i / n_bars < lvl
-            if i >= 10: col = NEON_RED if is_on else (40, 20, 25)
-            elif i >= 8: col = NEON_YEL if is_on else (40, 35, 20)
-            else: col = NEON_LIME if is_on else (20, 40, 25)
-            bh_i = bar_h // n_bars - 1
-            seg_y = y + bar_h - (i+1) * (bar_h // n_bars)
-            d.rectangle([bx, seg_y, bx + bar_w, seg_y + bh_i], fill=col)
-        y += bar_h + int(12*s)
-        d.text((x0+pad, y), "◈ DM CONTROL", font=_font(9*s, True), fill=NEON_CYAN, anchor="la")
-        y += int(13*s)
-        toggles = [("DYNAMIC", NEON_GREEN), ("COMPRESSOR", NEON_GREEN),
-                   ("DE-ESSER", NEON_CYAN), ("LIMITER", NEON_PINK)]
-        sw_w, sw_h = int(22*s), int(10*s)
-        for label, col in toggles:
-            kn = x0 + pad
-            d.rounded_rectangle([kn, y, kn+sw_w, y+sw_h], radius=sw_h//2, fill=col)
-            kx = kn + sw_w - sw_h + int(1*s)
-            d.ellipse([kx, y + int(1*s), kx + sw_h - int(2*s), y + sw_h - int(1*s)], fill=TEXT)
-            d.text((kn + sw_w + int(8*s), y + sw_h//2), label,
-                   font=_font(7*s, True), fill=TEXT, anchor="lm")
-            y += sw_h + int(6*s)
-        y += int(4*s)
-        d.text((x0+pad, y), "▣ OUTPUT", font=_font(9*s, True), fill=NEON_LIME, anchor="la")
-        y += int(13*s)
-        for ch, phase in (("L", 0.0), ("R", 0.8)):
-            d.text((x0+pad, y + int(1*s)), ch, font=_font(8*s, True), fill=NEON_CYAN, anchor="la")
-            bx = x0 + pad + int(14*s)
-            bw = x1 - pad - bx - int(2*s)
-            lvl = 0.3 + 0.65 * abs(math.sin(now * 2.7 + phase))
-            d.rectangle([bx, y, bx + int(bw*lvl), y + int(6*s)], fill=NEON_LIME)
-            d.rectangle([bx + int(bw*lvl), y, bx + bw, y + int(6*s)], fill=(30, 40, 50))
-            y += int(10*s)
-        y += int(6*s)
-        d.rounded_rectangle([x0+pad, y, x0+pad+int(52*s), y+int(16*s)],
-                            radius=int(8*s), fill=(60, 16, 20))
-        pulse = 0.5 + 0.5 * abs(math.sin(now * 2.5))
-        dot_col = tuple(int(NEON_RED[i]*pulse + (100, 20, 20)[i]*(1-pulse)) for i in range(3))
-        d.ellipse([x0+pad+int(6*s), y+int(5*s), x0+pad+int(12*s), y+int(11*s)], fill=dot_col)
-        d.text((x0+pad+int(16*s), y+int(8*s)), "REC",
-               font=_font(8*s, True), fill=TEXT, anchor="lm")
-        d.text((x1-pad, y+int(8*s)), "48k·24b",
-               font=_font(7*s), fill=MUTED, anchor="rm")
 
+        # 1. Top Header
+        d.text((cx, y), "SUPREME AUDIO CORE", font=_font(11*s, True), fill=NEON_PINK, anchor="mm")
+        d.line([x0+pad, y+int(10*s), x1-pad, y+int(10*s)], fill=NEON_PINK, width=1)
+        y += int(22*s)
+
+        # 2. Central Glowing Animation (Hologram style)
+        img_r = int(35*s)
+        img_cy = y + img_r
+        
+        pulse = 0.5 + 0.5 * math.sin(now * 3.0)
+        for i in range(3, 0, -1):
+            glow_r = img_r + int(i * 6 * pulse * s)
+            col = (255, 20, 80) if i==1 else (100, 10, 30)
+            d.ellipse([cx-glow_r, img_cy-glow_r, cx+glow_r, img_cy+glow_r],
+                      outline=col, width=max(1, int(2*s)))
+        
+        d.ellipse([cx-img_r, img_cy-img_r, cx+img_r, img_cy+img_r], fill=(15, 20, 30), outline=NEON_CYAN, width=max(2,int(2*s)))
+        self._ic_mic(d, cx, img_cy, int(20*s), NEON_PINK, muted=False)
+        
+        y = img_cy + img_r + int(20*s)
+
+        # 3. Big SYSTEM LIVE Button
+        btn_w, btn_h = int(140*s), int(28*s)
+        d.rounded_rectangle([cx-btn_w//2, y, cx+btn_w//2, y+btn_h], radius=btn_h//2,
+                            fill=(255, 20, 80), outline=NEON_PINK, width=1)
+        d.text((cx, y+btn_h//2), "SYSTEM LIVE", font=_font(11*s, True), fill=TEXT, anchor="mm")
+        y += btn_h + int(20*s)
+
+        # 4. Toggles (MIC / FX)
+        tw, th = int(65*s), int(22*s)
+        d.rounded_rectangle([cx-tw-int(8*s), y, cx-int(8*s), y+th], radius=int(4*s),
+                            outline=NEON_YEL, width=1, fill=(20,20,10))
+        d.text((cx-tw//2-int(8*s), y+th//2), "MIC [ON]", font=_font(9*s, True), fill=NEON_YEL, anchor="mm")
+        
+        d.rounded_rectangle([cx+int(8*s), y, cx+tw+int(8*s), y+th], radius=int(4*s),
+                            outline=NEON_YEL, width=1, fill=(20,20,10))
+        d.text((cx+tw//2+int(8*s), y+th//2), "FX [OFF]", font=_font(9*s, True), fill=NEON_YEL, anchor="mm")
+        y += th + int(20*s)
+
+        # 5. Sliders (Signal Modulators)
+        d.text((x0+pad, y), "SIGNAL MODULATORS", font=_font(10*s, True), fill=MUTED, anchor="la")
+        y += int(18*s)
+
+        sliders = [
+            ("OVERDRIVE", 380, 500),
+            ("TIME WARP", 0, 100),
+            ("BASS EQ", 0, 20),
+            ("TREBLE EQ", 0, 20)
+        ]
+        
+        for label, val, max_val in sliders:
+            d.text((x0+pad, y), label, font=_font(9*s, True), fill=(150, 160, 180), anchor="la")
+            d.text((x1-pad, y), str(val), font=_font(9*s, True), fill=NEON_PINK, anchor="ra")
+            y += int(14*s)
+            
+            track_w = x1 - x0 - 2*pad
+            d.line([x0+pad, y+int(2*s), x1-pad, y+int(2*s)], fill=(40, 50, 70), width=max(2,int(2*s)))
+            
+            ratio = max(0, min(1, val / max_val)) if max_val else 0.5
+            d.line([x0+pad, y+int(2*s), x0+pad+int(track_w*ratio), y+int(2*s)], fill=NEON_PINK, width=max(2,int(2*s)))
+            
+            knob_x = x0+pad+int(track_w*ratio)
+            d.ellipse([knob_x-int(5*s), y-int(1*s), knob_x+int(5*s), y+int(5*s)], fill=TEXT)
+            d.ellipse([knob_x-int(7*s), y-int(3*s), knob_x+int(7*s), y+int(7*s)], outline=NEON_PINK, width=1)
+            
+            y += int(20*s)
+
+        # 6. Huge Audio Waveform at Bottom
+        wave_y = y1 - int(60*s)
+        d.text((cx, wave_y - int(12*s)), "OUTPUT WAVEFORM", font=_font(9*s, True), fill=NEON_CYAN, anchor="mm")
+        
+        n_bars = 28
+        bar_w = int((x1 - x0 - 2*pad) / n_bars)
+        for i in range(n_bars):
+            bx = x0 + pad + i * bar_w
+            h_factor = abs(math.sin(now * 5 + i * 0.5) * math.cos(now * 2 + i * 0.2))
+            bh = int((30*s) * h_factor) + int(2*s)
+            
+            if i < n_bars//3: col = NEON_PINK
+            elif i < 2*n_bars//3: col = NEON_YEL
+            else: col = NEON_GREEN
+            
+            cy_wave = wave_y + int(20*s)
+            d.rectangle([bx, cy_wave-bh, bx+bar_w-int(2*s), cy_wave+bh], fill=col)
 
 
 def rgb_to_i420(img):
