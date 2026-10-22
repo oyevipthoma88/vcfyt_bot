@@ -66,7 +66,7 @@ class Database:
             if self._is_quota_error(e):
                 logger.warning("[DB] Atlas quota exceeded (512MB limit)! Auto-triggering emergency purge...")
                 self._mark_quota_blocked()
-                await self.emergency_purge_non_critical()
+                pass  # await self.emergency_purge_non_critical()
             else:
                 logger.warning("[DB] Initial write probe warning: %s", e)
 
@@ -81,6 +81,8 @@ class Database:
         return _t.time() < self._quota_blocked_until
 
     async def emergency_purge_non_critical(self) -> dict:
+        return {}  # DISABLED BY OWNER
+
         """Drop non-critical collections to immediately reclaim space on Atlas M0.
         Runs at most once per QUOTA_COOLDOWN seconds."""
         import time as _t
@@ -131,7 +133,7 @@ class Database:
                     logger.warning("[DB] MongoDB quota full! Using SQLite fallback for %ds",
                                    int(self.QUOTA_COOLDOWN))
                     self._mark_quota_blocked()
-                    asyncio.create_task(self.emergency_purge_non_critical())
+                    pass  # asyncio.create_task(self.emergency_purge_non_critical())
                 else:
                     logger.warning("[DB] Mongo write error (%s): %s", type(e).__name__, e)
                 if sqlite_fn is not None:
