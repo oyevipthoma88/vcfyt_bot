@@ -1,44 +1,19 @@
-# TERMUX SETUP
+# Setup Guide
 
-**First time:**
+## Quick Start
 
-```
-pkg update -y && pkg install -y python git
-git clone https://github.com/oyevipthoma88/Banall-.git
-cd Banall-
-pip install -r requirements.txt
-python run.py
-```
+1. **Fork/Clone** this repo.
+2. Install dependencies: `pip install -r requirements.txt`
+3. Copy `.env.example` → `.env` and fill in your values.
+4. Run: `python main.py`
 
-Pehli baar chalane par wizard puchhega:
-- `API_ID`, `API_HASH` (my.telegram.org)
-- `BOT_TOKEN` (@BotFather)
-- `OWNER_ID`, `OWNER_USERNAME`, `TUTORIAL_URL` (optional)
+## Heroku Deploy
 
-Values `.env` me save ho jati hain.
+1. Create a new Heroku app.
+2. Add buildpacks: `heroku/python` and `heroku-community/ffmpeg`.
+3. Set Config Vars from `.env.example`.
+4. Deploy.
 
-**Baad me:**
+## Termux (Android)
 
-```
-cd ~/Banall- && python run.py
-```
-
-**Update:**
-
-```
-cd ~/Banall- && git pull && python run.py
-```
-
-## Group me kaise setup kare
-
-1. Bot ko group me **add** karo.
-2. Group settings -> Administrators -> bot ko **admin** banao.
-3. **Ban Users** permission ON rakho (baaki off bhi chalega).
-4. Koi bhi admin (ban rights waala) `/banall` bheje. Bas.
-
-## Commands
-
-- `/banall` — sab non-admin members + bots ban
-- `/kickall` — sab non-admin members + bots kick
-- `/stop` — abort
-- `/alive` — status
+Run `bash start-termux.sh`.
