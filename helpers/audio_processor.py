@@ -486,26 +486,16 @@ def build_ffmpeg_filter(
         if live:
             return build_live_mic_filter()
 
-        if volume is None: volume = relay_volume if relay_volume is not None else Config.DEFAULT_VOLUME
-        vol = clamp(volume, VOLUME_MIN, VOLUME_MAX)
-
-        # CORRECT ORDER: Subtractive -> Dynamics -> Volume -> Saturation -> Limiter
+        # Pure Aggressive Chain (No Normalizers, 100% Boost)
         filters = [
             "highpass=f=50",
             "equalizer=f=100:t=q:w=1.0:g=20",
             "equalizer=f=3000:t=q:w=1.0:g=20",
             "acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4",
-            "dynaudnorm=f=250:g=31:p=0.95:m=100:r=0.5",
             f"volume={_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
+            "asoftclip=type=tanh:oversample=4",
+            "alimiter=level_in=1:level_out=1:limit=0.95:attack=1:release=30:level=false"
         ]
-
-        if extra_filters:
-            filters.append(extra_filters)
-
-        if _has_filter("asoftclip"):
-            filters.append("asoftclip=type=tanh:oversample=4")
-
-        filters.append("alimiter=level_in=1:level_out=1:limit=0.95:attack=1:release=30:level=false")
 
         return ",".join(filters)
 
@@ -602,7 +592,7 @@ def build_stream_command(
         boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
         extra_filters=extra_filters, stream=True,
     ))
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+    cmd = ["/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
            "-threads", "1"]
     if loop:
@@ -718,7 +708,7 @@ def build_fake_screen_command(
 
     # -re: produce frames in real time so the clock/LIVE timer/meters move
     # at true speed instead of racing ahead in the pipe buffer.
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+    cmd = ["/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-threads", "1", "-re"]
     if os.path.exists(img):
         # BLUR FIX: pehle har frame par JPEG decode + lanczos scale + unsharp
