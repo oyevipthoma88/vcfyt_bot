@@ -279,7 +279,7 @@ class ChatState:
         self.unmute_audio: Optional[str] = None
         self.admin_muted: bool = False
         # --- human-like mute/unmute behaviour ---
-        self.hand_raise: bool = Config.HAND_RAISE_DEFAULT
+        self.hand_raise: bool = True
         self.hand_raised: bool = False
         self.mic_blink: bool = Config.MIC_BLINK_DEFAULT
         self.mic_blink_secs: int = Config.MIC_BLINK_SECONDS
@@ -721,14 +721,14 @@ class UserVC:
         st = self.state(chat_id)
         st.unmute_flow = False
         if st.hand_raise:
-            # HUMAN TOUCH: 80% chance to raise hand, 1-3s delay (thinking)
-            if random.random() < 0.8:
-                delay = random.uniform(1.0, 3.0)
-                async def _delayed_raise():
-                    await asyncio.sleep(delay)
+            # HUMAN TOUCH: Force raise hand with a delay
+            delay = random.uniform(1.5, 4.0)
+            async def _delayed_raise():
+                await asyncio.sleep(delay)
+                if self.chats.get(chat_id, None) and self.chats[chat_id].admin_muted:
                     await self.raise_hand(chat_id, True)
-                asyncio.create_task(_delayed_raise())
-                logger.info("Human delay: Hand raise in %.1fs for chat %s", delay, chat_id)
+                    logger.info("Human delay: Hand raised in %.1fs for chat %s", delay, chat_id)
+            asyncio.create_task(_delayed_raise())
         # Remember where the recording was, so it continues from there later.
         if st.playing_unmute:
             # Muted again in the middle of the announcement: stop it, the
@@ -777,7 +777,7 @@ class UserVC:
             # If .umplay is NOT set, wait 5-10 seconds (human hesitation)
             import random
             delay = random.uniform(5.0, 10.0)
-            logger.info("No umplay set. Playing human delay of %.1fs in chat %s", delay, chat_id)
+            logger.info("No umplay set. Waiting %.1fs before resuming in chat %s", delay, chat_id)
             await asyncio.sleep(delay)
             
             # Then resume original audio from the BEGINNING
