@@ -98,6 +98,63 @@ def _initials(name):
     return "".join(p[0] for p in parts[:2]).upper() or "?"
 
 
+# ── Fancy-name support (Egyptian, symbols, superscripts) ──
+_NAME_FONT_PATHS = [
+    "/usr/share/fonts/truetype/symbola/Symbola.ttf",
+    "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+]
+_INVISIBLE = {0x3164, 0x2800, 0x200B, 0x200C, 0x200D, 0xFEFF, 0x00A0, 0x180E}
+
+
+def _font_name(size, bold=False):
+    """Wide-coverage font for participant names (Symbola preferred)."""
+    size = max(8, int(size))
+    key = (size, bold, "name")
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    for p in _NAME_FONT_PATHS + [
+        os.path.join(FDIR, "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"),
+    ]:
+        if os.path.exists(p):
+            try:
+                f = ImageFont.truetype(p, size)
+                _FONT_CACHE[key] = f
+                return f
+            except Exception:
+                continue
+    return _font(size, bold)
+
+
+def _sanitize_name(name, size=14, bold=False):
+    """Strip invisible fillers and unrenderable chars (kills tofu boxes)."""
+    name = str(name or "User")
+    # 1) drop invisible / control chars
+    clean = []
+    for ch in name:
+        cp = ord(ch)
+        if cp in _INVISIBLE or cp < 0x20:
+            continue
+        clean.append(ch)
+    name = "".join(clean).strip()
+    if not name:
+        return "User"
+    # 2) drop chars the name font can't render
+    f = _font_name(size, bold)
+    out = []
+    for ch in name:
+        try:
+            bbox = f.getbbox(ch)
+            if bbox and (bbox[2] - bbox[0]) > 0 and (bbox[3] - bbox[1]) > 0:
+                out.append(ch)
+            # else: skip (no tofu)
+        except Exception:
+            pass
+    return "".join(out)[:24] or "User"
+
+
 def _hms(sec):
     sec = int(max(0, sec))
     return f"{sec//3600:02d}:{sec%3600//60:02d}:{sec%60:02d}"
@@ -149,16 +206,27 @@ class Renderer:
                    (cx + int(r*0.30), cy + int(r*0.30))], fill=BLUE_D)
 
     def _ic_mic(self, d, cx, cy, r, col, muted=False):
-        q = max(2, int(r*0.32))
-        d.rounded_rectangle([cx-q, cy-int(r*0.5), cx+q, cy+int(r*0.15)],
+        # NEON studio mic — capsule + arc + stand + glow ring
+        q = max(3, int(r*0.38))
+        w2 = max(2, int(r*0.14))
+        if not muted:
+            glow = tuple(min(255, c + 45) for c in col)
+            d.ellipse([cx-r*0.88, cy-r*0.88, cx+r*0.88, cy+r*0.88],
+                      outline=glow, width=max(1, int(r*0.12)))
+        d.rounded_rectangle([cx-q, cy-int(r*0.55), cx+q, cy+int(r*0.15)],
                             radius=q, fill=col)
-        w2 = max(1, int(r*0.10))
-        d.arc([cx-int(r*0.42), cy-int(r*0.35), cx+int(r*0.42), cy+int(r*0.4)],
+        d.rounded_rectangle([cx-q+int(r*0.10), cy-int(r*0.50),
+                             cx-q+int(r*0.24), cy-int(r*0.05)],
+                            radius=q//2, fill=(255, 255, 255))
+        d.arc([cx-int(r*0.55), cy-int(r*0.30), cx+int(r*0.55), cy+int(r*0.42)],
               start=0, end=180, fill=col, width=w2)
-        d.line([cx, cy+int(r*0.4), cx, cy+int(r*0.55)], fill=col, width=w2)
+        d.line([cx, cy+int(r*0.42), cx, cy+int(r*0.60)], fill=col, width=w2)
+        d.line([cx-int(r*0.30), cy+int(r*0.62), cx+int(r*0.30), cy+int(r*0.62)],
+               fill=col, width=w2)
         if muted:
-            d.line([cx-int(r*0.55), cy-int(r*0.55), cx+int(r*0.55), cy+int(r*0.55)],
-                   fill=col, width=w2+1)
+            mw = max(3, int(r*0.16))
+            d.line([cx-int(r*0.65), cy-int(r*0.65), cx+int(r*0.65), cy+int(r*0.65)],
+                   fill=NEON_RED, width=mw)
 
     def _ic_cam(self, d, cx, cy, r, col):
         w2 = max(1, int(r*0.10))
@@ -218,11 +286,11 @@ class Renderer:
         cx = pad + r; cy = h // 2
         self._ic_telegram(d, cx, cy, r)
         tx = cx + r + int(14*s)
-        group = str(st.get("group") or "Voice Chat")[:44]
         parts = len(st.get("participants") or [])
-        d.text((tx, h//2 - int(10*s)), group, font=self.f_title, fill=TEXT, anchor="ld")
-        d.text((tx, h//2 + int(10*s)), f"Voice Chat  ·  {parts} participants",
-               font=self.f_sub, fill=MUTED, anchor="la")
+        d.text((tx, h//2 - int(8*s)), "STUDIO LIVE", font=_font(14*s, True),
+               fill=NEON_CYAN, anchor="ld")
+        d.text((tx, h//2 + int(9*s)), f"{parts} connected", font=self.f_sub,
+               fill=MUTED, anchor="la")
         rx = W - pad
         dt = datetime.fromtimestamp(now, _tz())
         d.text((rx, h//2 - int(9*s)), dt.strftime("%H:%M:%S"),
@@ -294,14 +362,14 @@ class Renderer:
         d.rectangle([x, y+h-strip_h, x+w, y+h-strip_h+rad], fill=TILE2)
         ar = int(min(w, h-strip_h) * 0.28)
         cx, cy = x+w//2, y + (h-strip_h)//2
-        name = str(p.get("name") or "User")
+        name = _sanitize_name(p.get("name") or "User", int(ar*0.85), True)
         col = AV_COLORS[sum(map(ord, name)) % len(AV_COLORS)]
         d.ellipse([cx-ar, cy-ar, cx+ar, cy+ar], fill=col)
         photo = p.get("photo") or ""
         if photo:
             self._ops.append((photo, cx-ar, cy-ar, ar*2))
         else:
-            d.text((cx, cy), _initials(name), font=_font(max(12, int(ar*0.85)), True),
+            d.text((cx, cy), _initials(name), font=_font_name(max(12, int(ar*0.85)), True),
                    fill=TEXT, anchor="mm")
         if speaking:
             d.rounded_rectangle([x+1, y+1, x+w-1, y+h-1], radius=rad,
@@ -313,8 +381,9 @@ class Renderer:
                 bh = int(18*s*lvl)
                 d.rectangle([bx+k*int(7*s), by-bh, bx+k*int(7*s)+int(5*s), by], fill=GREEN)
         label = name + ("  (You)" if p.get("is_me") else "")
-        d.text((x+int(12*s), y+h-int(18*s)), _fit(d, label, self.f_name, w-int(56*s)),
-               font=self.f_name, fill=TEXT, anchor="ld")
+        fname_ok = _font_name(int(15*s), True)
+        d.text((x+int(12*s), y+h-int(18*s)), _fit(d, label, fname_ok, w-int(56*s)),
+               font=fname_ok, fill=TEXT, anchor="ld")
         mr = int(11*s)
         mx, my = x+w-int(20*s), y+h-int(18*s)
         mic_col = RED if muted else (GREEN if speaking else (95, 115, 130))
