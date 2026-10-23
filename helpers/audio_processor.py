@@ -643,7 +643,7 @@ def build_ffmpeg_filter(
         # VOLUME 1000 -> 3000 (OVERDRIVE) = more drive into the 2nd clipper.
         filters += voice_band_tail(d1=_env_db("PLAY_DRIVE_DB", 38.0, high=40.0, low=0.0),
                                    d2=4.0 + 6.0 * over,
-                                   hp=int(_env_db("PLAY_HP_FREQ", 85.0, high=220.0, low=80.0)))
+                                   hp=int(_env_db("PLAY_HP_FREQ", 120.0, high=220.0, low=80.0)))
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())
