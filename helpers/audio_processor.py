@@ -608,6 +608,12 @@ def build_ffmpeg_filter(
         # Now: bass that phones can't play is cut, words are levelled, all the
         # drive goes into band-limited clippers and peaks stop at -1.2 dBFS.
         v = 1000 if volume is None else max(0, int(volume))
+        # PERMANENT MAX LOUD: purani saved settings (300/500/800) ya galti se
+        # kam kiya slider playback ko -10 dB tak dheema kar deta tha -> har
+        # baar dobara badhana padta tha.  Ab playback kabhi full se neeche
+        # nahi jaata.  Purana behaviour chahiye to env PLAY_ALLOW_QUIET=1.
+        if os.environ.get("PLAY_ALLOW_QUIET", "0") != "1":
+            v = max(v, VOLUME_MAX)
         over = max(0.0, min(1.0, (v - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)))
         filters = [
             "aresample=48000",

@@ -99,13 +99,18 @@ class LoudnessControls(unittest.TestCase):
         floor = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
         self.assertLess(floor, -12.0)
 
-    def test_volume_500_is_quieter_than_1000(self):
-        _, half = measure(build_ffmpeg_filter(volume=500))
-        _, full = measure(build_ffmpeg_filter(volume=1000))
-        self.assertLess(half, full - 4.0)
+    def test_low_saved_volume_still_plays_full_loud(self):
+        # PERMANENT MAX: a low saved slider must never make playback quieter.
+        self.assertEqual(build_ffmpeg_filter(volume=300), build_ffmpeg_filter(volume=3000))
+        self.assertNotIn("volume=0,", build_ffmpeg_filter(volume=0) + ",")
 
-    def test_volume_zero_is_silent(self):
-        self.assertIn("volume=0", build_ffmpeg_filter(volume=0))
+    def test_quiet_mode_only_with_env(self):
+        import os
+        os.environ["PLAY_ALLOW_QUIET"] = "1"
+        try:
+            self.assertIn("volume=0", build_ffmpeg_filter(volume=0))
+        finally:
+            os.environ.pop("PLAY_ALLOW_QUIET")
 
     def test_fallback_chain_is_a_valid_string(self):
         import inspect

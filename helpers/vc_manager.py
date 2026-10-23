@@ -360,8 +360,11 @@ class ChatState:
         # always start at least at the max-loud defaults.
         # FIX: user ka saved volume hi use karo (pehle max(3000, ...) se
         # volume kabhi kam nahi hota tha = volume control "glitch").
-        self.volume = max(0, min(3000, int(s.get("volume", Config.DEFAULT_VOLUME))))
-        self.relay_volume = max(0, min(3000, int(s.get("relay_volume", self.volume))))
+        # PERMANENT MAX: playback/relay hamesha 3000 (full) — saved low value
+        # se awaaz dheemi nahi hogi.  PLAY_ALLOW_QUIET=1 = purana behaviour.
+        _floor = 0 if os.environ.get("PLAY_ALLOW_QUIET", "0") == "1" else 3000
+        self.volume = max(_floor, min(3000, int(s.get("volume", Config.DEFAULT_VOLUME))))
+        self.relay_volume = max(_floor, min(3000, int(s.get("relay_volume", self.volume))))
         self.bass = int(s.get("bass", Config.DEFAULT_BASS))
         self.gain = max(0, min(500, int(s.get("gain", Config.RELAY_DEFAULT_GAIN))))
         self.treble = int(s.get("treble", Config.RELAY_DEFAULT_TREBLE))
