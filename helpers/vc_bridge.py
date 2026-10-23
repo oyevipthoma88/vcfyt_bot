@@ -247,13 +247,13 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
         f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
                  "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
                  "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
-        f.append("volume=24dB")
+        f.append("volume=27dB")
     else:
-        f.append("volume=10dB")
+        f.append("volume=13dB")
     # [4] presence harmonics
     if _has_filter("aexciter"):
         f.append("aexciter=amount=0.8:drive=6:freq=3000:ceil=9999")
-    f.append("alimiter=level_in=1.3:level_out=1:limit=0.95:attack=0.5:release=8:level=false")
+    f.append("alimiter=level_in=1.3:level_out=1:limit=0.99:attack=0.5:release=8:level=false")
     # [5] PHATNA: atan overdrive -> odd harmonics (gritty, aggressive voice),
     # band-limited after so the grit stays in the 1-7 kHz speech band.
     k = c["crunch"]
