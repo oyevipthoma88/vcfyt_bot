@@ -155,7 +155,7 @@ def fight_drive_stage() -> list:
     # baad +2.4 dB lift + hard clip 0.99 tha -> 16-bit me samples full scale
     # pe flat ho rahe the ("bich me fat").  Ab tanh saturation hi ceiling hai
     # (kabhi 1.0 cross nahi karta) aur final limiter peaks pakadta hai.
-    drive = _env_db("FIGHT_DRIVE_DB", 14.0, high=18.0, low=0.0)
+    drive = _env_db("FIGHT_DRIVE_DB", 16.0, high=20.0, low=0.0)
     out = ["highpass=f=80:p=2"]
     if _has_filter("crystalizer"):
         out.append("crystalizer=i=1.2")
@@ -176,7 +176,7 @@ def ultra_loud_enabled() -> bool:
 def ultra_loud_tail(hp: int = 110) -> list:
     if not ultra_loud_enabled():
         return []
-    drive = _env_db("ULTRA_LOUD_DB", 15.0, high=18.0, low=0.0)
+    drive = _env_db("ULTRA_LOUD_DB", 17.0, high=20.0, low=0.0)
     out = [f"highpass=f={int(hp)}:p=2",
            "equalizer=f=2800:t=q:w=1.3:g=4",
            "acompressor=threshold=0.125:ratio=8:attack=0.5:release=40:makeup=2:knee=2",
@@ -422,7 +422,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     #   two compressors (density) -> drive into tanh saturation -> hard clip
     #   at the ceiling -> fast brick-wall.  Average level sits ~1-3 dB under
     #   the peak = maximum perceived loudness.  Some grit is accepted.
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 27.0, high=30.0, low=0.0))}dB")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 30.0, high=33.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
         f.append("speechnorm=e=50:r=0.0005:l=1:p=0.95")
     f += ["equalizer=f=130:t=q:w=0.9:g=5",      # chest / dam (body)
@@ -458,7 +458,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # 8+ -> tanh ka top bhi flat ho jaata tha (flat factor 4.6 = clipped).
     # Ab: 0.5 x max +12 dB = 2.0 -> tanh(2.0) = 0.96, soft shoulder.
     f.append("alimiter=level_in=1:limit=0.45:attack=5:release=60:level=false")
-    drive = min(14.0, _env_db("LIVE_MIC_DRIVE_DB", 13.5, high=30.0, low=0.0)
+    drive = min(16.0, _env_db("LIVE_MIC_DRIVE_DB", 15.5, high=30.0, low=0.0)
                 + min(loud, 200) * 0.06)
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip"):
