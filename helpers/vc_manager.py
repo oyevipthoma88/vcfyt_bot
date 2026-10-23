@@ -926,40 +926,13 @@ class UserVC:
     # ------------------------------------------------------------------
 
     async def set_screen_share(self, chat_id: int, on: bool, image_path: str = None, title: str = None) -> bool:
+        # BUG FIX: pehle wala version sirf "in_call + last_mic" case handle
+        # karta tha aur baaki sab me False return karta tha (SS kabhi start
+        # nahi hota tha). Ab poora locked implementation use hota hai.
         locks = self.__dict__.setdefault("_ss_locks", {})
         lock = locks.setdefault(chat_id, asyncio.Lock())
         async with lock:
-            st = self.state(chat_id)
-            if getattr(st, "ss_on", False) == on:
-                return True
-                
-            prev = st.ss_on
-            st.ss_on = bool(on)
-            
-            try:
-                in_call = chat_id in (await self._active_call_ids())
-            except Exception:
-                in_call = chat_id in self.chats
-                
-            if in_call and getattr(st, "last_mic", None):
-                try:
-                    from pytgcalls.types.raw import Stream
-                    screen = self._screen_source(st) if on else None
-                    await self.calls.play(chat_id, Stream(microphone=st.last_mic, screen=screen), GroupCallConfig(auto_start=False))
-                    logger.info("SS: Seamless toggle to %s successful", on)
-                    return True
-                except Exception as exc:
-                    logger.warning("Seamless SS failed (%r); reverting to audio-only", exc)
-                    st.ss_on = prev # Revert
-                    # Restore audio only so it doesn't freeze
-                    try:
-                        from pytgcalls.types.raw import Stream
-                        await self.calls.play(chat_id, Stream(microphone=st.last_mic, screen=None), GroupCallConfig(auto_start=False))
-                    except Exception:
-                        pass
-                    return False
-            
-            return False
+            return await self._set_screen_share_locked(chat_id, on, image_path, title)
 
     def _live_mic_audio(self, chat_id: int):
         """Mic stream of a live-mic session that streams through THIS account."""
@@ -1618,7 +1591,8 @@ class UserVC:
         import os
         
         chat_id = next((c for c, v in self.chats.items() if v is st), None)
-        if chat_id is None: raise ValueError("No active chat")
+        if chat_id is None:
+            raise ValueError("No active chat for screen share")
         
         task = getattr(st, "ss_task", None)
         if not task or task.done():
@@ -1639,7 +1613,9 @@ class UserVC:
             ss_w, ss_h, ss_fps = size
             
         # Simple string join without shlex to prevent ShellError
-        cmd = f"{py_bin} {script} --state {self._ss_state_path(chat_id)} --w {ss_w} --h {ss_h} --fps {ss_fps}"
+        import shlex
+        cmd = (f"{shlex.quote(py_bin)} {shlex.quote(script)} --state "
+               f"{shlex.quote(self._ss_state_path(chat_id))} --w {ss_w} --h {ss_h} --fps {ss_fps}")
             
         return VideoStream(MediaSource.SHELL, cmd, VideoParameters(ss_w, ss_h, ss_fps, adjust_by_height=False))
 
