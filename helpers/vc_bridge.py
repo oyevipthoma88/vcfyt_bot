@@ -247,9 +247,9 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
         f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
                  "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
                  "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
-        f.append("volume=27dB")
+        f.append("volume=29dB")
     else:
-        f.append("volume=13dB")
+        f.append("volume=15dB")
     # [4] presence harmonics
     if _has_filter("aexciter"):
         f.append("aexciter=amount=0.8:drive=6:freq=3000:ceil=9999")
