@@ -1736,6 +1736,10 @@ class UserVC:
             
         # Simple string join without shlex to prevent ShellError
         import shlex
+        # ROOT FIX (default_launcher ENOENT): ntgcalls/boost joins every PATH
+        # dir with argv[0]; an absolute path becomes "/usr/bin//root/.../python3"
+        # which never exists. Pass the bare name with its folder on PATH.
+        py_bin = _shell_exe(py_bin if os.path.exists(py_bin) else (shutil.which("python3") or "python3"))
         cmd = (f"{shlex.quote(py_bin)} {shlex.quote(script)} --state "
                f"{shlex.quote(self._ss_state_path(chat_id))} --w {ss_w} --h {ss_h} --fps {ss_fps}")
             
