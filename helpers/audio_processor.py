@@ -155,7 +155,7 @@ def fight_drive_stage() -> list:
     # baad +2.4 dB lift + hard clip 0.99 tha -> 16-bit me samples full scale
     # pe flat ho rahe the ("bich me fat").  Ab tanh saturation hi ceiling hai
     # (kabhi 1.0 cross nahi karta) aur final limiter peaks pakadta hai.
-    drive = _env_db("FIGHT_DRIVE_DB", 12.0, high=18.0, low=0.0)
+    drive = _env_db("FIGHT_DRIVE_DB", 14.0, high=18.0, low=0.0)
     out = ["highpass=f=80:p=2"]
     if _has_filter("crystalizer"):
         out.append("crystalizer=i=1.2")
@@ -176,7 +176,7 @@ def ultra_loud_enabled() -> bool:
 def ultra_loud_tail(hp: int = 110) -> list:
     if not ultra_loud_enabled():
         return []
-    drive = _env_db("ULTRA_LOUD_DB", 13.0, high=18.0, low=0.0)
+    drive = _env_db("ULTRA_LOUD_DB", 15.0, high=18.0, low=0.0)
     out = [f"highpass=f={int(hp)}:p=2",
            "equalizer=f=2800:t=q:w=1.3:g=4",
            "acompressor=threshold=0.125:ratio=8:attack=0.5:release=40:makeup=2:knee=2",
@@ -495,6 +495,8 @@ def build_ffmpeg_filter(
             "acompressor=threshold=0.1:ratio=20:attack=1:release=50:makeup=4",
             f"volume={_db(48.0 + _env_db('PLAY_EXTRA_DB', 12.0))}dB",
             "asoftclip=type=tanh:oversample=4",
+            # JUGAD: phone speaker 2-4 kHz pe sabse tez sunte hain -> presence lift
+            "equalizer=f=3200:t=q:w=1.4:g=3",
             "alimiter=level_in=1:level_out=1:limit=0.99:attack=1:release=30:level=false"
         ]
         # BUG FIX: volume slider pehle ignore ho raha tha (0 pe bhi full awaaz).
@@ -553,7 +555,7 @@ async def process_audio_to_file(
             "aresample=48000,"
             "dynaudnorm=f=150:g=15:p=0.95:m=100:r=0.5,"
             "acompressor=threshold=0.08:ratio=6:attack=10:release=150:makeup=2.0:knee=4,"
-            "volume=12dB,"
+            "volume=14dB,"
             "alimiter=level_in=1:limit=0.99:attack=5:release=60:level=false"
         )
         code2, stderr2 = await _run(fallback)  # str now (stray comma made it a tuple)
