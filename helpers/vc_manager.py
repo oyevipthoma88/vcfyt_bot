@@ -65,6 +65,47 @@ def _install_keep_open_patch():
 
 
 _install_keep_open_patch()
+
+
+class _BindingRecorder:
+    """Transparent proxy over ntgcalls binding. Har chat ka last CAPTURE
+    MediaDescription yaad rakhta hai, taaki screen share ko AUDIO SE ALAG
+    toggle kar saken (sirf screen track badle, mic ko haath na lagaye)."""
+
+    def __init__(self, inner):
+        object.__setattr__(self, "_inner", inner)
+        object.__setattr__(self, "last_capture", {})
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._inner, name, value)
+
+    async def set_stream_sources(self, chat_id, mode, desc):
+        res = await self._inner.set_stream_sources(chat_id, mode, desc)
+        try:
+            from ntgcalls import StreamMode
+            if mode == StreamMode.CAPTURE:
+                self.last_capture[chat_id] = desc
+        except Exception:
+            pass
+        return res
+
+
+def _keep_open_copy(desc):
+    """Same audio description with keep_open=True -> ntgcalls audio reader
+    restart nahi karta (0 gap)."""
+    if desc is None:
+        return None
+    try:
+        from ntgcalls import AudioDescription
+        return AudioDescription(media_source=desc.media_source, input=desc.input,
+                                sample_rate=desc.sample_rate,
+                                channel_count=desc.channel_count, keep_open=True)
+    except Exception:
+        return desc
+
 from helpers.audio_processor import (process_audio_to_file, build_stream_command,
                                       build_fake_screen_command)
 from helpers.logger_channel import (
@@ -378,6 +419,10 @@ class UserVC:
 
         self._guard_update_loop()
         self.calls = PyTgCalls(self.client)
+        try:
+            self.calls._binding = _BindingRecorder(self.calls._binding)
+        except Exception as exc:
+            logger.warning("binding recorder skipped: %r", exc)
 
         @self.calls.on_update(call_filters.stream_end())
         async def _on_end(_, update: StreamEnded):
@@ -932,7 +977,84 @@ class UserVC:
         locks = self.__dict__.setdefault("_ss_locks", {})
         lock = locks.setdefault(chat_id, asyncio.Lock())
         async with lock:
+            st = self.state(chat_id)
+            st.ss_error = ""
+            if title is not None:
+                st.ss_title = title
+            if on and not Config.SCREEN_SHARE_ENABLED:
+                st.ss_error = "SCREEN_SHARE_ENABLED=false (env) hai."
+                return False
+            # ROOT FIX: screen share audio se poori tarah alag. Agar call chal
+            # rahi hai to sirf screen track add/remove hota hai — mic/audio
+            # pipeline (gaana, live mic) ko bilkul touch nahi kiya jata.
+            try:
+                if await self._ss_toggle_independent(chat_id, on):
+                    return True
+            except Exception as exc:
+                logger.warning("Independent SS toggle failed: %r", exc)
+                st.ss_error = (str(exc)[:300] or type(exc).__name__)
+                if chat_id in (await self._active_call_ids()):
+                    # call chal rahi hai -> audio restart wala fallback NAHI.
+                    st.ss_on = False if on else st.ss_on
+                    return False
             return await self._set_screen_share_locked(chat_id, on, image_path, title)
+
+    async def _ss_toggle_independent(self, chat_id: int, on: bool) -> bool:
+        """True = handled. False = call me nahi hain (caller join karega)."""
+        binding = getattr(self.calls, "_binding", None)
+        if chat_id not in (await self._active_call_ids()):
+            return False
+        from ntgcalls import MediaDescription, StreamMode
+        from pytgcalls.methods.utilities.stream_params import StreamParams
+        st = self.state(chat_id)
+        last = getattr(binding, "last_capture", {}).get(chat_id)
+        mic = _keep_open_copy(getattr(last, "microphone", None)) if last else None
+        if mic is None:
+            live = self._live_mic_audio(chat_id) or getattr(st, "last_mic", None)
+            if live is not None:
+                token = _KEEP_AUDIO_OPEN.set(True)
+                try:
+                    mic = StreamParams._parse_media_description(live)
+                finally:
+                    _KEEP_AUDIO_OPEN.reset(token)
+        screen = None
+        if on:
+            screen = StreamParams._parse_media_description(self._screen_source(st))
+        desc = MediaDescription(
+            microphone=mic,
+            speaker=getattr(last, "speaker", None) if last else None,
+            camera=getattr(last, "camera", None) if last else None,
+            screen=screen,
+        )
+        prev = st.ss_on
+        st.ss_on = bool(on)
+        try:
+            await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
+            await self.calls._join_presentation(chat_id, bool(on))
+        except Exception:
+            st.ss_on = prev if not on else False
+            raise
+        if on:
+            pres = getattr(self.calls, "_presentations", None)
+            if pres is not None and chat_id not in pres:
+                # Telegram ne presentation join nahi kiya (badi group/stream
+                # mode ya video band). Jhootha "ON" mat dikhao.
+                st.ss_on = False
+                st.ss_error = ("Telegram ne screen share join nahi kiya — group me "
+                               "video/screen allowed karein ya VC re-join karein.")
+                try:
+                    desc2 = MediaDescription(microphone=mic, speaker=desc.speaker,
+                                             camera=desc.camera, screen=None)
+                    await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc2)
+                except Exception:
+                    pass
+                raise RuntimeError(st.ss_error)
+        if not on:
+            task = getattr(st, "ss_task", None)
+            if task and not task.done():
+                task.cancel()
+        logger.info("SS %s for %s (audio untouched)", "ON" if on else "OFF", chat_id)
+        return True
 
     def _live_mic_audio(self, chat_id: int):
         """Mic stream of a live-mic session that streams through THIS account."""
