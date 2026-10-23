@@ -432,8 +432,8 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
             uvc = session_manager.users.get(uid)
             nm = getattr(uvc, "account_name", "") if uvc else ""
             lines.append(f"• `{uid}` {nm}".rstrip())
-        if len(uvs) > 30:
-            lines.append(f"_+{len(uvs)-30} aur..._")
+        if len(uids) > 30:
+            lines.append(f"_+{len(uids)-30} aur..._")
         await cq.message.edit_text("\n".join(lines), reply_markup=_menu())
         await cq.answer()
         return
