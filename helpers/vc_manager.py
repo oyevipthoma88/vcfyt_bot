@@ -146,6 +146,13 @@ VOL_NORMAL = 10000
 VOL_MAX = 20000
 
 FYT_PARTICIPANT_VOLUME = VOL_MAX  # 20000 = 200% Telegram hard cap
+# v30 VOLUME GUARD: fight me saamne wale admin humara volume (sab ke liye)
+# 1-50 % kar dete hain.  Pehle keeper har 12-15 s me wapas 200 % karta tha ->
+# beech ke 12-15 s awaaz "dab" jaati thi.  Ab Telegram ka participant update
+# aate hi (~0.3 s) 200 % wapas.  Restore fail ho (admin nahi) to gap 1 s ->
+# 30 s tak badhta hai, taaki FloodWait na aaye.
+VOL_GUARD_MIN_GAP = 1.0
+VOL_GUARD_MAX_GAP = 30.0
 
 AUTO_PRESET = {
     "volume": 3000, "relay_volume": 3000, "bass": 40, "gain": 500,
@@ -389,6 +396,7 @@ class UserVC:
         self.chats: Dict[int, ChatState] = {}
         self._keepers: Dict[int, asyncio.Task] = {}
         self._call_chats: Dict[int, int] = {}
+        self._vol_guards: Dict[tuple, dict] = {}
 
         self._stopped_chats: set[int] = set()
         self._bg_tasks = set()
@@ -582,6 +590,13 @@ class UserVC:
                 for participant in getattr(update, "participants", None) or []:
                     peer = getattr(participant, "peer", None)
                     try:
+                        _uid = getattr(peer, "user_id", None)
+                        if _uid is not None and not getattr(participant, "left", False):
+                            self._on_volume_seen(chat_id, _uid,
+                                                 getattr(participant, "volume", None))
+                    except Exception:
+                        pass
+                    try:
                         if not getattr(participant, "muted", False):
                             self.__dict__.setdefault("_speak_ts", {})[
                                 (chat_id, getattr(peer, "user_id", None))] = time.time()
@@ -594,6 +609,87 @@ class UserVC:
                     self.apply_mute_state(chat_id, by_admin)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # VOLUME GUARD (instant 200 % restore)
+    # ------------------------------------------------------------------
+    def guard_volume(self, chat_id: int, user_id: int, target: int = VOL_MAX,
+                     restore=None) -> None:
+        """Watch ``user_id``'s participant volume in ``chat_id``; restore it to
+        ``target`` the moment anyone lowers it.  ``restore`` = optional async
+        callable (e.g. the admin MAIN ID's setter); default = our own setter."""
+        if not chat_id or not user_id:
+            return
+        guards = self.__dict__.setdefault("_vol_guards", {})
+        key = (int(chat_id), int(user_id))
+        old = guards.get(key)
+        if old is not None:
+            old["target"] = int(target)
+            if restore is not None:
+                old["restore"] = restore
+            return
+        guards[key] = {"target": int(target), "restore": restore, "last": 0.0,
+                       "gap": VOL_GUARD_MIN_GAP, "busy": False}
+        if chat_id not in self._call_chats.values():
+            async def _map():
+                try:
+                    await self._call_input(chat_id)
+                except Exception:
+                    pass
+            try:
+                t = asyncio.get_running_loop().create_task(_map())
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+            except RuntimeError:
+                pass
+
+    def unguard_volume(self, chat_id: int, user_id: int = None) -> None:
+        guards = self.__dict__.get("_vol_guards") or {}
+        for key in [k for k in guards if k[0] == chat_id and (user_id is None or k[1] == user_id)]:
+            guards.pop(key, None)
+
+    def _on_volume_seen(self, chat_id: int, user_id: int, volume) -> bool:
+        """``volume`` = raw Telegram value 1..20000 (None = default 100 %).
+        Returns True when a restore was scheduled."""
+        g = (self.__dict__.get("_vol_guards") or {}).get((chat_id, user_id))
+        if not g:
+            return False
+        try:
+            vol = 10000 if not volume else int(volume)
+        except (TypeError, ValueError):
+            return False
+        now = time.monotonic()
+        if vol >= g["target"] - 100:
+            g["gap"] = VOL_GUARD_MIN_GAP          # holding -> reset back-off
+            return False
+        if g["busy"] or now - g["last"] < g["gap"]:
+            return False
+        if g["last"] and now - g["last"] < 5.0:
+            # lowered again right after our restore: back off (no FloodWait)
+            g["gap"] = min(VOL_GUARD_MAX_GAP, g["gap"] * 2)
+        g["last"] = now
+        g["busy"] = True
+        try:
+            t = asyncio.get_running_loop().create_task(self._restore_volume(chat_id, user_id, g))
+        except RuntimeError:
+            g["busy"] = False
+            return False
+        self._bg_tasks.add(t)
+        t.add_done_callback(self._bg_tasks.discard)
+        return True
+
+    async def _restore_volume(self, chat_id: int, user_id: int, g: dict) -> None:
+        try:
+            fn = g.get("restore")
+            if fn is not None:
+                await fn()
+            else:
+                await self.set_participant_volume(chat_id, user_id, g["target"], quiet=True)
+            logger.info("Volume guard: chat %s user %s restored to %s", chat_id, user_id, g["target"])
+        except Exception as exc:
+            logger.debug("volume guard restore failed: %r", exc)
+        finally:
+            g["busy"] = False
 
     async def _try_auto_boost(self, chat_id: int) -> bool:
         """Apply max mic volume to the logged-in account in a VC it joined."""
@@ -1333,6 +1429,10 @@ class UserVC:
                     return
                 if not st.is_playing and not st.mic_enabled:
                     return
+                self.guard_volume(chat_id, self.account_id, FYT_PARTICIPANT_VOLUME)
+                if st.mic_boost_user_id:
+                    self.guard_volume(chat_id, st.mic_boost_user_id,
+                                      st.live_volume or FYT_PARTICIPANT_VOLUME)
                 await self.set_participant_volume(
                     chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True
                 )
@@ -1357,6 +1457,7 @@ class UserVC:
         t.add_done_callback(self._bg_tasks.discard)
 
     def _stop_keeper(self, chat_id: int):
+        self.unguard_volume(chat_id)
         t = self._keepers.pop(chat_id, None)
         if t:
             t.cancel()

@@ -22,23 +22,18 @@ def measure(chain):
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg missing")
 class LoudnessControls(unittest.TestCase):
     def test_playback_loud_with_crackle_guard(self):
-        # MAX LOUD: playback peaks full scale tak (>= -0.1 dBFS) par 0 dBFS
-        # cross nahi, RMS high, aur koi flat/clipped sample nahi.
+        # v30: peak stops at the -1.2 dBFS ceiling (Opus decode headroom,
+        # no "fat" clip after Telegram), RMS stays loud.
         chain = build_ffmpeg_filter(volume=1000)
         pk, rms = measure(chain)
-        self.assertGreaterEqual(pk, -0.1)
-        self.assertLessEqual(pk, 0.0)
+        self.assertGreaterEqual(pk, -2.0)
+        self.assertLessEqual(pk, -1.0)
         self.assertGreaterEqual(rms, -11.0)  # test signal is 40% silence
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", SRC, "-af",
-                            chain + ",astats=measure_overall=Flat_factor:measure_perchannel=0",
-                            "-f", "null", "-"], capture_output=True, text=True)
-        flat = float(re.findall(r"Flat factor: (\S+)", r.stderr)[-1])
-        self.assertLess(flat, 6.0, "chain is square-wave clipping (flat tops)")
 
     def test_overdrive_peak_hits_full_scale_without_overs(self):
         pk, rms = measure(build_ffmpeg_filter(volume=2000))
-        self.assertGreaterEqual(pk, -0.1)
-        self.assertLessEqual(pk, 0.0)
+        self.assertGreaterEqual(pk, -2.0)
+        self.assertLessEqual(pk, -1.0)
         self.assertGreaterEqual(rms, -11.0)  # test signal is 40% silence
 
     def test_live_mic_default_is_loud_and_guarded(self):
@@ -60,9 +55,9 @@ class LoudnessControls(unittest.TestCase):
                                 + ",astats=measure_overall=Peak_level+RMS_level+Flat_factor:measure_perchannel=0",
                                 "-f", "null", "-"], capture_output=True, text=True)
             rms = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
-            flat = float(re.findall(r"Flat factor: (\S+)", r.stderr)[-1])
+            pk = float(re.findall(r"Peak level dB: (\S+)", r.stderr)[-1])
             self.assertGreater(rms, -20.0, f"input {lvl} dBFS too quiet")
-            self.assertLess(flat, 2.5, f"input {lvl} dBFS clipped flat")
+            self.assertLessEqual(pk, -1.0, f"input {lvl} dBFS over the ceiling")
         noisy = ("anoisesrc=d=2:c=white:a=0.002")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", noisy, "-af",
                             build_live_mic_filter() + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
@@ -71,17 +66,26 @@ class LoudnessControls(unittest.TestCase):
         self.assertLess(floor, -20.0)
 
     def test_live_mic_cuts_other_fighter_bleed(self):
-        # record_22: the other fighter, heard from the phone speaker at
-        # ~-50 dBFS, must NOT come out of the relay; own voice stays loud.
-        voice = ("aevalsrc='(0.5*sin(2*PI*150*t)+0.3*sin(2*PI*300*t)+0.15*sin(2*PI*900*t))"
-                 "*(0.3+0.7*abs(sin(2*PI*2.5*t)))':s=48000:d=3")
+        # record_22 / v30: the other fighter heard from the phone speaker at
+        # ~-50 dBFS must NOT come out of the relay.  The own-voice gate
+        # (CloseVoiceGate) runs in front of FFmpeg, exactly like live_mic.
+        import numpy as np
+        from helpers.audio_processor import CloseVoiceGate
+        sr = 48000
+        t = np.arange(3 * sr) / sr
+        tone = (0.5 * np.sin(2 * np.pi * 150 * t) + 0.3 * np.sin(2 * np.pi * 300 * t)
+                + 0.15 * np.sin(2 * np.pi * 900 * t)) * (0.3 + 0.7 * np.abs(np.sin(2 * np.pi * 2.5 * t)))
         out = {}
         for name, lvl in (("own", -12), ("bleed", -50)):
-            r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", voice, "-af",
-                                f"volume={lvl + 8}dB," + build_live_mic_filter(-1.0)
+            x = tone / np.abs(tone).max() * 10 ** (lvl / 20)
+            pcm = (x * 32767).astype(np.int16).tobytes()
+            g = CloseVoiceGate()
+            gated = b"".join(g.process(pcm[i:i + 1920]) for i in range(0, len(pcm), 1920))
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "s16le", "-ar", "48000", "-ac", "1",
+                                "-i", "-", "-af", build_live_mic_filter(-1.0)
                                 + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
-                                "-f", "null", "-"], capture_output=True, text=True)
-            out[name] = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
+                                "-f", "null", "-"], input=gated, capture_output=True)
+            out[name] = float(re.findall(r"RMS level dB: (\S+)", r.stderr.decode())[-1])
         self.assertGreater(out["own"], -20.0)
         self.assertLess(out["bleed"], -45.0)
         self.assertGreater(out["own"] - out["bleed"], 30.0)

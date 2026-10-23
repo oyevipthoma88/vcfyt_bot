@@ -112,6 +112,7 @@ class LiveMicSession:
         self._first_pcm = asyncio.Event()
         self._pipeline_ready = asyncio.Event()
         self._proc_keeper_fd: Optional[int] = None
+        self._voice_gate = None
         self._pacer_task: Optional[asyncio.Task] = None
         self._buf = bytearray()
         self._pending = b""
@@ -1106,6 +1107,12 @@ class LiveMicSession:
                         continue
                     try:
                         self._last_pcm_at = time.monotonic()
+                        # v30: own-voice gate — other fighter's speaker bleed
+                        # never reaches the loud chain (see CloseVoiceGate).
+                        if self._voice_gate is None:
+                            from helpers.audio_processor import CloseVoiceGate
+                            self._voice_gate = CloseVoiceGate(rate=int(self.input_rate or 48000))
+                        data = self._voice_gate.process(data)
                         self.queue_pcm(data)
                         self._first_pcm.set()
                         self._received_bytes += len(data)
@@ -2041,17 +2048,16 @@ async function toggleMic() {
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            const pre = audioCtx.createGain(); pre.gain.value = 12.0; // v20: +22 dB phone pre-gain — mic signal ko server pe absolute max strong bhejo
-
-            // v20: phone-side compressor for density BEFORE sending to server.
-            const cmp = audioCtx.createDynamicsCompressor();
-            cmp.threshold.value=-24; cmp.knee.value=6; cmp.ratio.value=3;
-            cmp.attack.value=0.003; cmp.release.value=0.08;
-
+            // v30 ROOT FIX "fight me awaaz dab jaati hai": x12 pre-gain +
+            // compressor + limiter here squeezed the other fighter's
+            // speaker bleed up to almost the same level as YOUR voice, so
+            // the server could no longer tell them apart.  Clean +6 dB only;
+            // the server's own-voice gate + loudness chain do the rest.
+            const pre = audioCtx.createGain(); pre.gain.value = 2.0;
             const lim = audioCtx.createDynamicsCompressor();
-            lim.threshold.value=-1; lim.knee.value=10; lim.ratio.value=8;
-            lim.attack.value=0.002; lim.release.value=0.06;
-            source.connect(hp); hp.connect(pre); pre.connect(cmp); cmp.connect(lim);
+            lim.threshold.value=-1; lim.knee.value=0; lim.ratio.value=20;
+            lim.attack.value=0.001; lim.release.value=0.05;
+            source.connect(hp); hp.connect(pre); pre.connect(lim);
             nPre = pre; nComp = lim;
             source = lim;
         } catch(e){ nComp=nPre=null; }

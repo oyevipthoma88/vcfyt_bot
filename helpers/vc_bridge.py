@@ -108,7 +108,10 @@ class PcmAgc:
     wapas full kar deta tha -> pause me bhi full volume hiss.
     """
 
-    TARGET = 0.92 * 32767        # v21: ~-1.4 dBFS RMS -> har shabd 0 dB ke paas
+    # v30: RMS target 0.92 FS (-0.7 dBFS RMS!) matlab har shabd ke peaks int16
+    # ke bahar -> Python me hi hard clip (square wave) FFmpeg se pehle.
+    # -12 dBFS RMS = peaks ~-2 dBFS, saaf; loudness FFmpeg tail banata hai.
+    TARGET = 0.25 * 32767
     MAX_GAIN = 3000.0            # +70 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
     FLOOR = 0.00018 * 32767      # ~ -75 dBFS: neeche = digital khamoshi
@@ -240,67 +243,21 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
     if _has_filter("allpass"):
         f += ["allpass=f=180:t=q:w=0.7", "allpass=f=350:t=q:w=0.7",
               "allpass=f=700:t=q:w=0.7", "allpass=f=1400:t=q:w=0.7"]
-    # Density: har shabd lagbhag peak par (RMS up = kaan ko tez).
-    f.append("acompressor=threshold=0.05:ratio=20:attack=1:release=40:makeup=10:knee=2")
-    # [3] multiband
-    if _has_filter("mcompand"):
-        f.append("mcompand=0.005\\,0.1 6 -47/-40\\,-34/-34\\,-17/-33\\,0/-30 300 "
-                 "| 0.003\\,0.05 6 -47/-40\\,-34/-34\\,-17/-30\\,0/-26 2500 "
-                 "| 0.000625\\,0.03 6 -47/-40\\,-34/-34\\,-17/-32\\,0/-28 20000")
-        f.append("volume=29dB")
-    else:
-        f.append("volume=15dB")
-    # [4] presence harmonics
-    if _has_filter("aexciter"):
-        f.append("aexciter=amount=0.8:drive=6:freq=3000:ceil=9999")
-    f.append("alimiter=level_in=1.3:level_out=1:limit=0.99:attack=0.5:release=8:level=false")
-    # [5] PHATNA: atan overdrive -> odd harmonics (gritty, aggressive voice),
-    # band-limited after so the grit stays in the 1-7 kHz speech band.
-    k = c["crunch"]
-    if k and _has_filter("asoftclip"):
-        f.append(f"volume={k * 2.4:.1f}dB")
-        f.append(f"asoftclip=type={'atan' if k < 6 else 'hard'}:threshold=0.9")
-        f.append("equalizer=f=2500:t=q:w=1:g=3")
-        f.append("lowpass=f=7300:p=2")
-        f.append(f"volume=-{k * 1.2:.1f}dB")
+    # v30 ROOT FIX: pehle yahan compressor makeup x10 -> mcompand -> +29 dB
+    # -> limiter -> phatna -> 3-4 hard clips -> 0 dBFS limiter, aur upar se
+    # apply_sync ka +16 dB tanh.  Result = square wave: Opus decode ke baad
+    # 10-20 % samples clip ("fat") aur saari energy bass/hash me — tez nahi.
+    # Ab: ek compressor, level set, phir 2 band-limited clip stages, peak
+    # -1.2 dBFS.  Drive/Phatna sliders wahi kaam karte hain (density/grit).
+    f.append("acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=3:knee=4")
+    f.append("alimiter=level_in=1:level_out=1:limit=0.5:attack=2:release=40:level=false")
     d = drive_db(c["drive"])
-    if c["clip"] == "hard" and d and _has_filter("asoftclip"):
-        # MULTI-STAGE CLIP (broadcast "final clipper" technique): 2-4 chhote
-        # clip + har clip ke baad lowpass -> same 0 dBFS peak par zyada dense.
-        first = min(d, 12)
-        f.append(f"volume={first}dB")
-        f.append("asoftclip=type=hard:threshold=0.95")
-        f.append("lowpass=f=7400:p=2")
-        rest = d - first
-        if rest > 0:
-            f.append(f"volume={rest}dB")
-            f.append("asoftclip=type=hard:threshold=0.95")
-            f.append("lowpass=f=7200:p=2")
-        # 3rd (fixed) density clip: hamesha thoda push -> loud & dense.
-        f.append("volume=5dB")
-        f.append("asoftclip=type=tanh:threshold=0.95")
-        f.append("lowpass=f=7000:p=2")
-        # 4th density stage (ULTRA zone 21+): aur dense, peak same.
-        if d > 20:
-            f.append(f"volume={min(6, d - 20)}dB")
-            f.append("asoftclip=type=hard:threshold=0.95")
-            f.append("lowpass=f=7000:p=2")
-        if focus:
-            # Non-admin: ek aur density clip -> same peak, zyada RMS.
-            f.append("volume=4dB")
-            f.append("asoftclip=type=hard:threshold=0.95")
-            f.append("lowpass=f=6800:p=2")
-        # Final ceiling (Opus decoder ~1 dB overshoot karta hai).
-        # v12: Volume 25-30 -> ceiling ramps 0.98 -> 1.0 (0 dBFS, last step).
-        lim = 1.0  # v21: hamesha exact 0 dBFS
-        f.append(f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=0.1:release=4:level=false")
-    elif d:
-        # SOFT: drive limiter me jaata hai (kam distortion, thoda kam tez).
-        f.append(f"volume={min(d, 9)}dB")
-        f.append("asoftclip=type=tanh:threshold=0.97")
-        f.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=0.3:release=6:level=false")
-    else:
-        f.append("alimiter=level_in=1:level_out=1:limit=1.0:attack=0.3:release=6:level=false")
+    d1 = 16.0 + d * 0.5                 # drive 24 -> +28 dB, 40 -> +36 dB
+    if c["clip"] != "hard":
+        d1 = min(d1, 22.0)
+    d2 = 5.0 + c["crunch"] * 0.5        # phatna 0..10 -> +5..+10 dB
+    from helpers.audio_processor import voice_band_tail
+    f += voice_band_tail(d1=d1, d2=d2, hp=hp)
     return ",".join(f)
 
 
@@ -311,8 +268,8 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
 # -> har extra ID se non-admin GC me bhi saaf +3..6 dB tez.
 EXTRA_LAYER = ("highpass=f=1000:p=2,highpass=f=1000:p=2,"
                "equalizer=f=3000:t=q:w=1:g=3,volume=4dB,"
-               "asoftclip=type=hard:threshold=0.95,lowpass=f=7000:p=2,"
-               "alimiter=level_in=1:level_out=1:limit=0.98:attack=0.1:release=4:level=false")
+               "asoftclip=type=tanh:oversample=4,lowpass=f=7000:p=2,"
+               "alimiter=level_in=1:level_out=1:limit=0.871:attack=1:release=20:level=false")
 
 
 def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET,
@@ -336,7 +293,7 @@ def build_bridge_filter(loud_cfg: Optional[dict], preset: str = DEFAULT_PRESET,
         # Spare-ID layer: untouched (only timestamp sync + 20 ms frames).
         parts.append(EXTRA_LAYER)
     from helpers.audio_processor import apply_sync_and_presence
-    chain = apply_sync_and_presence(",".join(parts), boost=not layer)
+    chain = apply_sync_and_presence(",".join(parts), boost=False, drive=False)
     # Sanitize: one out-of-range value kills FFmpeg = zero bridge audio.
     return _sanitize_ffmpeg_filter(chain)
 
@@ -603,8 +560,39 @@ class VCBridge:
             return
         delays = [0.5, 1.5, 3, 6, 10]
         relay_setter = getattr(self.relay, "set_participant_volume", None)
+
+        def _restorer(uid):
+            async def _restore():
+                # MAIN ID (admin) se global 200 %, spare khud bhi try kare.
+                try:
+                    await setter(self.target_chat, uid, 20000, quiet=True)
+                except Exception:
+                    pass
+                if uid == rid and relay_setter is not None:
+                    try:
+                        await relay_setter(self.target_chat, uid, 20000, quiet=True)
+                    except Exception:
+                        pass
+            return _restore
+
+        def _arm_guards():
+            # v30: saamne wala admin volume kam kare -> update aate hi wapas
+            # 200 % (pehle 12 s tak awaaz dabi rehti thi).
+            g = getattr(self.relay, "guard_volume", None)
+            if g is not None:
+                g(self.target_chat, rid, 20000, restore=_restorer(rid))
+            for x in list(self.extras):
+                xr = getattr(x, "relay", None)
+                xid = getattr(xr, "account_id", 0)
+                xg = getattr(xr, "guard_volume", None)
+                if xid and xg is not None:
+                    xg(self.target_chat, xid, 20000, restore=_restorer(xid))
         try:
             while not self._closed:
+                try:
+                    _arm_guards()
+                except Exception:
+                    pass
                 try:
                     await setter(self.target_chat, rid, 20000, quiet=True)
                 except Exception:
@@ -665,6 +653,13 @@ class VCBridge:
             self._watch.cancel()
         if self._vol_task and not self._vol_task.done():
             self._vol_task.cancel()
+        for mgr in [self.relay] + [getattr(x, "relay", None) for x in list(self.extras)]:
+            ug = getattr(mgr, "unguard_volume", None)
+            if ug is not None:
+                try:
+                    ug(self.target_chat, getattr(mgr, "account_id", None))
+                except Exception:
+                    pass
         if self._extra_task and not self._extra_task.done():
             self._extra_task.cancel()
         for x in list(self.extras):
