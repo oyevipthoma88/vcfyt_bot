@@ -108,7 +108,7 @@ class PcmAgc:
     wapas full kar deta tha -> pause me bhi full volume hiss.
     """
 
-    TARGET = 0.85 * 32767        # v21: ~-1.4 dBFS RMS -> har shabd 0 dB ke paas
+    TARGET = 0.92 * 32767        # v21: ~-1.4 dBFS RMS -> har shabd 0 dB ke paas
     MAX_GAIN = 3000.0            # +70 dB (bohot dheemi VC input bhi)
     MIN_GAIN = 0.5               # -6 dB
     FLOOR = 0.00018 * 32767      # ~ -75 dBFS: neeche = digital khamoshi
