@@ -77,6 +77,13 @@ async def force_sub_gate(bot: Client, msg: Message):
     if not missing:
         return
     try:
+        from helpers.database import db
+        u = msg.from_user
+        if not await db.get_user(u.id):
+            await db.add_user(u.id, u.username or "", u.first_name or "")
+    except Exception as exc:
+        await log_error("force_sub_register", exc)
+    try:
         await msg.reply_text(_join_text(len(missing)), reply_markup=_join_kb(missing),
                              disable_web_page_preview=True)
     except Exception:

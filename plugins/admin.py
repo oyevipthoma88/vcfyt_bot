@@ -38,7 +38,8 @@ def panel_kb() -> K:
         [B("🎵 Add Audio", callback_data="adm_addaudio", style="primary"),
          B("💳 Payments", callback_data="adm_payment", style="primary")],
         [B("👥 Multi Spare (Free / Premium)", callback_data="adm_mspare", style="success")],
-        [B("🎛 VC Joiner", callback_data="adm_vcjoin", style="success")],
+        [B("🎛 VC Joiner", callback_data="adm_vcjoin", style="success"),
+         B("🎬 Set Video", callback_data="adm_setvideo", style="primary")],
         [B("🔗 Source URL", callback_data="adm_source", style="primary"),
          B("♻️ Restart", callback_data="adm_restart", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
@@ -141,6 +142,17 @@ async def cb_admin(bot, cq):
         from plugins.force_sub import fsub_panel_text
         await edit_screen(cq.message, await fsub_panel_text(), reply_markup=back,
                           disable_web_page_preview=True)
+
+    elif action == "setvideo":
+        from plugins.tutorial import TUTORIAL_VIDEO_KEY
+        cur = await db.get_app_value(TUTORIAL_VIDEO_KEY)
+        await edit_screen(cq.message,
+            "🎬 <b>Tutorial Video</b>\n\n"
+            f"Status: {'✅ set hai' if cur else '❌ koi video nahi'}\n\n"
+            "• Video ko reply karke <code>.setvideo</code> bhejo\n"
+            "• Hatane ke liye <code>.clearvideo</code>\n\n"
+            "Users ko video sirf Madad → Video / <code>.video</code> par milega.",
+            reply_markup=back)
 
     elif action == "payment":
         from plugins.payments import _payment_panel_text, payment_owner_kb
@@ -452,3 +464,27 @@ async def cmd_grow(bot: Client, msg: Message):
     t = await G.grow_all()
     await m.edit_text(f"✅ Grow complete\nAccounts: {t['users']}/{t['accounts']} • Groups: {t['chats']}\n"
                       f"Promoted: {t['promoted']} • Failed: {t['failed']}")
+
+
+@Client.on_message(HAS_USER & dm_cmd("setvideo") & filters.private)
+async def cmd_setvideo(bot: Client, msg: Message):
+    if not Config.is_owner(msg.from_user.id):
+        return
+    r = msg.reply_to_message
+    media = r and (r.video or r.animation or (r.document if r.document and
+                   (r.document.mime_type or "").startswith("video") else None))
+    if not media:
+        await msg.reply_text("❌ Kisi video ko reply karke <code>.setvideo</code> bhejo.")
+        return
+    from plugins.tutorial import TUTORIAL_VIDEO_KEY
+    await db.set_app_value(TUTORIAL_VIDEO_KEY, media.file_id)
+    await msg.reply_text("✅ Tutorial video set ho gaya.")
+
+
+@Client.on_message(HAS_USER & dm_cmd("clearvideo") & filters.private)
+async def cmd_clearvideo(bot: Client, msg: Message):
+    if not Config.is_owner(msg.from_user.id):
+        return
+    from plugins.tutorial import TUTORIAL_VIDEO_KEY
+    await db.set_app_value(TUTORIAL_VIDEO_KEY, "")
+    await msg.reply_text("🗑 Tutorial video hata diya.")

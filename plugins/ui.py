@@ -289,6 +289,7 @@ LOGIN_INTRO = (
 def login_kb() -> K:
     rows = [
         [B("🔹 Phone se Login", callback_data="login:phone")],
+        [B("👥 Multiple ID Login", callback_data="mic:acct")],
         [B("🔹 Home", callback_data="menu:home")],
     ]
     rows.extend(source_button())

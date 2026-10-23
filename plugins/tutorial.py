@@ -304,18 +304,21 @@ def _video_kb() -> K:
                B("🏠 Home", callback_data="menu:home", style="primary")]])
 
 
+TUTORIAL_VIDEO_KEY = "tutorial_video_file_id"
+
+
 async def send_tutorial_video(message) -> bool:
     """Tutorial video bhejta hai (env TUTORIAL_VIDEO > cached file_id > assets/tutorial.mp4)."""
-    global _video_file_id
-    from config import Config
-    src = getattr(Config, "TUTORIAL_VIDEO", "") or _video_file_id or _VIDEO_PATH
-    if src == _VIDEO_PATH and not os.path.exists(src):
-        return False
+    from helpers.database import db
     try:
-        sent = await message.reply_video(src, caption=VIDEO_CAPTION, reply_markup=_video_kb(),
-                                         supports_streaming=True)
-        if sent and getattr(sent, "video", None) and not getattr(Config, "TUTORIAL_VIDEO", ""):
-            _video_file_id = sent.video.file_id
+        src = await db.get_app_value(TUTORIAL_VIDEO_KEY)
+    except Exception:
+        src = None
+    if not src:
+        return False  # owner ne .setvideo se video set nahi kiya
+    try:
+        await message.reply_video(src, caption=VIDEO_CAPTION, reply_markup=_video_kb(),
+                                  supports_streaming=True)
         return True
     except Exception:
         return False

@@ -166,6 +166,27 @@ class Database:
                 logger.warning("[DB] SQLite fallback read failed: %s", sqle)
         return None
 
+    async def _merged_list(self, mongo_fn, sqlite_fn, key):
+        """Union of Mongo + SQLite rows (dedupe by key). Rows saved to SQLite
+        while Mongo was quota-blocked are no longer hidden behind stale Mongo."""
+        out, seen = [], set()
+        if self._use_mongo and self._mongo is not None:
+            try:
+                for r in (await mongo_fn()) or []:
+                    k = r.get(key)
+                    if k not in seen:
+                        seen.add(k); out.append(r)
+            except Exception as e:
+                logger.warning("[DB] Mongo list read failed: %s", e)
+        try:
+            for r in (sqlite_fn() or []):
+                k = r.get(key)
+                if k not in seen:
+                    seen.add(k); out.append(r)
+        except Exception as e:
+            logger.warning("[DB] SQLite list read failed: %s", e)
+        return out
+
     def _init_sqlite(self):
         conn = sqlite3.connect(self._sqlite_path)
         c = conn.cursor()
@@ -390,6 +411,11 @@ class Database:
                     (user_id, username, first_name, string_session, ts, json.dumps(extra or {})),
                 )
         await self._safe_write(_m, _s)
+        if self._use_mongo and self._mongo is not None:
+            try:
+                _s()  # SQLite mirror so count never freezes if Mongo quota hits
+            except Exception as e:
+                logger.warning("[DB] SQLite user mirror failed: %s", e)
 
     async def get_user(self, user_id: int) -> Optional[dict]:
         async def _m():
@@ -418,8 +444,7 @@ class Database:
         def _s():
             rows = self._sql("SELECT * FROM users", fetch=True)
             return [dict(r) for r in rows] if rows else []
-        res = await self._safe_read(_m, _s)
-        return res if res is not None else []
+        return await self._merged_list(_m, _s, "user_id")
 
     async def register_broadcast_chat(self, chat_id: int, title: str = ""):
         chat_id = int(chat_id)
@@ -809,7 +834,14 @@ class Database:
                 return False
             self._sql("INSERT INTO coupons VALUES (?,?,?,?,?,?)", (code, plan_id, max_uses, 0, ts, created_by))
             return True
+        if await self.get_coupon(code):
+            return False
         res = await self._safe_write(_m, _s)
+        if res and self._use_mongo and self._mongo is not None:
+            try:
+                _s()
+            except Exception:
+                pass
         return bool(res)
 
     async def get_coupon(self, code: str) -> Optional[dict]:
@@ -894,8 +926,9 @@ class Database:
         def _s():
             rows = self._sql("SELECT * FROM coupons ORDER BY created_at DESC", fetch=True)
             return [dict(r) for r in rows] if rows else []
-        res = await self._safe_read(_m, _s)
-        return res if res is not None else []
+        res = await self._merged_list(_m, _s, "code")
+        res.sort(key=lambda c: str(c.get("created_at", "")), reverse=True)
+        return res
 
     async def delete_coupon(self, code: str) -> bool:
         code = code.strip().upper()
@@ -909,6 +942,10 @@ class Database:
             self._sql("DELETE FROM coupons WHERE code=?", (code,))
             return True
         res = await self._safe_write(_m, _s)
+        try:
+            res = bool(_s()) or bool(res)
+        except Exception:
+            pass
         return bool(res)
 
     async def create_payment_request(self, user_id: int, plan_id: str) -> str:
