@@ -1197,9 +1197,18 @@ async def cb_vc(bot, cq):
         actual = (cid in pres) if pres is not None else bool(getattr(st, "ss_on", False))
         st.ss_on = actual  # stale flag se galat toggle na ho
         want = not actual
-        ok = await uvc.set_screen_share(cid, want, image_path="" if want else None)
+        try:
+            ok = await uvc.set_screen_share(cid, want, image_path="" if want else None)
+        except Exception as exc:
+            st.ss_error = str(exc)
+            ok = False
+        err = getattr(st, "ss_error", "") or ""
+        if "default_launcher" in err or "No such file" in err:
+            err = "Screen program start nahi hua. Bot update karke restart karein."
+        elif "[system" in err or "/__w/" in err:
+            err = err.split("[system")[0].strip() or "Telegram ne screen share mana kiya."
         await safe_answer(cq, ("🖥 Screen share " + ("ON" if want else "OFF")) if ok
-                          else ("Screen share nahi chal paya: " + (getattr(st, "ss_error", "") or "VC me hai?"))[:190],
+                          else ("Screen share nahi chal paya: " + (err or "VC me hai?"))[:190],
                           show_alert=not ok)
     elif action == "pause":
         await safe_answer(cq, "⏸ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
