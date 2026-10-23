@@ -617,16 +617,20 @@ def build_ffmpeg_filter(
         over = max(0.0, min(1.0, (v - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)))
         filters = [
             "aresample=48000",
-            "highpass=f=120:p=2",
+            f"highpass=f={int(_env_db('PLAY_SUB_HP', 65.0, high=120.0, low=50.0))}:p=2",
         ]
+        _b = max(0, min(40, 14 if bass is None else int(bass)))
+        _bo = max(0, min(10, 10 if boost is None else int(boost)))
         if _has_filter("agate"):
             # raw hiss / room noise (< -45 dBFS) never reaches the leveller
             filters.append("agate=threshold=0.0056:range=0.05:ratio=4:attack=2:release=250:knee=4:detection=peak")
         filters += [
+            f"equalizer=f=95:t=q:w=1.1:g={min(16.0, _b * 0.8):.1f}",  # damdar bass
             "equalizer=f=400:t=q:w=1:g=-3",      # mud cut
             "equalizer=f=1500:t=q:w=1:g=3",      # body of the words
             "equalizer=f=2700:t=q:w=1.1:g=7",    # ear's most sensitive band
             "equalizer=f=4000:t=q:w=1.2:g=4",    # consonants cut through
+            "equalizer=f=6500:t=q:w=1.2:g=3.5",  # sparkle / clarity
         ]
         if _has_filter("speechnorm"):
             filters.append("speechnorm=e=25:r=0.0008:l=1:p=0.9")
@@ -635,10 +639,11 @@ def build_ffmpeg_filter(
         if _has_filter("agate"):
             # pause hiss (lifted by the leveller) stays down
             filters.append("agate=threshold=0.03:range=0.02:ratio=4:attack=2:release=250:knee=4:detection=rms")
-        filters.append("acompressor=threshold=0.1:ratio=6:attack=3:release=70:makeup=3:knee=4")
+        filters.append(f"acompressor=threshold=0.09:ratio=7:attack=2:release=60:makeup={3.0 + _bo * 0.15:.1f}:knee=4")
         # VOLUME 1000 -> 3000 (OVERDRIVE) = more drive into the 2nd clipper.
-        filters += voice_band_tail(d1=_env_db("PLAY_DRIVE_DB", 36.0, high=40.0, low=0.0),
-                                   d2=4.0 + 6.0 * over, hp=220)
+        filters += voice_band_tail(d1=_env_db("PLAY_DRIVE_DB", 38.0, high=40.0, low=0.0),
+                                   d2=4.0 + 6.0 * over,
+                                   hp=int(_env_db("PLAY_HP_FREQ", 85.0, high=220.0, low=80.0)))
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())
