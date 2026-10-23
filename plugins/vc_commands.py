@@ -1193,10 +1193,14 @@ async def cb_vc(bot, cq):
         await safe_answer(cq, "🧑 Human Mode " + ("ON" if on else "OFF"))
     elif action == "ss":
         st = uvc.state(cid)
-        want = not bool(getattr(st, "ss_on", False))
+        pres = getattr(getattr(uvc, "calls", None), "_presentations", None)
+        actual = (cid in pres) if pres is not None else bool(getattr(st, "ss_on", False))
+        st.ss_on = actual  # stale flag se galat toggle na ho
+        want = not actual
         ok = await uvc.set_screen_share(cid, want, image_path="" if want else None)
         await safe_answer(cq, ("🖥 Screen share " + ("ON" if want else "OFF")) if ok
-                          else "Screen share nahi chal paya (VC me hai?)", show_alert=not ok)
+                          else ("Screen share nahi chal paya: " + (getattr(st, "ss_error", "") or "VC me hai?"))[:190],
+                          show_alert=not ok)
     elif action == "pause":
         await safe_answer(cq, "⏸ Paused" if await uvc.pause(cid) else "Kuch chal nahi raha")
     elif action == "resume":
