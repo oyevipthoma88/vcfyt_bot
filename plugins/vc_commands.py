@@ -204,7 +204,7 @@ async def get_engine(msg: Message):
                 await mic_notify(
                     msg,
                     "⚠️ <b>Aapka account connect ho raha hai…</b>\n\n"
-                    "Login saved hai, bas abhi start nahi hua. 10 sec baad dobara dabao.\n"
+                    "Login saved hai, account start ho raha hai — thodi der me dobara try karo.\n"
                     "Baar-baar aaye to 🔁 Re-Login karo.",
                     reply_markup=LOGIN_KB,
                 )
@@ -1135,26 +1135,47 @@ async def cmd_myboost(bot: Client, msg: Message):
            if ok else "VC on hai? Aapka account VC mein hai? Check karein.")
     )
 
+IDLE_TEXT = (
+    "🔇 <b>Abhi koi audio play nahi ho raha</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+    "<b>▶️ Audio kaise chalayein:</b>\n"
+    "1️⃣ Group ka VC (voice chat) on karo\n"
+    "2️⃣ Group me kisi audio/video ko reply karke <code>.play</code> likho\n"
+    "   ya DM se: <code>.play -100xxxxxxxxxx</code> (audio reply karke)\n"
+    "3️⃣ Bas! Gaana VC me bajega — phir yahan ▶️ Player dabao\n\n"
+    "💡 Saved audio: <code>.tag naam</code> se save, <code>.play naam</code> se chalao"
+)
+IDLE_KB = K([[B("🎵 Audio Library", callback_data="aud:menu", style="primary"),
+              B("🏠 Home", callback_data="menu:home", style="primary")]])
+
+
+async def _show_idle(cq):
+    await edit_screen(cq.message, IDLE_TEXT, reply_markup=IDLE_KB)
+    await safe_answer(cq, "Abhi kuch play nahi ho raha")
+
+
 @Client.on_callback_query(filters.regex(r"^vc:"))
 async def cb_vc(bot, cq):
     _, action, cid = cq.data.split(":")
     cid = int(cid)
     uvc = await _cb_engine(cq.from_user.id)
     if not uvc:
-        await safe_answer(cq, "⚠️ Account connect nahi hua. 10 sec baad dobara dabao ya 🔁 Re-Login karo.", show_alert=True)
+        if action in ("list", "now"):
+            await _show_idle(cq)
+        else:
+            await safe_answer(cq, "⚠️ Account connect nahi hua — 🔁 Re-Login karo.", show_alert=True)
         return
     if action == "list":
         active = next((chat_id for chat_id, state in uvc.chats.items()
                        if state.is_playing), None)
         if active is None:
-            await safe_answer(cq, "Kuch play nahi ho raha", show_alert=True)
+            await _show_idle(cq)
             return
         cid = active
         action = "now"
     if action == "now":
         st = uvc.chats.get(cid)
         if not st or not st.is_playing:
-            await safe_answer(cq, "Kuch play nahi ho raha", show_alert=True)
+            await _show_idle(cq)
             return
         await edit_screen(cq.message,
             f"🎧 <b>NOW PLAYING</b>\n\n"

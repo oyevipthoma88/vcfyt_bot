@@ -87,6 +87,14 @@ class _BindingRecorder:
         try:
             from ntgcalls import StreamMode
             if mode == StreamMode.CAPTURE:
+                old = self.last_capture.get(chat_id)
+                if getattr(desc, "microphone", None) is None and old is not None \
+                        and getattr(old, "microphone", None) is not None:
+                    from ntgcalls import MediaDescription
+                    desc = MediaDescription(microphone=old.microphone,
+                                            speaker=getattr(desc, "speaker", None),
+                                            camera=getattr(desc, "camera", None),
+                                            screen=getattr(desc, "screen", None))
                 self.last_capture[chat_id] = desc
         except Exception:
             pass
@@ -354,6 +362,11 @@ class ChatState:
         # Live participants grid removed (user request): old PC mixer SS is default.
         self.ss_mode: str = "mixer"
         self.ss_task = None
+        self.play_start_time = None
+        self.play_start_offset = 0.0
+        self.pause_time = None
+        self.paused_duration = 0.0
+        self.last_mic = None
 
     def apply_settings(self, s: dict):
         # Old saved settings (1000/400) kept audio low after restart -> on load
@@ -825,9 +838,14 @@ class UserVC:
         try:
             played = float(await self.calls.time(chat_id) or 0)
         except Exception:
-            return 0.0
+            played = 0.0
         if played > 100000:  # some builds report ms
             played /= 1000.0
+        if played <= 0 and getattr(st, "play_start_time", None):
+            # FIX: calls.time() 0 deta tha -> SS toggle pe gaana shuru se bajta tha.
+            end = st.pause_time if (st.is_paused and st.pause_time) else time.time()
+            played = max(0.0, end - st.play_start_time - st.paused_duration) \
+                + float(st.play_start_offset or 0) - float(getattr(st, "stream_offset", 0.0) or 0.0)
         # FIX: stream restart (settings change / resume) ke baad calls.time()
         # 0 se ginta hai — offset jodo warna har volume change par gaana
         # shuru se bajta tha.
@@ -1892,12 +1910,18 @@ class UserVC:
         else:
             use_fast = bool(fast)
 
+        st.play_start_time = time.time()
+        st.play_start_offset = float(start_at or 0.0)
+        st.pause_time, st.paused_duration = None, 0.0
+        st.stream_offset = 0.0
         if use_fast and not preprocessed:
             try:
-                raw_stream = self._raw_stream(
-                    st, self._audio_source(st, path, loop=(st.loop and st.loop_left < 0),
-                                           start_at=start_at))
+                audio_src = self._audio_source(st, path, loop=(st.loop and st.loop_left < 0),
+                                               start_at=start_at)
+                st.last_mic = audio_src
+                raw_stream = self._raw_stream(st, audio_src)
                 await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
+                self._seed_capture(chat_id, audio_src)
                 return
             except Exception as exc:
                 logger.warning("Fast play failed: %r", exc)
@@ -1908,6 +1932,25 @@ class UserVC:
         st.processed_file = processed
         stream = MediaStream(processed, AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE)
         await self.calls.play(chat_id, stream, GroupCallConfig(auto_start=False))
+
+    def _seed_capture(self, chat_id, audio_src):
+        """ROOT FIX: calls.play() binding.set_stream_sources se nahi jaata, isliye
+        last_capture khali rehta tha -> SS ON pe mic=None -> gaana ruk ke restart.
+        Ab chal rahi audio ka description yaad rakhte hain."""
+        try:
+            from ntgcalls import MediaDescription
+            from pytgcalls.methods.utilities.stream_params import StreamParams
+            binding = getattr(self.calls, "_binding", None)
+            rec = getattr(binding, "last_capture", None)
+            if rec is None:
+                return
+            old = rec.get(chat_id)
+            rec[chat_id] = MediaDescription(
+                microphone=StreamParams._parse_media_description(audio_src),
+                speaker=None, camera=None,
+                screen=getattr(old, "screen", None) if old else None)
+        except Exception as exc:
+            logger.debug("seed capture skipped: %r", exc)
 
     async def _stream_with_reconnect(self, chat_id: int, path: str,
                                      source_name: str):
@@ -1990,6 +2033,7 @@ class UserVC:
             return False
         await self.calls.pause(chat_id)
         st.is_paused = True
+        st.pause_time = time.time()
         return True
 
     async def resume(self, chat_id: int) -> bool:
@@ -1998,6 +2042,9 @@ class UserVC:
             return False
         await self.calls.resume(chat_id)
         st.is_paused = False
+        if st.pause_time:
+            st.paused_duration += time.time() - st.pause_time
+            st.pause_time = None
         return True
 
     async def skip(self, chat_id: int) -> bool:
