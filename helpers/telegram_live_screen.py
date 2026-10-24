@@ -333,6 +333,14 @@ def main():
     w = max(320, min(1920, a.w)) // 2 * 2
     h = max(240, min(1080, a.h)) // 2 * 2
     fps = max(5, min(30, a.fps))
+    # SMOOTH SS ON/OFF: this renderer (PIL + I420 convert) and the VP8
+    # encoder start together and grabbed the CPU from the audio FFmpeg ->
+    # audio "atak" for a moment on every toggle.  Lowest CPU priority here
+    # so the audio pipe always wins.
+    try:
+        os.nice(15)
+    except (AttributeError, OSError):
+        pass
     r = Renderer(w, h)
     out = sys.stdout.buffer
     started = time.time()
@@ -344,7 +352,8 @@ def main():
             st = _read_state(a.state) or st
             last = now
             if st.get("started"): started = float(st["started"])
-        k = (json.dumps(st, sort_keys=True, default=str), int(now*5))
+        # 2 renders/sec is enough for clock + meters (was 5) -> ~60 % less CPU.
+        k = (json.dumps(st, sort_keys=True, default=str), int(now*2))
         if k != key:
             frame = rgb_to_i420(r.render(st, now, started))
             key = k
@@ -353,7 +362,12 @@ def main():
         except (BrokenPipeError, OSError): return
         n += 1
         sl = t0 + n / fps - time.time()
-        if sl > 0: time.sleep(sl)
+        if sl > 0:
+            time.sleep(sl)
+        elif sl < -1.0 / fps:
+            # Fell behind (CPU busy): never burst-catch-up frames, that burst
+            # is what stalled the audio.  Re-sync the clock instead.
+            t0, n = time.time(), 0
 
 if __name__ == "__main__":
     main()
