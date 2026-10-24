@@ -103,7 +103,7 @@ async def cmd_mystatus(bot: Client, msg: Message):
     await msg.reply_text(status_text(msg.from_user.id, data, uvc, s, prem),
                          reply_markup=home_kb(
                              Config.is_owner(msg.from_user.id),
-                             bool(data and data.get("string_session")), active_chat_id))
+                             await _is_logged_in(msg.from_user.id), active_chat_id))
 
 @Client.on_callback_query(filters.regex(r"^menu:status$"))
 async def cb_status(bot, cq):
@@ -245,5 +245,5 @@ async def cb_settings_change(bot, cq):
 async def cb_more(bot, cq):
     from plugins.ui import more_kb
     await safe_answer(cq)
-    await edit_screen(cq.message, "☰ <b>More options</b>\nJo chahiye wo chuno:",
+    await edit_screen(cq.message, "☰ <b>More</b>\n<i>Jo chahiye wo chuno 👇</i>",
                       reply_markup=more_kb())

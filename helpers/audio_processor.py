@@ -195,6 +195,32 @@ def voice_ceiling_db() -> float:
     return _env_db("VOICE_CEILING_DB", VOICE_CEILING_DB, high=-0.5, low=-3.0)
 
 
+def clear_loud_tail(drive: float = 26.0, ceiling_db: float = None) -> list:
+    """v31 LIVE MIC "tez + saaf" tail.
+
+    The old double-tanh tail (+32 dB drive, 8 kHz lowpass) smeared words and
+    cut every consonant above 8 kHz (muffled, "saaf nahi").  This tail:
+      * removes sub-bass twice (phones can't play it, it only eats headroom),
+      * lifts the 1.8 / 3 kHz intelligibility band so words cut through,
+      * levels syllables with a smooth compressor + slow limiter,
+      * ONE oversampled tanh stage for density, a 12 kHz lowpass (keeps
+        consonants, removes clip aliasing) and a -1 dBFS brick-wall.
+    """
+    drive = max(0.0, min(34.0, float(drive)))
+    if ceiling_db is None:
+        ceiling_db = -1.0
+    lim = 10 ** (max(-3.0, min(-0.5, float(ceiling_db))) / 20.0)
+    clip = ("asoftclip=type=tanh:oversample=4" if _has_filter("asoftclip") else
+            "alimiter=level_in=1:level_out=1:limit=0.9:attack=0.1:release=5:level=false")
+    return ["highpass=f=170:p=2", "highpass=f=170:p=2", "lowpass=f=12000",
+            "equalizer=f=1800:t=q:w=1:g=3", "equalizer=f=3000:t=q:w=1:g=5",
+            "acompressor=threshold=0.03:ratio=12:attack=5:release=120:makeup=10:knee=3",
+            "volume=4dB",
+            "alimiter=level_in=1:level_out=1:limit=0.5:attack=2:release=40:level=false",
+            f"volume={_db(drive)}dB", clip, "lowpass=f=12000",
+            f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=1:release=20:level=false"]
+
+
 def voice_band_tail(d1: float = 30.0, d2: float = 8.0, hp: int = 200,
                     ceiling_db: float = None) -> list:
     """Two band-limited tanh clip stages + true-peak-safe final limiter.
@@ -214,9 +240,9 @@ def voice_band_tail(d1: float = 30.0, d2: float = 8.0, hp: int = 200,
         clip = "alimiter=level_in=1:level_out=1:limit=0.9:attack=0.1:release=5:level=false"
     return [f"highpass=f={hp}:p=2", f"highpass=f={hp}:p=2",
             f"volume={_db(d1)}dB", clip,
-            f"highpass=f={hp}:p=2", "lowpass=f=7800:p=2",
+            f"highpass=f={hp}:p=2", "lowpass=f=12000:p=2",
             f"volume={_db(d2)}dB", clip,
-            "lowpass=f=8000:p=2",
+            "lowpass=f=12000:p=2",
             f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=1:release=20:level=false"]
 
 
@@ -572,13 +598,14 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     f.append("alimiter=level_in=1:level_out=1:limit=0.5:attack=2:release=40:level=false")
     # LOUD 0..200 -> +0..+6 dB density; CRUNCH 0..200 -> +0..+6 dB into the
     # 2nd clipper (more "phati" grit).  Peak always stays at the ceiling.
-    d1 = _env_db("LIVE_MIC_DRIVE_DB", 32.0, high=36.0, low=0.0) + min(loud, 200) * 0.03
-    d2 = 8.0 + min(crunch, 200) * 0.03
+    # LOUD 0..200 -> +0..+6 dB drive, CRUNCH 0..200 -> +0..+4 dB more grit.
+    drive = (_env_db("LIVE_MIC_DRIVE_DB", 26.0, high=30.0, low=0.0)
+             + min(loud, 200) * 0.03 + min(crunch, 200) * 0.02)
     # Ceiling: -1.2 dBFS (Opus decoder overshoot no longer clips), or the
     # admin-200 % headroom when LIVE_MIC_RESPECT_ADMIN=1.
     out_db = min(voice_ceiling_db(), ceiling_db - 0.6) if \
         os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else voice_ceiling_db()
-    f += voice_band_tail(d1=d1, d2=d2, hp=200, ceiling_db=max(-12.0, out_db))
+    f += clear_loud_tail(drive=drive, ceiling_db=max(-3.0, min(-1.0, out_db)))
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False, drive=False))
 
 
