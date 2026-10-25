@@ -90,6 +90,10 @@ def _color_for(key):
     return AV_COLORS[k % len(AV_COLORS)]
 
 
+NEON_C = (0, 240, 255)
+NEON_G = (57, 255, 150)
+
+
 def _mix(a, b, t):
     t = max(0.0, min(1.0, t))
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
@@ -303,7 +307,7 @@ class Renderer:
         mic_on = bool(st.get("mic_on"))
         playing = bool(st.get("now_playing")) and not st.get("paused")
         audio = bool(st.get("audio_active")) or playing
-        me_speaking = (mic_on and audio) or bool(me_p and me_p.get("speaking"))
+        me_speaking = playing or (mic_on and audio) or bool(me_p and me_p.get("speaking"))
         me_muted = bool(st.get("ghost_mute")) or (not mic_on and not audio
                                                     and bool(me_p and me_p.get("muted")))
 
@@ -312,14 +316,12 @@ class Renderer:
 
         panel_x = int(W * 0.69)
         # ================= header
-        title = clean_name(st.get("group") or st.get("title") or "Voice Chat", "Voice Chat")
-        text(d, (S(32), S(30)), title, style="bold", size=S(26), fill=TEXT,
+        title = f"{me_name} Live mic"
+        text(d, (S(32), S(30)), title, style="display", size=S(28), fill=NEON_C,
              max_w=panel_x - S(260))
         n = len(parts) or 1
-        sub = f"{n} participant" + ("" if n == 1 else "s")
-        if st.get("title"):
-            sub += "  ·  " + str(st.get("title"))
-        text(d, (S(32), S(66)), sub, size=S(17), fill=SUB, max_w=panel_x - S(260))
+        sub = f"{n} participant" + ("" if n == 1 else "s") + "  ·  live"
+        text(d, (S(32), S(68)), sub, size=S(17), fill=SUB, max_w=panel_x - S(260))
         # LIVE pill + timer
         lx = panel_x - S(28)
         tm = _clock(now - started)
@@ -367,28 +369,35 @@ class Renderer:
         text(d, (cx, ny + S(58)), line, style="ui", size=S(19), fill=sc, anchor="mt",
              max_w=panel_x - S(80))
 
-        # now playing pill
-        npn = st.get("now_playing") or ""
-        if npn:
-            pw2 = min(panel_x - S(120), S(520))
+        # live neon mic + waveform (no track name / duration: looks like real live voice)
+        if me_speaking or mic_on or audio:
+            pw2 = min(panel_x - S(120), S(560))
+            ph = S(64)
             px0, py0 = cx - pw2 // 2, ny + S(96)
-            d.rounded_rectangle([px0, py0, px0 + pw2, py0 + S(46)], radius=S(23), fill=PANEL2)
-            icon = "❚❚" if st.get("paused") else "♪"
-            text(d, (px0 + S(24), py0 + S(23)), icon, style="bold", size=S(18), fill=BLUE, anchor="mm")
-            text(d, (px0 + S(44), py0 + S(16)), npn, style="bold", size=S(16), fill=TEXT,
-                 anchor="lm", max_w=pw2 - S(130))
-            dur = float(st.get("duration") or 0)
-            pos = float(st.get("position") or 0)
-            if not st.get("paused") and st.get("_read_at"):
-                pos += max(0.0, now - float(st["_read_at"]))
-            frac = (pos / dur) if dur > 0 else 0.0
-            frac = max(0.0, min(1.0, frac))
-            bx0, bx1, by = px0 + S(44), px0 + pw2 - S(90), py0 + S(32)
-            d.rounded_rectangle([bx0, by, bx1, by + S(4)], radius=S(2), fill=LINE)
-            d.rounded_rectangle([bx0, by, bx0 + max(S(4), int((bx1 - bx0) * frac)), by + S(4)],
-                                radius=S(2), fill=BLUE)
-            t2 = _clock(pos) + (f" / {_clock(dur)}" if dur > 0 else "")
-            text(d, (px0 + pw2 - S(18), py0 + S(23)), t2, size=S(13), fill=SUB, anchor="rm")
+            glow2 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            gd = ImageDraw.Draw(glow2)
+            gd.rounded_rectangle([px0, py0, px0 + pw2, py0 + ph], radius=S(32),
+                                 outline=NEON_C + (220,), width=S(6))
+            glow2 = glow2.filter(ImageFilter.GaussianBlur(S(8)))
+            img.paste(glow2, (0, 0), glow2)
+            d = ImageDraw.Draw(img)
+            d.rounded_rectangle([px0, py0, px0 + pw2, py0 + ph], radius=S(32), fill=(8, 10, 20),
+                                outline=NEON_C, width=S(2))
+            mcx, mcy = px0 + S(34), py0 + ph // 2
+            d.ellipse([mcx - S(20), mcy - S(20), mcx + S(20), mcy + S(20)], fill=NEON_G if me_speaking else GREY)
+            self.mic_icon(d, mcx, mcy, S(24), (0, 0, 0), muted=me_muted, width=S(3))
+            bx0, bx1 = px0 + S(68), px0 + pw2 - S(28)
+            nb = max(12, (bx1 - bx0) // S(9))
+            step = (bx1 - bx0) / nb
+            amp = energy if me_speaking else 0.08
+            for i in range(nb):
+                v = abs(math.sin(now * (6.0 + (i % 5) * 1.3) + i * 0.9)) * \
+                    (0.45 + 0.55 * abs(math.sin(now * 2.1 + i * 0.37)))
+                hh = max(S(3), int((ph - S(20)) * (0.12 + 0.88 * v * amp)))
+                x = int(bx0 + i * step)
+                col = _mix(NEON_G, NEON_C, i / max(1, nb - 1))
+                d.rounded_rectangle([x, mcy - hh // 2, x + max(S(3), int(step * 0.55)), mcy + hh // 2],
+                                    radius=S(2), fill=col)
 
         # ================= bottom control bar (Telegram style)
         by = H - S(82)
