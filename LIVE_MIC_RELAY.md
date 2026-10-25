@@ -245,3 +245,29 @@ profile uses browser loud 2000%, clarity 35, zero added bass, server gain 400,
 24 turbo, and 18 dB pre-amp. It is intentionally loudness-first and can sound
 flat/harsh; it exists to establish the maximum practical level before tuning
 back toward clean dynamics.
+
+## v32 root fixes (measured / traced, not guessed)
+
+1. **Loudness "tez hai par kam lagta hai"** — the stream itself is already at
+   the digital maximum (measured -3 LUFS / crest ~3 dB after Opus; louder than
+   any commercial track), so more gain only adds distortion.  The only lever
+   above 0 dBFS is Telegram's **200 % participant volume set by an admin**.
+   That silently failed: sessions are `in_memory`, the main ID sits in the
+   private VC (not the target VC), so it could not resolve the spare ID's
+   peer and `set_participant_volume` returned False with no log.
+   `peer_guard.learn_user_peer()` now learns the spare's peer from the target
+   VC participant list / group member list, and the Live Mic panel shows the
+   real Telegram state: `📢 200% Boost: ✅ ON` (admin-set) or `❌ OFF`.
+2. **Screen share ON/OFF audio cut** — ntgcalls' Python `AudioDescription`
+   does not expose `media_source`; `_keep_open_copy()` crashed on it and
+   fell back to `keep_open=False`, so ntgcalls restarted the mic reader on
+   every toggle.  The MediaSource of every stream is now recorded, the copy
+   is really `keep_open=True` and the audio reader is never restarted.
+3. **Target set but audio stays in the old GC** — a running Live Mic kept
+   the target from Mic-ON time (new target went only to the DB), and the
+   saved invite link of an OLD target was used as fallback for a new one.
+   Now `VCBridge.retarget()` moves the running stream immediately (spare
+   leaves the old VC), and saved links are bound to their chat
+   (`mic_chat_ref_for_<uid>`).
+
+Tests: `python -m pytest tests/test_v32_fixes.py` (run on its own).

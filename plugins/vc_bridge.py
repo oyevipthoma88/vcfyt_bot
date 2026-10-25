@@ -37,7 +37,19 @@ def _bar(n: int, top: int = 10) -> str:
     return "█" * k + "░" * (10 - k)
 
 
-def loud_text(c: dict, live: bool, src=None, tgt=None, boost=False, spares=1) -> str:
+def boost_line(boost_ok) -> str:
+    """200 % participant volume = the only thing louder than the stream's
+    digital maximum (every listener's Telegram plays it x2)."""
+    if boost_ok is True:
+        return "📢 <b>200% Boost:</b> ✅ ON — sabko double awaaz\n"
+    if boost_ok is False:
+        return ("📢 <b>200% Boost:</b> ❌ OFF — listeners ko 100% pe sun raha hai.\n"
+                "<i>Fix: main ID ko target GC me admin banao (Manage Voice Chats right).</i>\n")
+    return "📢 <b>200% Boost:</b> ⏳ check ho raha…\n"
+
+
+def loud_text(c: dict, live: bool, src=None, tgt=None, boost=False, spares=1,
+              boost_ok=None) -> str:
     from helpers.vc_bridge import drive_db
     d = c["drive"]
     k = c.get("crunch", 0)
@@ -48,7 +60,8 @@ def loud_text(c: dict, live: bool, src=None, tgt=None, boost=False, spares=1) ->
         "🎤 <b>Live Mic Control Panel</b>\n\n"
         f"Status: {'🟢 LIVE — har badlaav turant lagega' if live else '⚪ OFF — 🟢 Mic ON dabao'}\n"
         f"📥 Private: <code>{src or '— set nahi'}</code>\n"
-        f"🎯 Target: <code>{tgt or '— set nahi'}</code>\n\n"
+        f"🎯 Target: <code>{tgt or '— set nahi'}</code>\n"
+        + (boost_line(boost_ok) if live else "") + "\n"
         f"🚀 <b>Volume:</b> <code>{_bar(d, 30)} {d}/30</code> (+{drive_db(d)} dB)\n"
         f"      {zone}\n"
         f"💥 <b>Phatna:</b> <code>{_bar(k)} {k}/10</code>{' (OFF)' if not k else ''}\n"
@@ -348,6 +361,72 @@ async def ensure_in_target(client, tgt: int, ref) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# TARGET STORAGE (v32 "naya target set, awaaz purane GC me" root fix)
+#   * the saved invite/@username reference is bound to the chat it belongs
+#     to (mic_chat_ref_for_<uid>); a reference of an OLD target can never be
+#     used as a fallback for a new one any more;
+#   * setting a target while Live Mic is running moves the running stream.
+# ---------------------------------------------------------------------------
+async def save_target(uid: int, cid: int, ref=None) -> None:
+    await db.set_app_value(f"mic_chat_{uid}", str(cid))
+    await db.set_app_value(f"mic_chat_ref_{uid}", ref or "")
+    await db.set_app_value(f"mic_chat_ref_for_{uid}", str(cid) if ref else "")
+
+
+async def target_ref(uid: int, cid) -> tuple:
+    """(reference, trusted) for the saved target ``cid``.
+
+    trusted=False = legacy reference saved before v32 (owner unknown): the
+    caller must check it resolves to the SAME group before using it."""
+    from helpers.peer_guard import same_chat
+    ref = await db.get_app_value(f"mic_chat_ref_{uid}") or ""
+    if not ref:
+        return None, False
+    owner = await db.get_app_value(f"mic_chat_ref_for_{uid}") or ""
+    if owner:
+        return (ref, True) if same_chat(owner, cid) else (None, False)
+    return ref, False
+
+
+async def retarget_live(uid: int, cid: int, ref=None) -> str:
+    """Running Live Mic -> move it to ``cid`` now.  Returns a note for the user."""
+    from helpers import vc_bridge
+    from helpers.peer_guard import same_chat
+    b = vc_bridge.get_bridge(uid)
+    if b is None or same_chat(b.target_chat, cid):
+        return ""
+    try:
+        await ensure_in_target(getattr(b.relay, "client", None), int(cid), ref)
+        for r in list(getattr(b, "extra_relays", []) or []):
+            await ensure_in_target(getattr(r, "client", None), int(cid), ref)
+        await b.retarget(int(cid))
+        return ("\n\n🔁 <b>Live Mic chal raha tha</b> — awaaz ab turant <b>naye target</b> "
+                "ki VC me ja rahi hai. Spare ID purane target VC se nikal gayi.")
+    except Exception as exc:
+        try:
+            await vc_bridge.stop_bridge(uid, leave_target=True)
+        except Exception:
+            pass
+        return ("\n\n⚠️ Live Mic naye target me shift nahi ho paya: "
+                f"<code>{str(exc)[:200]}</code>\nPurane target pe mic band kar diya — "
+                "<b>🟢 Mic ON</b> dabao, ab naye target me hi chalega.")
+
+
+async def set_target(msg, uid: int, ref_text: str) -> tuple:
+    """Resolve + save a new target (all setters use this). (cid | 0, text)"""
+    cid, jref = await resolve_group(msg, ref_text, uid, "tgt")
+    if not cid:
+        return 0, ("❌ Target group nahi mila / verify nahi hua.\n"
+                   "Chat ID tabhi chalega jab bot, main ID ya spare ID us group me ho. "
+                   "Nahi to group ka <b>invite link</b> ya <b>@username</b> bhejo — spare ID khud join kar legi.")
+    if str(cid) == str(await db.get_app_value(f"bridge_src_{uid}") or ""):
+        return 0, "❌ Private (source) aur target group alag hone chahiye."
+    await save_target(uid, cid, jref)
+    note = await retarget_live(uid, cid, jref)
+    return cid, f"✅ Target group set: <code>{cid}</code>" + note
+
+
 async def panel(uid: int):
     """(text, keyboard) — guided setup until ready, then the Live Mic panel."""
     from helpers import vc_bridge
@@ -371,7 +450,11 @@ async def panel(uid: int):
     b = vc_bridge.get_bridge(uid)
     live = b is not None
     st = b.status() if b else {}
-    return (loud_text(c, live, src, tgt, st.get("boost", False), st.get("spares", 1)),
+    # Live ho to panel wahi target dikhaye jahan awaaz SACH me ja rahi hai.
+    if live and st.get("target"):
+        tgt = st["target"]
+    return (loud_text(c, live, src, tgt, st.get("boost", False), st.get("spares", 1),
+                      st.get("boost_ok")),
             loud_kb(live, ss=_bridge_ss(b)))
 
 
@@ -504,12 +587,15 @@ async def mic_setup_listener(bot: Client, msg: Message):
             reply_markup=K([[B("❌ Cancel", callback_data="brs:cancel", style="danger")]]))
         return
     _await_chat.pop(uid, None)
-    await db.set_app_value(f"bridge_src_{uid}" if what == "src" else f"mic_chat_{uid}", str(cid))
+    note = ""
     if what == "tgt":
-        await db.set_app_value(f"mic_chat_ref_{uid}", jref or "")
+        await save_target(uid, cid, jref)
+        note = await retarget_live(uid, cid, jref)
+    else:
+        await db.set_app_value(f"bridge_src_{uid}", str(cid))
     text, kb = await panel(uid)
     await bot.send_message(msg.chat.id, f"✅ {'Private' if what == 'src' else 'Target'} group set: "
-                           f"<code>{cid}</code>\n\n" + text, reply_markup=kb)
+                           f"<code>{cid}</code>{note}\n\n" + text, reply_markup=kb)
 
 
 async def _loud_change(uid: int, key: str, val: str) -> dict:
@@ -597,16 +683,8 @@ async def run_bridge(msg: Message, parts):
         if len(parts) < 3:
             await mic_notify(msg, "Target group do: <code>.mic chat -100xxxxxxxx</code>")
             return
-        cid, jref = await resolve_group(msg, parts[2], uid, "tgt")
-        if not cid:
-            await mic_notify(msg, "❌ Target group nahi mila. Chat ID / @username / link do.")
-            return
-        if str(cid) == str(await db.get_app_value(f"bridge_src_{uid}") or ""):
-            await mic_notify(msg, "❌ Private aur target group alag hone chahiye.")
-            return
-        await db.set_app_value(f"mic_chat_{uid}", str(cid))
-        await db.set_app_value(f"mic_chat_ref_{uid}", jref or "")
-        await mic_notify(msg, f"✅ Target group set: <code>{cid}</code>")
+        _cid, text = await set_target(msg, uid, parts[2])
+        await mic_notify(msg, text)
         return
 
     if action in {"loud", "power", "boost", "panel", "control", "ctrl"}:
@@ -700,18 +778,34 @@ async def run_bridge(msg: Message, parts):
     elif str(src) == str(await db.get_app_value(f"bridge_auto_src_{uid}") or ""):
         # Auto group ki VC band ho gayi ho to dobara chalu kar do.
         await _start_vc(relay.client, int(src))
-    tgt_arg = tgt_arg or await db.get_app_value(f"mic_chat_{uid}")
+    from helpers.peer_guard import same_chat
+    saved_tgt = await db.get_app_value(f"mic_chat_{uid}")
+    from_arg = bool(tgt_arg)
+    tgt_arg = tgt_arg or saved_tgt
     if not tgt_arg:
         await mic_notify(msg, "Target group set karo: <b>🎯 Target Group</b> button ya <code>.mic chat -100xxxxxxxx</code>",
                          reply_markup=K([[B("🎯 Target Group", callback_data="brs:tgt", style="primary")]]))
         return
-    tgt_ref = await db.get_app_value(f"mic_chat_ref_{uid}") or None
-    if tgt_arg and not re.fullmatch(r"-?\d+", str(tgt_arg)):
-        tgt_ref = str(tgt_arg)
+    numeric = bool(re.fullmatch(r"-?\d+", str(tgt_arg)))
+    if not numeric:
+        tgt_ref, trusted = str(tgt_arg), True
+    elif from_arg and not same_chat(tgt_arg, saved_tgt):
+        # `.mic on <naya id>` — purane target ka link kabhi inherit mat karo.
+        tgt_ref, trusted = None, False
+    else:
+        tgt_ref, trusted = await target_ref(uid, tgt_arg)
     tgt, jref = await resolve_group(msg, str(tgt_arg), uid, "tgt")
     if not tgt and tgt_ref:
-        tgt, jref = await resolve_group(msg, tgt_ref, uid, "tgt")
-    tgt_ref = jref or tgt_ref
+        # Fallback link ONLY if it points to the SAME group (pehle yahan purane
+        # target ka link chal jaata tha -> awaaz purane GC me).
+        c2, j2 = await resolve_group(msg, tgt_ref, uid, "tgt")
+        if c2 and (not numeric or same_chat(c2, tgt_arg)):
+            tgt, jref, trusted = c2, j2, True
+    if tgt and tgt_ref and not trusted:
+        # legacy (pre-v32) link: use it only if it really is this group
+        c3, _ = await resolve_group(msg, tgt_ref, uid, "tgt")
+        trusted = bool(c3 and same_chat(c3, tgt))
+    tgt_ref = jref or (tgt_ref if trusted else None)
     src_id = int(src)
     if not tgt:
         await mic_notify(msg, "❌ Target group nahi mila.")
@@ -719,9 +813,7 @@ async def run_bridge(msg: Message, parts):
     if tgt == src_id:
         await mic_notify(msg, "❌ Private aur target group alag hone chahiye.")
         return
-    await db.set_app_value(f"mic_chat_{uid}", str(tgt))
-    if tgt_ref:
-        await db.set_app_value(f"mic_chat_ref_{uid}", tgt_ref)
+    await save_target(uid, tgt, tgt_ref)
     await ensure_in_target(getattr(relay, "client", None), tgt, tgt_ref)
     try:
         await uvc.client.get_chat(src_id)

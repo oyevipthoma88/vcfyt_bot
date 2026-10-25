@@ -261,3 +261,96 @@ async def safe_get_chat(clients, raw):
             except Exception as exc:
                 logger.debug("get_chat(%s) failed: %s", cand, exc)
     return None
+
+
+def same_chat(a, b) -> bool:
+    """True when two typed / resolved chat IDs point at the same group
+    (handles the -100 prefix being present or missing)."""
+    va, vb = set(chat_id_variants(a)), set(chat_id_variants(b))
+    return bool(va and vb and va & vb)
+
+
+# ---------------------------------------------------------------------------
+# USER PEER LEARNING (v32 "200 % boost silently fails" root fix)
+#
+# The main ID sets the spare ID's participant volume to 200 % (the only lever
+# louder than 0 dBFS — every listener's Telegram plays it x2).  That RPC needs
+# the spare's InputPeerUser (user id + access_hash *as seen by the main ID*).
+# Sessions are in_memory=True, so after every restart the peer cache is empty
+# and the main ID is in the PRIVATE VC, not the target VC, so it never gets
+# the target call's participant updates either -> resolve_peer(spare) raised
+# PeerIdInvalid, set_participant_volume returned False (quiet=True, no log)
+# and listeners heard the spare at 100 %: stream at max, "phir bhi kam".
+# Any raw call whose result lists the user stores its access_hash
+# (Client.invoke -> fetch_peers), so the participant / member lists of the
+# shared groups teach the main ID the spare's peer.
+# ---------------------------------------------------------------------------
+_USER_PEER_MISS: dict = {}
+_USER_PEER_MISS_TTL = 25.0
+
+
+async def learn_user_peer(client, user_id: int, chat_ids=()):
+    """Return an InputPeer for ``user_id`` or None (never raises)."""
+    import time as _time
+    if client is None or not user_id:
+        return None
+    try:
+        return await client.resolve_peer(user_id)
+    except Exception:
+        pass
+    key = (id(client), int(user_id))
+    if _time.monotonic() - _USER_PEER_MISS.get(key, 0.0) < _USER_PEER_MISS_TTL:
+        return None
+    from pyrogram import raw
+
+    def _has(users) -> bool:
+        return any(getattr(u, "id", None) == user_id and not getattr(u, "min", False)
+                   for u in (users or []))
+
+    seen = []
+    for cid in chat_ids or ():
+        if not cid or cid in seen:
+            continue
+        seen.append(cid)
+        try:
+            peer = await client.resolve_peer(cid)
+        except Exception:
+            continue
+        # 1) the VC participant list of that group
+        try:
+            if isinstance(peer, raw.types.InputPeerChannel):
+                full = await client.invoke(raw.functions.channels.GetFullChannel(
+                    channel=raw.types.InputChannel(channel_id=peer.channel_id,
+                                                   access_hash=peer.access_hash)))
+            elif isinstance(peer, raw.types.InputPeerChat):
+                full = await client.invoke(raw.functions.messages.GetFullChat(chat_id=peer.chat_id))
+            else:
+                full = None
+            call = getattr(getattr(full, "full_chat", None), "call", None)
+            offset = ""
+            for _ in range(6):
+                if call is None:
+                    break
+                res = await client.invoke(raw.functions.phone.GetGroupParticipants(
+                    call=call, ids=[], sources=[], offset=offset, limit=100))
+                if _has(getattr(res, "users", None)):
+                    return await client.resolve_peer(user_id)
+                offset = getattr(res, "next_offset", "") or ""
+                if not offset:
+                    break
+        except Exception as exc:
+            logger.debug("learn_user_peer: call list of %s failed: %r", cid, exc)
+        # 2) the group's member list (tiny private source group = instant hit)
+        try:
+            if isinstance(peer, raw.types.InputPeerChannel):
+                res = await client.invoke(raw.functions.channels.GetParticipants(
+                    channel=raw.types.InputChannel(channel_id=peer.channel_id,
+                                                   access_hash=peer.access_hash),
+                    filter=raw.types.ChannelParticipantsRecent(), offset=0, limit=200, hash=0))
+                if _has(getattr(res, "users", None)):
+                    return await client.resolve_peer(user_id)
+        except Exception as exc:
+            logger.debug("learn_user_peer: members of %s failed: %r", cid, exc)
+    _USER_PEER_MISS[key] = _time.monotonic()
+    logger.warning("learn_user_peer: user %s not resolvable via %s", user_id, seen)
+    return None

@@ -2097,20 +2097,12 @@ async def cmd_mic(bot: Client, msg: Message):
                 "\n\nSet karne ke liye (bot DM me): <code>.mic chat -100xxxxxxxx</code>\n"
                 "Username / invite link bhi chalega.")
             return
-        from plugins.vc_bridge import resolve_group
-        cid, jref = await resolve_group(msg, parts[2], msg.from_user.id, "tgt")
-        if not cid:
-            await mic_notify(msg, "❌ Group nahi mila. Chat ID / @username / invite link check karein.\n"
-                                  "Private group ho to spare ID ko pehle group me add karo.")
-            return
-        if str(cid) == str(await db.get_app_value(f"bridge_src_{msg.from_user.id}") or ""):
-            await mic_notify(msg, "❌ Private (source) aur target group alag hone chahiye.")
-            return
-        await db.set_app_value(f"mic_chat_{msg.from_user.id}", str(cid))
-        await db.set_app_value(f"mic_chat_ref_{msg.from_user.id}", jref or "")
-        await mic_notify(msg, 
-            f"✅ Mic target set: <code>{cid}</code>\n\nAb bot DM me sirf "
-            "<code>.mic on</code> bhejo — aawaz isi group ki VC me jayegi.")
+        from plugins.vc_bridge import set_target
+        cid, text = await set_target(msg, msg.from_user.id, parts[2])
+        if cid and "🔁" not in text and "⚠️" not in text:
+            text += ("\n\nAb bot DM me sirf <code>.mic on</code> bhejo — aawaz isi "
+                     "group ki VC me jayegi.")
+        await mic_notify(msg, text)
         return
 
     from plugins.vc_bridge import run_bridge

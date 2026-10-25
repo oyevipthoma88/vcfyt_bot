@@ -36,6 +36,39 @@ from config import Config
 import contextvars as _cv
 _KEEP_AUDIO_OPEN = _cv.ContextVar("keep_audio_open", default=False)
 
+# v32 SS AUDIO-CUT ROOT FIX: ntgcalls' Python AudioDescription only exposes
+# input / sample_rate / channel_count — NOT media_source.  _keep_open_copy()
+# read desc.media_source, got AttributeError, silently fell back to the
+# ORIGINAL description (keep_open=False) and ntgcalls restarted the audio
+# reader on every screen-share ON/OFF (live mic gap, song restart).  Every
+# parsed AudioStream now records its MediaSource here, keyed by input.
+_MEDIA_SOURCES: "OrderedDict[str, object]" = OrderedDict()
+
+
+def _remember_media_source(media) -> None:
+    try:
+        key = str(media.path)
+        _MEDIA_SOURCES[key] = media.media_source
+        _MEDIA_SOURCES.move_to_end(key)
+        while len(_MEDIA_SOURCES) > 256:
+            _MEDIA_SOURCES.popitem(last=False)
+    except Exception:
+        pass
+
+
+def _media_source_for(desc):
+    """MediaSource of an ntgcalls AudioDescription (never raises)."""
+    src = getattr(desc, "media_source", None)
+    if src is not None:
+        return src
+    inp = str(getattr(desc, "input", "") or "")
+    if inp in _MEDIA_SOURCES:
+        return _MEDIA_SOURCES[inp]
+    from ntgcalls import MediaSource
+    # Bot ke saare live/playback sources SHELL commands hain; sirf asli file
+    # path FILE hota hai.
+    return MediaSource.FILE if os.path.isfile(inp) else MediaSource.SHELL
+
 
 def _install_keep_open_patch():
     try:
@@ -50,6 +83,8 @@ def _install_keep_open_patch():
     orig = StreamParams._parse_media_description
 
     def _parse(media):
+        if isinstance(media, AudioStream):
+            _remember_media_source(media)
         if _KEEP_AUDIO_OPEN.get() and isinstance(media, AudioStream):
             try:
                 return AudioDescription(
@@ -108,10 +143,12 @@ def _keep_open_copy(desc):
         return None
     try:
         from ntgcalls import AudioDescription
-        return AudioDescription(media_source=desc.media_source, input=desc.input,
+        return AudioDescription(media_source=_media_source_for(desc), input=desc.input,
                                 sample_rate=desc.sample_rate,
                                 channel_count=desc.channel_count, keep_open=True)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger("vcbot.vc_manager").warning(
+            "keep_open copy failed (%r) - audio may restart on SS toggle", exc)
         return desc
 
 from helpers.audio_processor import (process_audio_to_file, build_stream_command,
@@ -119,7 +156,7 @@ from helpers.audio_processor import (process_audio_to_file, build_stream_command
 from helpers.logger_channel import (
     get_bot, log_auto_mode, log_error, log_live_boost, log_vc_join, log_vc_leave,
 )
-from helpers.peer_guard import ensure_peer, is_peer_error
+from helpers.peer_guard import ensure_peer, is_peer_error, learn_user_peer
 
 
 def _shell_exe(path: str) -> str:
@@ -1609,6 +1646,15 @@ class UserVC:
                 if not (_vc_join_missing(exc) or _participant_not_joined(exc)):
                     return
 
+    def add_peer_hint(self, user_id: int, *chat_ids) -> None:
+        """Groups this account shares with ``user_id`` (used to learn its peer)."""
+        hints = self.__dict__.setdefault("_peer_hints", {})
+        cur = list(hints.get(user_id, ()))
+        for c in chat_ids:
+            if c and c not in cur:
+                cur.append(c)
+        hints[user_id] = tuple(cur[-6:])
+
     async def set_participant_volume(self, chat_id: int, user_id: int,
                                      volume: int, quiet: bool = False) -> bool:
         volume = max(1, min(VOL_MAX, int(volume)))
@@ -1645,9 +1691,12 @@ class UserVC:
                 call_input = await self._call_input(chat_id)
                 if not call_input:
                     return False
-                try:
-                    peer = await self.client.resolve_peer(user_id)
-                except Exception:
+                # v32: in-memory session + main ID not in this VC -> the
+                # spare's peer was unknown and the 200 % boost silently
+                # failed.  Learn it from the shared groups' lists first.
+                hints = [chat_id] + list(self.__dict__.get("_peer_hints", {}).get(user_id, ()))
+                peer = await learn_user_peer(self.client, user_id, hints)
+                if peer is None:
                     peer = await ensure_peer(self.client, user_id, bot=get_bot(),
                                              auto_join=False)
                 edit_kwargs = {"call": call_input, "participant": peer, "volume": volume}

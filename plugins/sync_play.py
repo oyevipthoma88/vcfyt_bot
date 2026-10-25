@@ -97,8 +97,9 @@ async def _target(uid: int):
     cid = await db.get_app_value(f"sync_gc_{uid}")
     ref = await db.get_app_value(f"sync_gc_ref_{uid}")
     if not cid:
+        from plugins.vc_bridge import target_ref
         cid = await db.get_app_value(f"mic_chat_{uid}")
-        ref = await db.get_app_value(f"mic_chat_ref_{uid}")
+        ref, _trusted = await target_ref(uid, cid) if cid else (None, False)
     try:
         return (int(cid), ref or None) if cid else (None, None)
     except (TypeError, ValueError):

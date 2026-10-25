@@ -396,6 +396,12 @@ class VCBridge:
         # True = target GC me main/spare admin nahi (200% lock nahi lagega)
         # -> Non-admin Boost chain apne aap ON.
         self.focus = False
+        # v32: True = Telegram confirms the spare ID's 200 % participant
+        # volume was set by an ADMIN (every listener hears it x2).
+        # None = not checked yet.
+        self.boost_ok: Optional[bool] = None
+        self._settings: dict = {}
+        self._retarget_lock = asyncio.Lock()
 
     def feed(self, frames) -> None:
         s = self.session
@@ -432,6 +438,8 @@ class VCBridge:
         from pytgcalls.types import RecordStream
         from pytgcalls.types.raw import AudioParameters
 
+        self._settings = dict(settings or {})
+        self._add_peer_hints()
         session = await live_mic.create_session(
             self.user_id, self.uvc, self.target_chat, settings, relay=self.relay)
         session.keep_chats = {self.source_chat}
@@ -471,21 +479,107 @@ class VCBridge:
                     "Private VC me 30 sec tak koi aawaz nahi aayi. Main ID se private "
                     "group ki VC join karke mic ON karke bolo, phir dobara try karo.") from exc
             raise
-        session._mark_started()
+        self._on_target_live()
+        self._watch = asyncio.create_task(self._watchdog())
+
+    def _add_peer_hints(self) -> None:
+        """Main ID ko batao spare ID(s) kin groups me milti hain (200 % boost
+        ke liye spare ka peer seekhna padta hai — in-memory session)."""
+        add = getattr(self.uvc, "add_peer_hint", None)
+        if add is None or self.uvc is self.relay:
+            return
+        for r in [self.relay] + list(self.extra_relays):
+            rid = getattr(r, "account_id", 0)
+            if rid:
+                add(rid, self.target_chat, self.source_chat)
+
+    def _on_target_live(self) -> None:
+        """Steps after the stream is attached in self.target_chat."""
+        s = self.session
+        s._mark_started()
         st = self.uvc.state(self.target_chat)
         st.source_name = "VC Bridge"
+        self.boost_ok = None
         # Telegram side max: spare ID ka stream volume 200% (hard cap).
-        try:
-            await self.relay.calls.change_volume_call(self.target_chat, 200)
-        except Exception:
-            pass
+        asyncio.create_task(self._self_volume_200(self.relay, self.target_chat))
         # Self-volume sirf spare ID ke liye lagta hai; MAIN ID (group admin)
         # se spare ID ka volume 200% set karo -> sab listeners ke liye tez.
+        if self._vol_task and not self._vol_task.done():
+            self._vol_task.cancel()
         self._vol_task = asyncio.create_task(self._admin_volume_keeper())
         asyncio.create_task(self._detect_admin())
-        self._watch = asyncio.create_task(self._watchdog())
         if self.extra_relays:
-            self._extra_task = asyncio.create_task(self._start_extras(settings))
+            self._extra_task = asyncio.create_task(self._start_extras(self._settings))
+
+    @staticmethod
+    async def _self_volume_200(relay, chat_id: int) -> None:
+        try:
+            await relay.calls.change_volume_call(chat_id, 200)
+        except Exception:
+            pass
+
+    async def retarget(self, new_target: int) -> None:
+        """LIVE target change ("target set hota hai par purane GC me hi
+        bajta hai" ROOT FIX).  The running bridge kept self.target_chat from
+        Mic-ON time; a new target only went to the DB.  Now the stream is
+        moved: spare ID leaves the old target VC completely (no parked
+        silence seat), joins the new one with the same FFmpeg pipeline and
+        the private VC listener keeps running (no 30 s wait, no re-join)."""
+        new_target = int(new_target)
+        async with self._retarget_lock:
+            if self._closed or self.session is None or self.session._closed:
+                raise RuntimeError("Live mic chal nahi raha.")
+            if new_target == int(self.source_chat):
+                raise RuntimeError("Private aur target group alag hone chahiye.")
+            old = int(self.target_chat)
+            if new_target == old:
+                return
+            s = self.session
+            # 1) per-target helpers of the OLD target off
+            if self._vol_task and not self._vol_task.done():
+                self._vol_task.cancel()
+            if self._extra_task and not self._extra_task.done():
+                self._extra_task.cancel()
+            for mgr in [self.relay] + [getattr(x, "relay", None) for x in list(self.extras)]:
+                ug = getattr(mgr, "unguard_volume", None)
+                if ug is not None:
+                    try:
+                        ug(old, getattr(mgr, "account_id", None))
+                    except Exception:
+                        pass
+            # 2) extra spare IDs: leave the old VC fully (restarted below)
+            extras, self.extras = list(self.extras), []
+            for x in extras:
+                try:
+                    await x.stop(leave_vc=True)
+                except Exception as exc:
+                    logger.warning("retarget: extra stop failed: %r", exc)
+            # 3) owner UI state of the old chat
+            ost = getattr(self.uvc, "chats", {}).get(old)
+            if ost is not None:
+                ost.mic_enabled = False
+                ost.mic_boost_user_id = None
+                ost.live_relay = False
+                ost.is_playing = False
+                ost.source_name = "—"
+            # 4) move the main stream: _play_stream() releases every other
+            #    call except keep_chats (= private source VC) -> old target
+            #    is LEFT, then the same processed FIFO is attached to the new.
+            s.chat_id = new_target
+            s._admin_boost = False
+            s._health_warned.clear()
+            self.target_chat = new_target
+            self.focus = False
+            self._add_peer_hints()
+            await s._play_stream()
+            # belt and braces: never stay seated in the old target VC
+            try:
+                await self.relay.calls.leave_call(old)
+            except Exception:
+                pass
+            self.relay.chats.pop(old, None)
+            logger.info("Bridge %s retargeted %s -> %s", self.user_id, old, new_target)
+            self._on_target_live()
 
     async def _start_extras(self, settings: dict) -> None:
         """Har extra spare ID ko target VC me same awaaz ke saath attach karo."""
@@ -610,10 +704,32 @@ class VCBridge:
                             await setter(self.target_chat, xid, 20000, quiet=True)
                         except Exception:
                             pass
+                await self._check_boost()
                 # Telegram kabhi-kabhi volume 100% pe reset karta hai -> 12 s me wapas 200%.
                 await asyncio.sleep(delays.pop(0) if delays else 12)
         except asyncio.CancelledError:
             pass
+
+    async def _check_boost(self) -> None:
+        """Read the spare ID's own row in the target VC: 200 % set by an
+        admin = every listener hears it x2.  Shown on the panel so a missing
+        boost is never invisible again."""
+        s = self.session
+        if s is None or s._closed:
+            return
+        try:
+            p = await s._relay_participant()
+        except Exception:
+            return
+        if p in (None, "error", "no_call"):
+            return
+        vol = getattr(p, "volume", None) or 10000
+        ok = bool(getattr(p, "volume_by_admin", False)) and int(vol) >= 19900
+        if ok != self.boost_ok:
+            logger.info("Bridge %s: 200%% admin boost in %s = %s (volume=%s by_admin=%s)",
+                        self.user_id, self.target_chat, ok, vol,
+                        getattr(p, "volume_by_admin", None))
+        self.boost_ok = ok
 
     async def _watchdog(self) -> None:
         """FFmpeg crash -> restart; .mic off / session end -> bridge band."""
@@ -712,6 +828,7 @@ class VCBridge:
             "uptime_s": int(time.monotonic() - self.started_at),
             "live": bool(s and not s._closed and s._started),
             "boost": self.focus,
+            "boost_ok": self.boost_ok,
             "spares": 1 + sum(1 for x in self.extras if not x._closed),
         }
 
@@ -725,7 +842,9 @@ async def start_bridge(user_id: int, uvc, relay, source_chat: int,
                        preset: str = DEFAULT_PRESET, extra_relays=None) -> VCBridge:
     old = _bridges.get(user_id)
     if old:
-        await old.stop()
+        # Naya target -> spare ID purane target VC se poori tarah nikle
+        # (wahan silence ke saath "baithi" na rahe).
+        await old.stop(leave_target=int(old.target_chat) != int(target_chat))
     bridge = VCBridge(user_id, uvc, relay, source_chat, target_chat, preset)
     bridge.extra_relays = [r for r in (extra_relays or []) if r is not relay]
     _bridges[user_id] = bridge
