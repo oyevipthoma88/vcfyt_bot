@@ -1755,7 +1755,11 @@ class UserVC:
             if uid is not None:
                 u = users.get(uid)
                 name = " ".join(x for x in [getattr(u, "first_name", "") or "",
-                                            getattr(u, "last_name", "") or ""] if x) or "User"
+                                            getattr(u, "last_name", "") or ""] if x).strip()
+                if not name:
+                    un = getattr(u, "username", "") or ""
+                    name = ("@" + un) if un else (
+                        "Deleted Account" if getattr(u, "deleted", False) or u is None else "User")
             else:
                 cid = getattr(peer, "channel_id", None) or getattr(peer, "chat_id", None)
                 name = getattr(chats.get(cid), "title", "") or "Channel"
@@ -1809,14 +1813,25 @@ class UserVC:
         except Exception:
             pass
         parts, last_fetch = [], 0.0
-        me_name, me_user, me_photo = "", "", ""
+        me_name, me_user, me_photo, me_id = "", "", "", 0
+        # MAIN USER FIX: on the Live Mic the screen is shared by the spare ID,
+        # so the window showed the spare's name/DP.  Always show the owner's
+        # main account (fallback: this account).
+        src = self
         try:
-            me = await self.client.get_me()
+            main = session_manager.users.get(self.owner_id)
+            if main is not None and getattr(main, "client", None) is not None:
+                src = main
+        except Exception:
+            src = self
+        try:
+            me = await src.client.get_me()
             me_name = " ".join(x for x in [
                 getattr(me, "first_name", "") or "",
                 getattr(me, "last_name", "") or ""] if x).strip()
             me_user = getattr(me, "username", "") or ""
-            me_photo = await self._ss_avatar(getattr(me, "id", 0))
+            me_id = getattr(me, "id", 0) or 0
+            me_photo = await src._ss_avatar(getattr(me, "id", 0))
         except Exception:
             pass
         last_pos = 0.0
@@ -1834,6 +1849,9 @@ class UserVC:
             if time.time() - last_fetch > 1.5:
                 try:
                     parts = await self.vc_participants(chat_id)
+                    if me_id:
+                        for p in parts:
+                            p["is_me"] = p.get("uid") == me_id
                 except Exception as exc:
                     logger.debug("ss participants failed: %r", exc)
                 last_fetch = time.time()

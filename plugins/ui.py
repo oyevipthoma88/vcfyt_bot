@@ -359,7 +359,7 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
         "<b>3.</b> Kuch badla? <b>✅ Apply</b></blockquote>"
     )
 
-def mic_kb(mic_on: bool = False, logged_in: bool = False) -> K:
+def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K:
     if not logged_in:
         return K([
             [B("🔐 Login karein", callback_data="menu:login", style="success")],
@@ -369,6 +369,8 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False) -> K:
         [B("⏹ Mic OFF" if mic_on else "🎤 Mic ON",
            callback_data="mic:off" if mic_on else "mic:on",
            style="danger" if mic_on else "success")],
+        [B(f"🖥 Live Screen: {'ON' if ss else 'OFF'}", callback_data="mic:ss",
+           style="success" if ss else "danger")],
         [B("⚡ MAX ALL (sabse loud)", callback_data="mic:max", style="success")],
         [B("🔉 Mic −", callback_data="mic:vol:-2000", style="primary"),
          B("🔥 200%", callback_data="mic:vol:20000", style="success"),

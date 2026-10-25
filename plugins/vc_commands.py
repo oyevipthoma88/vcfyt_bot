@@ -1287,6 +1287,30 @@ async def cb_vc(bot, cq):
 
 AUTO_KB = K([[B("🔹 Settings Panel", callback_data="menu:settings")]])
 
+def _mic_ss_target(uid, uvc, active_cid):
+    """(engine, chat) whose screen share belongs to the running Live Mic."""
+    try:
+        from helpers import vc_bridge
+        b = vc_bridge.get_bridge(uid)
+        if b is not None and getattr(b, "relay", None) is not None:
+            return b.relay, b.target_chat
+    except Exception:
+        pass
+    if uvc is not None and active_cid is not None:
+        return uvc, active_cid
+    return None, None
+
+
+def _mic_ss_on(uid, uvc, active_cid) -> bool:
+    relay, cid = _mic_ss_target(uid, uvc, active_cid)
+    if relay is None or cid is None:
+        return False
+    try:
+        return bool(getattr(relay.state(cid), "ss_on", False))
+    except Exception:
+        return False
+
+
 @Client.on_callback_query(filters.regex(r"^mic:"))
 async def cb_mic(bot: Client, cq):
     from plugins.start import apply_settings_live
@@ -1385,6 +1409,37 @@ async def cb_mic(bot: Client, cq):
     active_cid = next((cid for cid, st in uvc.chats.items()
                        if st.mic_enabled), None)
 
+    if action == "ss":
+        # Live Mic me bhi Live Screen (audio panel jaisa) — screen share us ID
+        # par jo VC me bol rahi hai (bridge spare ID, warna main ID).
+        relay, cid = _mic_ss_target(uid, uvc, active_cid)
+        if relay is None or cid is None:
+            await safe_answer(cq, "Pehle 🎤 Mic ON karo — phir Live Screen chalega.",
+                              show_alert=True)
+            return
+        st = relay.state(cid)
+        pres = getattr(getattr(relay, "calls", None), "_presentations", None)
+        actual = (cid in pres) if pres is not None else bool(getattr(st, "ss_on", False))
+        st.ss_on = actual
+        want = not actual
+        try:
+            ok = await relay.set_screen_share(cid, want, image_path="" if want else None)
+        except Exception as exc:
+            st.ss_error = str(exc)[:200]
+            ok = False
+        err = getattr(st, "ss_error", "") or ""
+        await safe_answer(cq, ("🖥 Live Screen " + ("ON" if want else "OFF")) if ok
+                          else ("Live Screen nahi chal paya: " + (err or "VC me hai?"))[:190],
+                          show_alert=not ok)
+        try:
+            await edit_screen(cq.message, mic_text(s, active_cid is not None or relay is not uvc, ""),
+                              reply_markup=mic_kb(active_cid is not None or relay is not uvc,
+                                                  logged_in=True,
+                                                  ss=_mic_ss_on(uid, uvc, active_cid)))
+        except Exception:
+            pass
+        return
+
     if action == "on":
         if not await session_manager.assistant_string(uid):
             text, kb = await spare_screen(uid)
@@ -1426,7 +1481,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, f"Mic gain: {s['live_volume']}/20000")
         return
 
@@ -1439,7 +1495,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, f"Gain: {s['gain']}/500")
         return
 
@@ -1451,7 +1508,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, f"Bass: +{s['bass']} dB")
         return
 
@@ -1463,7 +1521,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, f"Boost: {s['boost']}/10")
         return
 
@@ -1476,7 +1535,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, f"Echo level: {s['echo_level']}/10")
         return
 
@@ -1487,7 +1547,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, f"Echo: {'ON' if s['echo'] else 'OFF'}")
         return
 
@@ -1503,7 +1564,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, "⚡ MAX ALL — sab max par!")
         return
 
@@ -1518,7 +1580,8 @@ async def cb_mic(bot: Client, cq):
         await edit_screen(cq.message, mic_text(s, active_cid is not None,
             (f"User {uvc.chats[active_cid].mic_boost_user_id}"
              if active_cid and uvc.chats[active_cid].mic_boost_user_id else "")),
-            reply_markup=mic_kb(active_cid is not None, logged_in=True))
+            reply_markup=mic_kb(active_cid is not None, logged_in=True,
+                              ss=_mic_ss_on(uid, uvc, active_cid)))
         await safe_answer(cq, "✅ Mic par apply ho gaya!")
         return
 
