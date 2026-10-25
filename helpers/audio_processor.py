@@ -543,69 +543,49 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     #     one compressor -> words stay punchy and clear.
     #   * Presence/air (2.5 kHz + 5 kHz) back so consonants cut through.
     #   * Final peak ~0 dBFS (-0.3 dB safety net), no flat-topped clipping.
+    # v40 ROOT FIX "full limit par bhi khar khar + kam + atak":
+    #   The old chain stacked ~+80 dB of gain (pre-amp 18 + speechnorm 21 +
+    #   EQ 10 + makeup 3 + makeup 10 + 4 + 26 dB drive) into a tanh clipper.
+    #   Result = square wave (crest ~3 dB): Opus turns that into crackle and
+    #   Telegram's receive AGC ducks it, so it sounds QUIETER and distorted.
+    #   A 2nd agate after the pre-amp (threshold 0.05) also chopped syllables
+    #   on/off = the "atak atak".
+    # New chain = broadcast style: clean band, light denoise, ONE levelling
+    # stage, intelligibility EQ, ONE smooth compressor, mild saturation and
+    # a look-ahead brick-wall at -1 dBFS.  Average sits ~6-8 dB under peak:
+    # loud, dense and clean through Opus.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=90:p=2",
-         "lowpass=f=13000"]
+         "highpass=f=110:p=2",
+         "lowpass=f=11500"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=10:nf=-55:tn=0")
+        f.append("afftdn=nr=8:nf=-60:tn=0")
     if _has_filter("agate"):
-        # v14 "sirf meri awaaz" (record_22): the recording had NO silence at
-        # all - RMS sat at -4/-6 dBFS for 50 s.  The phone mic was hearing the
-        # other fighter from the speaker (+ room) and the chain lifted that
-        # bleed to full level, so his voice came through the relay too.
-        # CLOSE-VOICE GATE: the user's own mouth-on-mic voice is 15-30 dB
-        # louder than speaker bleed, so everything under LIVE_MIC_GATE_DB
-        # (default -38 dBFS, raw input) is pushed down 40 dB.  Long release
-        # + knee keep word tails smooth (no v9 stutter).  0 = gate off.
-        gate_db = _env_db("LIVE_MIC_GATE_DB", -50.0, high=0.0, low=-70.0)
+        gate_db = _env_db("LIVE_MIC_GATE_DB", -55.0, high=0.0, low=-70.0)
         if gate_db < -0.5:
             thr = 10 ** (gate_db / 20.0)
-            f.append(f"agate=threshold={thr:.5f}:range=0.003:ratio=8:attack=1:"
-                     "release=350:knee=4:detection=peak")
-        else:
-            f.append("agate=threshold=0.0016:range=0.1:ratio=1.8:attack=3:release=200:knee=6:detection=rms")
-    # v21 ROOT FIX "live mic awaaz nahi / dheemi":
-    #   v20 used speechnorm e=80, compressor ratio=30 and knee=10/12.  FFmpeg
-    #   rejects these (e max 50, ratio max 20, knee max 8) and the live chain
-    #   was never sanitized -> FFmpeg exited instantly -> restarts / silence.
-    #   v20 also used loudnorm (3 s look-ahead = huge live delay) and
-    #   extrastereo (no effect on a mono mic).  All removed.
-    # v21 MAX LOUD chain (all values inside FFmpeg ranges):
-    #   pre-amp -> speechnorm (max valid expansion) -> body/presence EQ ->
-    #   two compressors (density) -> drive into tanh saturation -> hard clip
-    #   at the ceiling -> fast brick-wall.  Average level sits ~1-3 dB under
-    #   the peak = maximum perceived loudness.  Some grit is accepted.
-    # v30: pre-amp + leveller lift the voice; the CloseVoiceGate (Python, in
-    # front of FFmpeg) already pushed the other fighter's speaker bleed ~30 dB
-    # down.  speechnorm e=50 (+34 dB) used to lift that bleed straight back
-    # to full level -> e=12 (+21 dB) still levels soft words.
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 18.0, high=33.0, low=0.0))}dB")
+            # soft downward expander (range -20 dB), never chops words
+            f.append(f"agate=threshold={thr:.5f}:range=0.1:ratio=2:attack=5:"
+                     "release=400:knee=6:detection=rms")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 10.0, high=24.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=12:r=0.0005:l=1:p=0.9")
-    f += ["equalizer=f=130:t=q:w=0.9:g=2",      # chest / dam (body)
-          "equalizer=f=350:t=q:w=1.2:g=-3",     # mud / boxiness cut
-          "equalizer=f=1500:t=q:w=1:g=2",       # word body
-          "equalizer=f=2600:t=q:w=1.2:g=6",     # presence (cuts through)
-          "equalizer=f=3800:t=q:w=1.4:g=4",     # punch / consonants
-          "equalizer=f=7500:t=q:w=1.5:g=-3"]    # anti khar-khar notch
-    if _has_filter("agate"):
-        f.append("agate=threshold=0.05:range=0.01:ratio=6:attack=1:"
-                 "release=300:knee=4:detection=peak")
-    # ONE compressor (two with makeup x6 + x12 pumped the voice down every
-    # time something else was loud = "dab jaati hai").
-    f.append("acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=3:knee=4")
-    # level the input of the clippers (peak -6 dBFS) so drive is predictable
-    f.append("alimiter=level_in=1:level_out=1:limit=0.5:attack=2:release=40:level=false")
-    # LOUD 0..200 -> +0..+6 dB density; CRUNCH 0..200 -> +0..+6 dB into the
-    # 2nd clipper (more "phati" grit).  Peak always stays at the ceiling.
-    # LOUD 0..200 -> +0..+6 dB drive, CRUNCH 0..200 -> +0..+4 dB more grit.
-    drive = (_env_db("LIVE_MIC_DRIVE_DB", 26.0, high=30.0, low=0.0)
-             + min(loud, 200) * 0.03 + min(crunch, 200) * 0.02)
-    # Ceiling: -1.2 dBFS (Opus decoder overshoot no longer clips), or the
-    # admin-200 % headroom when LIVE_MIC_RESPECT_ADMIN=1.
+        f.append("speechnorm=e=6:r=0.0001:l=1:p=0.7")
+    f += ["equalizer=f=150:t=q:w=1:g=2",        # body / dam
+          "equalizer=f=400:t=q:w=1.2:g=-3",     # mud cut
+          "equalizer=f=2500:t=q:w=1:g=4",       # presence (cuts through)
+          "equalizer=f=4000:t=q:w=1.2:g=2",     # consonants
+          "equalizer=f=7000:t=q:w=1.5:g=-2"]    # anti-hiss / sibilance
+    f.append("acompressor=threshold=0.125:ratio=4:attack=8:release=150:makeup=4:knee=6")
+    drive = (_env_db("LIVE_MIC_DRIVE_DB", 12.0, high=16.0, low=0.0)
+             + min(loud, 200) * 0.02 + min(crunch, 200) * 0.03)
     out_db = min(voice_ceiling_db(), ceiling_db - 0.6) if \
         os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else voice_ceiling_db()
-    f += clear_loud_tail(drive=drive, ceiling_db=max(-3.0, min(-1.0, out_db)))
+    lim = 10 ** (max(-3.0, min(-0.5, out_db)) / 20.0)
+    f.append("alimiter=level_in=1:level_out=1:limit=0.5:attack=5:release=80:level=false")
+    f.append(f"volume={_db(drive)}dB")
+    if _has_filter("asoftclip"):
+        f.append("asoftclip=type=tanh:oversample=4" if not overdrive else "asoftclip=type=hard:oversample=4")
+    f.append("lowpass=f=12000")
+    f.append(f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=3:release=60:level=false")
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False, drive=False))
 
 

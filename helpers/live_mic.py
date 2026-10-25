@@ -426,13 +426,20 @@ class LiveMicSession:
                 if not playing and len(self._buf) >= target:
                     playing = True
                 trim_tick += 1
-                if playing and len(self._buf) > high and trim_tick >= 10:
-                    # Trim latency very gently: only a few samples every
-                    # 200 ms (inaudible) instead of whole 20 ms frames.
+                if playing and len(self._buf) > high and trim_tick >= 5:
+                    # v40: cutting 2 ms out of the MIDDLE of a word every
+                    # 200 ms was an audible click = part of the "khar khar".
+                    # Now drop one whole 20 ms frame only when it is near
+                    # silence (pause between words) -> inaudible.
                     trim_tick = 0
-                    cut = (size // 10) & ~1
-                    del self._buf[:cut]
-                    self._dropped_bytes += cut
+                    try:
+                        _f = array.array("h", bytes(self._buf[:size]))
+                        _pk = max(max(_f), -min(_f)) if _f else 0
+                    except Exception:
+                        _pk = 0
+                    if _pk < 900 or len(self._buf) > high * 2:
+                        del self._buf[:size]
+                        self._dropped_bytes += size
                 if self._pending:
                     chunk, self._pending = self._pending, b""
                 elif playing and len(self._buf) >= size:
