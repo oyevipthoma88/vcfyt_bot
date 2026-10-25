@@ -1210,6 +1210,15 @@ class UserVC:
         logger.info("SS %s for %s (audio untouched)", "ON" if on else "OFF", chat_id)
         return True
 
+    @staticmethod
+    def _silent_mic():
+        """48 kHz stereo silence so a screen-only stream always has a mic."""
+        from pytgcalls.types.raw import AudioStream, AudioParameters
+        from ntgcalls import MediaSource
+        cmd = ("ffmpeg -hide_banner -loglevel error -re -f lavfi -i "
+               "anullsrc=r=48000:cl=stereo -f s16le -ac 2 -ar 48000 pipe:1")
+        return AudioStream(MediaSource.SHELL, cmd, AudioParameters(48000, 2))
+
     def _live_mic_audio(self, chat_id: int):
         """Mic stream of a live-mic session that streams through THIS account."""
         try:
@@ -1297,7 +1306,9 @@ class UserVC:
                 screen = self._screen_source(st) if on else None
                 # Keep the live mic audio attached — a screen-only stream used
                 # to replace (silence) the mic when both used the same account.
-                stream = Stream(microphone=self._live_mic_audio(chat_id), screen=screen)
+                # v41: microphone must NEVER be None (native crash -> restart).
+                stream = Stream(microphone=self._live_mic_audio(chat_id) or self._silent_mic(),
+                                screen=screen)
                 cfg = GroupCallConfig(auto_start=False)
                 try:
                     await self.calls.play(chat_id, stream, cfg)
@@ -1475,6 +1486,20 @@ class UserVC:
             st.recent_live_mic = False
             return
 
+        # v41 SS ROOT FIX: screen share ON -> never leave the VC on queue
+        # end (leaving then .ss off/.ss on built a mic-less stream that
+        # crashed ntgcalls natively = whole bot restart). Keep a silent mic.
+        if getattr(st, "ss_on", False):
+            st.is_playing = False
+            try:
+                from pytgcalls.types.raw import Stream
+                st.last_mic = None
+                await self.calls.play(chat_id, Stream(microphone=self._silent_mic(),
+                                      screen=self._screen_source(st)),
+                                      GroupCallConfig(auto_start=False))
+            except Exception as exc:
+                logger.warning("SS keep-alive after queue end failed: %r", exc)
+            return
         _cleanup_temp_files()
         await self.leave(chat_id, reason="Queue empty")
 

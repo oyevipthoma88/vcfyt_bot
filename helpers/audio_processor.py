@@ -465,6 +465,9 @@ def _legacy_gain_to_db(gain: int) -> float:
 # Measured on real speech: quiet (-35 dBFS) and loud (-6 dBFS) phones both
 # land at the same loud level, peak -1.0 dBFS, background hiss gated away.
 # ---------------------------------------------------------------------------
+LIVE_MIC_FIXED_DRIVE_DB = 14.0
+
+
 def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int = 0) -> str:
     # LIVE SLIDERS (mic page):
     #   loud   0..100 -> up to +15 dB extra drive into the limiters (fight
@@ -478,7 +481,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # LOUD 101..200 no longer hard-clips (that square-wave clip WAS the
     # 'khar khar' at the default loud=120); it pushes the warm tanh stage
     # harder instead.  Only CRUNCH > 100 keeps the deliberate hard clip.
-    overdrive = crunch > 100
+    overdrive = False  # v41: fixed clean chain, no user overdrive
     # HEADROOM FOR TELEGRAM 200 % VOLUME (record_19 analysis):
     # when an ADMIN sets the relay to 200 % participant volume (x2 = +6 dB)
     # a stream peaking at -1 dBFS reached the VC at +5/+6 dBFS and clipped.
@@ -555,8 +558,8 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # a look-ahead brick-wall at -1 dBFS.  Average sits ~6-8 dB under peak:
     # loud, dense and clean through Opus.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=110:p=2",
-         "lowpass=f=11500"]
+         "highpass=f=95:p=2",
+         "lowpass=f=12000"]
     if _has_filter("afftdn"):
         f.append("afftdn=nr=8:nf=-60:tn=0")
     if _has_filter("agate"):
@@ -571,12 +574,12 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         f.append("speechnorm=e=6:r=0.0001:l=1:p=0.7")
     f += ["equalizer=f=150:t=q:w=1:g=2",        # body / dam
           "equalizer=f=400:t=q:w=1.2:g=-3",     # mud cut
-          "equalizer=f=2500:t=q:w=1:g=4",       # presence (cuts through)
+          "equalizer=f=2800:t=q:w=1.1:g=4.5",       # presence (cuts through)
           "equalizer=f=4000:t=q:w=1.2:g=2",     # consonants
           "equalizer=f=7000:t=q:w=1.5:g=-2"]    # anti-hiss / sibilance
     f.append("acompressor=threshold=0.125:ratio=4:attack=8:release=150:makeup=4:knee=6")
-    drive = (_env_db("LIVE_MIC_DRIVE_DB", 12.0, high=16.0, low=0.0)
-             + min(loud, 200) * 0.02 + min(crunch, 200) * 0.03)
+    # v41: drive FIXED in code — no env / slider / user can change it.
+    drive = LIVE_MIC_FIXED_DRIVE_DB
     out_db = min(voice_ceiling_db(), ceiling_db - 0.6) if \
         os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else voice_ceiling_db()
     lim = 10 ** (max(-3.0, min(-0.5, out_db)) / 20.0)

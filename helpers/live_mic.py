@@ -1017,9 +1017,9 @@ class LiveMicSession:
         swaps FFmpeg on the same processed FIFO, so the VC stream stays alive
         (a ~0.2s blip at most).  The page only sends on slider release.
         """
-        live = {k: v for k, v in changes.items() if k in ("loud", "crunch")}
-        if not live:
-            return True
+        # v41: chain is FIXED in code — users cannot change loudness.
+        return True
+        live = {}
         if all(int(self.settings.get(k, 0) or 0) == v for k, v in live.items()):
             return True
         self.settings.update(live)
@@ -1581,13 +1581,6 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 <div class="save" id="saveNote"></div>
 
 
-<div class="ctl" id="liveCtl">
-  <div class="row"><span>&#128266; VOLUME BOOST</span><b id="loudV">0</b></div>
-  <input type="range" id="loudR" min="0" max="200" step="5" value="120">
-  <div class="row"><span>&#128165; FATNA (DISTORTION)</span><b id="crunchV">0</b></div>
-  <input type="range" id="crunchR" min="0" max="200" step="5" value="0">
-  <small>Default 0 = best saaf awaaz. Fight me saamne wala tez ho to <b>VOLUME BOOST</b> badhayein; aur zyada tez + phati awaaz chahiye to <b>FATNA</b> bhi badhayein. <b>100 se upar = OVERDRIVE</b>: sabse zyada tez, awaaz fat sakti hai. Slider chhodte hi live lagta hai.</small>
-</div>
 
 <button id="retryBtn" class="btn" style="display:none" onclick="retryMic()">Permission dene ke baad — Dobara try karein</button>
 <div id="permHelp" class="help"></div>
@@ -1634,21 +1627,11 @@ const badgeEl=document.getElementById('badgeTxt');
 const TOKEN=new URLSearchParams(location.search).get('token');
 try{localStorage.removeItem('vcfyt_ctl');}catch(e){}
 try{localStorage.removeItem('vcfyt_mic');}catch(e){}
-// LIVE controls: VOLUME BOOST + FATNA (distortion). Sent on release only.
-const loudR=document.getElementById('loudR'), crunchR=document.getElementById('crunchR');
-const loudV=document.getElementById('loudV'), crunchV=document.getElementById('crunchV');
-function syncCtl(st){
-  if(st && st.loud!=null){loudR.value=st.loud;loudV.textContent=st.loud;}
-  if(st && st.crunch!=null){crunchR.value=st.crunch;crunchV.textContent=st.crunch;}
-}
-function sendCtl(){
-  const p={loud:+loudR.value,crunch:+crunchR.value};
-  if(ws && ws.readyState===1 && sendReady){try{ws.send('settings:'+JSON.stringify(p));}catch(e){}}
-}
-loudR.addEventListener('input',()=>{loudV.textContent=loudR.value;});
-crunchR.addEventListener('input',()=>{crunchV.textContent=crunchR.value;});
-loudR.addEventListener('change',sendCtl);
-crunchR.addEventListener('change',sendCtl);
+// v41: loudness FIXED in code — sliders hidden, nothing sent.
+['loudR','crunchR'].forEach(function(id){var e=document.getElementById(id);
+  if(e){var c=e.closest('.ctl,.row,label,div')||e;c.style.display='none';}});
+function syncCtl(st){}
+function sendCtl(){}
 
 // decoration: stars + eq bars
 (function(){const s=document.getElementById('stars');for(let i=0;i<40;i++){const d=document.createElement('i');d.className='star';
