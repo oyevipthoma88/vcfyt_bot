@@ -225,8 +225,8 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
         f.append(f"equalizer=f={hp + 40}:t=q:w=1:g={c['bass'] * 0.6:.1f}")
     f.append("equalizer=f=750:t=q:w=0.9:g=8")
     if c["presence"]:
-        f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 1.1:.1f}")
-        f.append(f"equalizer=f=4200:t=q:w=1.2:g={c['presence'] * 0.5:.1f}")
+        f.append(f"equalizer=f=2800:t=q:w=1:g={c['presence'] * 0.7:.1f}")
+        f.append(f"equalizer=f=4500:t=q:w=1.2:g={c['presence'] * 0.4:.1f}")
     if focus:
         f.append("equalizer=f=2500:t=q:w=1.2:g=5")
         f.append("equalizer=f=3600:t=q:w=1:g=4")
@@ -234,7 +234,7 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
         # v23: hamesha razor presence ON (kaan ka sabse sensitive band).
         f.append("equalizer=f=2500:t=q:w=1.2:g=3")
         f.append("equalizer=f=3600:t=q:w=1:g=2.5")
-    f.append("lowpass=f=7500")
+    f.append("lowpass=f=12000")
     # [1] word leveller — e=6 (+15 dB max): pehle e=50 (+34 dB) pause ki hiss
     # ko bhi full kar deta tha.
     if _has_filter("speechnorm"):
@@ -249,8 +249,8 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
     # 10-20 % samples clip ("fat") aur saari energy bass/hash me — tez nahi.
     # Ab: ek compressor, level set, phir 2 band-limited clip stages, peak
     # -1.2 dBFS.  Drive/Phatna sliders wahi kaam karte hain (density/grit).
-    f.append("acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=3:knee=4")
-    f.append("alimiter=level_in=1:level_out=1:limit=0.5:attack=2:release=40:level=false")
+    f.append("acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=5:knee=4")
+    f.append("alimiter=level_in=1:level_out=1:limit=0.75:attack=2:release=40:level=false")
     d = drive_db(c["drive"])
     d1 = 16.0 + d * 0.5                 # drive 24 -> +28 dB, 40 -> +36 dB
     if c["clip"] != "hard":

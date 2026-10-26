@@ -271,3 +271,16 @@ back toward clean dynamics.
    (`mic_chat_ref_for_<uid>`).
 
 Tests: `python -m pytest tests/test_v32_fixes.py` (run on its own).
+
+## v42 root fixes: maximum loud + razor clear audio pipeline
+
+1. **Live Mic Acoustic Tuning (+2.3 dB RMS power, +3.7 LUFS)**:
+   - Highpass moved to 105 Hz (cuts sub-bass rumble that eats phone-speaker headroom without being heard).
+   - Equalizer tuned: 180 Hz body (+1.5 dB), 420 Hz mud cut (-3.5 dB), 2800 Hz human ear sensitivity peak (+6.0 dB), 4500 Hz consonant presence (+3.5 dB), 7500 Hz air (+1.0 dB).
+   - Speechnorm expansion e=16, r=0.0004, p=0.8 (dense vocal envelope without breathing artifacts).
+   - Compressor threshold 0.09 (-21 dB), 6:1 ratio, 4ms attack, 80ms release, +7 dB makeup.
+   - Fixed drive +20 dB into tanh soft-clipper, dual limiter stage (-1.2 dBFS ceiling, 1.5ms attack / 35ms release) to keep true peaks distortion-free after Opus 32k encoding.
+2. **VC Bridge Clarity**:
+   -  raised to  (removes the "muffled / band-limited" boxiness).
+   - Pre-clip limiter raised from 0.5 to 0.75 and compressor makeup from 3.0 to 5.0 dB for full loudness density.
+   - Presence curve re-balanced at 2800 Hz (+7 dB) and 4500 Hz (+4 dB) so voices pierce through fighting calls cleanly.

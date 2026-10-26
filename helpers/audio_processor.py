@@ -465,7 +465,7 @@ def _legacy_gain_to_db(gain: int) -> float:
 # Measured on real speech: quiet (-35 dBFS) and loud (-6 dBFS) phones both
 # land at the same loud level, peak -1.0 dBFS, background hiss gated away.
 # ---------------------------------------------------------------------------
-LIVE_MIC_FIXED_DRIVE_DB = 14.0
+LIVE_MIC_FIXED_DRIVE_DB = 20.0
 
 
 def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int = 0) -> str:
