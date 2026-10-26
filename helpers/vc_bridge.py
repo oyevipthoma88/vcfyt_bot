@@ -249,15 +249,10 @@ def loud_stage(cfg: dict, focus: bool = False) -> str:
     # 10-20 % samples clip ("fat") aur saari energy bass/hash me — tez nahi.
     # Ab: ek compressor, level set, phir 2 band-limited clip stages, peak
     # -1.2 dBFS.  Drive/Phatna sliders wahi kaam karte hain (density/grit).
-    f.append("acompressor=threshold=0.1:ratio=6:attack=2:release=60:makeup=5:knee=4")
-    f.append("alimiter=level_in=1:level_out=1:limit=0.75:attack=2:release=40:level=false")
-    d = drive_db(c["drive"])
-    d1 = 16.0 + d * 0.5                 # drive 24 -> +28 dB, 40 -> +36 dB
-    if c["clip"] != "hard":
-        d1 = min(d1, 22.0)
-    d2 = 5.0 + c["crunch"] * 0.5        # phatna 0..10 -> +5..+10 dB
-    from helpers.audio_processor import voice_band_tail
-    f += voice_band_tail(d1=d1, d2=d2, hp=hp)
+    # v44: AGC-safe tail (no 28 dB drive into double tanh clip = square wave
+    # that Telegram AGC ducked).  Drive slider = gentle extra makeup only.
+    from helpers.audio_processor import agc_safe_tail
+    f += agc_safe_tail(6.0 + min(6.0, drive_db(c["drive"]) * 0.1))
     return ",".join(f)
 
 
