@@ -284,3 +284,18 @@ Tests: `python -m pytest tests/test_v32_fixes.py` (run on its own).
    -  raised to  (removes the "muffled / band-limited" boxiness).
    - Pre-clip limiter raised from 0.5 to 0.75 and compressor makeup from 3.0 to 5.0 dB for full loudness density.
    - Presence curve re-balanced at 2800 Hz (+7 dB) and 4500 Hz (+4 dB) so voices pierce through fighting calls cleanly.
+
+## v43 root fixes: screen-share user picture & mic ambient blur UI
+
+1. **Screen-Share User Profile Picture ("Max Efforts" Root Fix)**:
+   - Root Cause: In Pyrogram 2.0+,  is an async generator. Previous  did  and indexed , crashing on every call with . Because it was silenced by , all user & participant avatar downloads permanently failed ( and ).
+   - Fix 1 (): Now checks disk cache, fetches  directly from  (instant, no extra calls), iterates the async generator properly (), and calls  if the peer access hash is missing.
+   - Fix 2 (): Multi-tier resolution for  — tries owner account , , fetches  profile photo (so spare accounts display the real user/commander's DP), and checks local cache or custom image.
+   - Fix 3 (): Removed force-disable of , allowing custom/reply images to be used.
+   - Fix 4 (): Background blend tuned to 0.52 (was 0.72) with GaussianBlur(14) so the user's DP colors and atmosphere are clearly visible as an ambient room backdrop. Center-stage avatar gains a soft glowing aura ( with GaussianBlur(24)).
+
+2. **Live Mic UI Ambient Background Blur**:
+   - Mic Stage Blur (): 260px glowing blurred backdrop behind the central mic button ( idle,  live) that scales with voice input level ().
+   - Outer Orb Glow (): Frosted halo ring around the mic orb button.
+   - Ambient Page Aura (): 420px soft radial blur behind the mic section with pulsing keyframes.
+   - Glassmorphism: Backdrop-filter blur enabled across all cards and containers.

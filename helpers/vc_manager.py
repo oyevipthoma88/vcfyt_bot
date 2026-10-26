@@ -1241,7 +1241,10 @@ class UserVC:
             return False
         prev = st.ss_on
         st.ss_on = bool(on)
-        st.ss_image = "" # FORCE DISABLE
+        if image_path and os.path.exists(image_path):
+            st.ss_image = image_path
+        elif not on:
+            st.ss_image = ""
         if title is not None:
             st.ss_title = title
         source = st.current_file if (st.current_file and
@@ -1803,27 +1806,64 @@ class UserVC:
     def _ss_state_path(self, chat_id: int) -> str:
         return os.path.join("/tmp", f"ss_live_{self.owner_id}_{abs(chat_id)}.json")
 
-    async def _ss_avatar(self, uid) -> str:
+    async def _ss_avatar(self, uid, client=None) -> str:
         """Download a participant's profile photo once, cache it on disk."""
         if not uid:
             return ""
         cache = self.__dict__.setdefault("_ss_avatar_cache", {})
         path = cache.get(uid)
-        if path and os.path.exists(path):
+        if path and os.path.exists(path) and os.path.getsize(path) > 0:
             return path
         path = os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{uid}.jpg")
-        if os.path.exists(path):
+        if os.path.exists(path) and os.path.getsize(path) > 0:
             cache[uid] = path
             return path
+
+        cli = client or self.client
+        if not cli:
+            return ""
+
+        # Effort 1: direct user profile photo (fastest, uses cached User object)
         try:
-            photos = await self.client.get_chat_photos(uid, limit=1)
-            if photos:
-                got = await self.client.download_media(photos[0], file_name=path)
-                if got and os.path.exists(got):
-                    cache[uid] = got
-                    return got
-        except Exception as exc:
-            logger.debug("ss avatar fetch failed for %s: %r", uid, exc)
+            u = await cli.get_users(uid)
+            if u and getattr(u, "photo", None):
+                fid = getattr(u.photo, "big_file_id", None) or getattr(u.photo, "small_file_id", None)
+                if fid:
+                    got = await cli.download_media(fid, file_name=path)
+                    if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                        cache[uid] = got
+                        return got
+        except Exception as exc1:
+            logger.debug("ss avatar get_users failed for %s: %r", uid, exc1)
+
+        # Effort 2: async generator over get_chat_photos (proper generator iteration)
+        try:
+            async for photo in cli.get_chat_photos(uid, limit=1):
+                fid = getattr(photo, "file_id", None) or getattr(photo, "big_file_id", None)
+                if fid:
+                    got = await cli.download_media(fid, file_name=path)
+                    if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                        cache[uid] = got
+                        return got
+                break
+        except Exception as exc2:
+            logger.debug("ss avatar get_chat_photos failed for %s: %r", uid, exc2)
+
+        # Effort 3: Learn peer if missing and retry get_chat_photos
+        try:
+            from helpers.peer_guard import learn_user_peer
+            if await learn_user_peer(cli, uid, []):
+                async for photo in cli.get_chat_photos(uid, limit=1):
+                    fid = getattr(photo, "file_id", None) or getattr(photo, "big_file_id", None)
+                    if fid:
+                        got = await cli.download_media(fid, file_name=path)
+                        if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                            cache[uid] = got
+                            return got
+                    break
+        except Exception:
+            pass
+
         return ""
 
     async def _ss_live_loop(self, chat_id: int):
@@ -1849,6 +1889,7 @@ class UserVC:
                 src = main
         except Exception:
             src = self
+        me = None
         try:
             me = await src.client.get_me()
             me_name = " ".join(x for x in [
@@ -1856,9 +1897,74 @@ class UserVC:
                 getattr(me, "last_name", "") or ""] if x).strip()
             me_user = getattr(me, "username", "") or ""
             me_id = getattr(me, "id", 0) or 0
-            me_photo = await src._ss_avatar(getattr(me, "id", 0))
         except Exception:
             pass
+
+        # Maximum efforts to show user profile picture in Screen Share UI
+        # 1. Direct me.photo on src client
+        if me and getattr(me, "photo", None):
+            fid = getattr(me.photo, "big_file_id", None) or getattr(me.photo, "small_file_id", None)
+            if fid:
+                try:
+                    p_path = os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{me_id}.jpg")
+                    got = await src.client.download_media(fid, file_name=p_path)
+                    if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                        me_photo = got
+                except Exception as ex:
+                    logger.debug("download me.photo failed: %r", ex)
+
+        # 2. _ss_avatar for me_id
+        if not me_photo and me_id:
+            try:
+                me_photo = await src._ss_avatar(me_id)
+            except Exception:
+                pass
+
+        # 3. If empty, check self.owner_id (the main user/owner)
+        if not me_photo and self.owner_id and self.owner_id != me_id:
+            try:
+                for cli in [getattr(src, "client", None), self.client]:
+                    if cli:
+                        u = await cli.get_users(self.owner_id)
+                        if u and getattr(u, "photo", None):
+                            fid = getattr(u.photo, "big_file_id", None) or getattr(u.photo, "small_file_id", None)
+                            if fid:
+                                o_path = os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{self.owner_id}.jpg")
+                                got = await cli.download_media(fid, file_name=o_path)
+                                if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                                    me_photo = got
+                                    if not me_name:
+                                        me_name = " ".join(x for x in [getattr(u, "first_name", ""), getattr(u, "last_name", "")] if x).strip()
+                                    if not me_user:
+                                        me_user = getattr(u, "username", "") or ""
+                                    break
+            except Exception as ex:
+                logger.debug("fetch owner photo failed: %r", ex)
+
+        # 4. If still empty, check spare account self.client
+        if not me_photo and self != src and self.client:
+            try:
+                spare_me = await self.client.get_me()
+                if spare_me and getattr(spare_me, "photo", None):
+                    fid = getattr(spare_me.photo, "big_file_id", None) or getattr(spare_me.photo, "small_file_id", None)
+                    if fid:
+                        s_path = os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{spare_me.id}.jpg")
+                        got = await self.client.download_media(fid, file_name=s_path)
+                        if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                            me_photo = got
+            except Exception as ex:
+                logger.debug("fetch spare photo failed: %r", ex)
+
+        # 5. Check if user configured a custom image or local avatar
+        if not me_photo:
+            for cand in [
+                os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{self.owner_id}.jpg"),
+                os.path.join("/tmp", f"ss_avatar_{self.owner_id}_{me_id}.jpg"),
+                getattr(self.chats.get(chat_id), "ss_image", None),
+            ]:
+                if cand and os.path.exists(cand) and os.path.getsize(cand) > 0:
+                    me_photo = cand
+                    break
         last_pos = 0.0
         while True:
             st = self.chats.get(chat_id)
@@ -1886,8 +1992,13 @@ class UserVC:
             pending = 0
             for p in parts:
                 uid = p.get("uid")
+                if not uid:
+                    continue
+                if p.get("is_me") and me_photo:
+                    p["photo"] = me_photo
+                    continue
                 ph = av_cache.get(uid)
-                if ph and os.path.exists(ph):
+                if ph and os.path.exists(ph) and os.path.getsize(ph) > 0:
                     p["photo"] = ph
                 elif pending < 5:
                     pending += 1

@@ -1502,6 +1502,12 @@ text-transform:uppercase;animation:shine 6s linear infinite}
 .subtitle{color:var(--muted);font-size:.9rem;margin-top:4px;letter-spacing:1px}
 /* mic orb */
 .stage{position:relative;width:290px;height:290px;margin:26px 0 8px;display:grid;place-items:center}
+.mic-blur-bg{position:absolute;inset:15px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,.26) 0%,rgba(34,229,122,.18) 40%,rgba(14,165,233,.08) 65%,transparent 80%);filter:blur(38px);-webkit-filter:blur(38px);pointer-events:none;transition:all .5s cubic-bezier(.4,0,.2,1);transform:scale(calc(1 + var(--lvl)*.28));z-index:0}
+body.live .mic-blur-bg{background:radial-gradient(circle,rgba(34,229,122,.48) 0%,rgba(56,189,248,.26) 45%,rgba(34,229,122,.14) 70%,transparent 85%);filter:blur(48px);-webkit-filter:blur(48px);transform:scale(calc(1.22 + var(--lvl)*.55))}
+.orb-glow{position:absolute;inset:-8px;border-radius:50%;background:transparent;filter:blur(12px);-webkit-filter:blur(12px);pointer-events:none;transition:background .35s ease}
+body.live .orb-glow{background:radial-gradient(circle,rgba(34,229,122,.5),rgba(56,189,248,.3) 60%,transparent)}
+.ambient-mic-blur{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,.22) 0%,rgba(34,229,122,.15) 35%,rgba(219,39,119,.08) 65%,transparent 80%);filter:blur(64px);-webkit-filter:blur(64px);pointer-events:none;animation:ambientPulse 7s ease-in-out infinite alternate}
+@keyframes ambientPulse{0%{opacity:.6;transform:translate(-50%,-50%) scale(.95)}100%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}}
 .ring{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(56,189,248,.25)}
 .ring.r2{inset:22px;border-color:rgba(34,229,122,.22)}
 .ring.r3{inset:44px;border-style:dashed;border-color:rgba(255,255,255,.12);animation:spin 18s linear infinite}
@@ -1559,7 +1565,7 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 </style>
 </head>
 <body>
-<div class="bg"><div class="grid"></div><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div id="stars"></div></div>
+<div class="bg"><div class="grid"></div><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="ambient-mic-blur"></div><div id="stars"></div></div>
 <div class="wrap">
 <header>
   <span class="badge"><span class="dot"></span><span id="badgeTxt">Offline</span></span>
@@ -1568,10 +1574,12 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 </header>
 
 <div class="stage">
+  <div class="mic-blur-bg"></div>
   <canvas id="viz" width="580" height="580"></canvas>
   <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
   <div class="pulse"></div><div class="pulse p2"></div><div class="pulse p3"></div>
   <button id="toggleBtn" class="orb" onclick="toggleMic()" aria-label="Mic ON / OFF">
+    <div class="orb-glow"></div>
     <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
   </button>
 </div>

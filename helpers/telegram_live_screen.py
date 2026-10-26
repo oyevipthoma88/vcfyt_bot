@@ -226,11 +226,13 @@ class Renderer:
         if sq is not None:
             side = max(W, H)
             bg = sq.resize((side // 4, side // 4), Image.BILINEAR)
-            bg = bg.filter(ImageFilter.GaussianBlur(10))
+            bg = bg.filter(ImageFilter.GaussianBlur(14))
             bg = bg.resize((side, side), Image.BILINEAR)
             bg = bg.crop(((side - W) // 2, (side - H) // 2,
                           (side - W) // 2 + W, (side - H) // 2 + H))
-            bg = Image.blend(bg, Image.new("RGB", (W, H), BG), 0.72)
+            # Blending: 0.52 with BG instead of 0.72 so user's photo & colors
+            # are prominently visible as an atmospheric backdrop behind the call!
+            bg = Image.blend(bg, Image.new("RGB", (W, H), BG), 0.52)
         else:
             c = _color_for(name)
             bg = Image.new("RGB", (W, H), BG)
@@ -345,6 +347,15 @@ class Renderer:
         self.waves(layer, cx, cy, r, ring_col, now, energy if me_speaking else 0.15)
         layer = layer.filter(ImageFilter.GaussianBlur(S(6)))
         img.paste(layer, (0, 0), layer)
+
+        # Ambient blurred aura behind user's profile photo
+        aura = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        aur_r = r + S(22) + int(S(12) * energy)
+        ImageDraw.Draw(aura).ellipse([cx - aur_r, cy - aur_r, cx + aur_r, cy + aur_r],
+                                     fill=ring_col + (75,))
+        aura = aura.filter(ImageFilter.GaussianBlur(S(24)))
+        img.paste(aura, (0, 0), aura)
+
         d = ImageDraw.Draw(img)
         d.ellipse([cx - r - S(4), cy - r - S(4), cx + r + S(4), cy + r + S(4)], outline=ring_col,
                   width=S(4))
