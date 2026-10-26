@@ -558,7 +558,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # a look-ahead brick-wall at -1 dBFS.  Average sits ~6-8 dB under peak:
     # loud, dense and clean through Opus.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=95:p=2",
+         "highpass=f=105:p=2",
          "lowpass=f=12000"]
     if _has_filter("afftdn"):
         f.append("afftdn=nr=8:nf=-60:tn=0")
@@ -567,28 +567,27 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
         if gate_db < -0.5:
             thr = 10 ** (gate_db / 20.0)
             # soft downward expander (range -20 dB), never chops words
-            f.append(f"agate=threshold={thr:.5f}:range=0.1:ratio=2:attack=5:"
-                     "release=400:knee=6:detection=rms")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 10.0, high=24.0, low=0.0))}dB")
+            f.append(f"agate=threshold={thr:.5f}:range=0.08:ratio=2:attack=4:"
+                     "release=350:knee=6:detection=rms")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 12.0, high=24.0, low=0.0))}dB")
     if _has_filter("speechnorm"):
-        f.append("speechnorm=e=6:r=0.0001:l=1:p=0.7")
-    f += ["equalizer=f=150:t=q:w=1:g=2",        # body / dam
-          "equalizer=f=400:t=q:w=1.2:g=-3",     # mud cut
-          "equalizer=f=2800:t=q:w=1.1:g=4.5",       # presence (cuts through)
-          "equalizer=f=4000:t=q:w=1.2:g=2",     # consonants
-          "equalizer=f=7000:t=q:w=1.5:g=-2"]    # anti-hiss / sibilance
-    f.append("acompressor=threshold=0.125:ratio=4:attack=8:release=150:makeup=4:knee=6")
-    # v41: drive FIXED in code — no env / slider / user can change it.
+        f.append("speechnorm=e=16:r=0.0004:l=1:p=0.8")
+    f += ["equalizer=f=180:t=q:w=1.2:g=1.5",    # solid vocal body (phone speaker audible)
+          "equalizer=f=420:t=q:w=1.2:g=-3.5",   # mud cut (removes boxy resonance)
+          "equalizer=f=2800:t=q:w=1.1:g=6.0",   # ear's most sensitive presence (cuts through)
+          "equalizer=f=4500:t=q:w=1.2:g=3.5",   # crisp consonants
+          "equalizer=f=7500:t=q:w=1.5:g=1.0"]   # clarity / air
+    f.append("acompressor=threshold=0.09:ratio=6:attack=4:release=80:makeup=7:knee=5")
+    # v42: maximum clear & loud drive into softclip
     drive = LIVE_MIC_FIXED_DRIVE_DB
-    out_db = min(voice_ceiling_db(), ceiling_db - 0.6) if \
-        os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else voice_ceiling_db()
+    out_db = min(voice_ceiling_db(), ceiling_db - 0.6) if         os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else voice_ceiling_db()
     lim = 10 ** (max(-3.0, min(-0.5, out_db)) / 20.0)
-    f.append("alimiter=level_in=1:level_out=1:limit=0.5:attack=5:release=80:level=false")
+    f.append("alimiter=level_in=1:level_out=1:limit=0.75:attack=3:release=60:level=false")
     f.append(f"volume={_db(drive)}dB")
     if _has_filter("asoftclip"):
         f.append("asoftclip=type=tanh:oversample=4" if not overdrive else "asoftclip=type=hard:oversample=4")
     f.append("lowpass=f=12000")
-    f.append(f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=3:release=60:level=false")
+    f.append(f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=1.5:release=35:level=false")
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False, drive=False))
 
 
