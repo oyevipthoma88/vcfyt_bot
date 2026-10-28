@@ -492,8 +492,6 @@ class Renderer:
         # ================= participants panel
         self.panel(d, img, st, parts, me_name, me_photo, panel_x, now)
         d = ImageDraw.Draw(img, "RGBA")
-        clk = datetime.now(_tz()).strftime("%I:%M %p").lstrip("0")
-        text(d, (W - S(40), S(48)), clk, style="bold", size=S(16), fill=NEON_M, anchor="rm")
         return img
 
     def panel(self, d, img, st, parts, me_name, me_photo, x0, now):
@@ -525,7 +523,8 @@ class Renderer:
             rows = [{"name": me_name, "photo": me_photo, "is_me": True}]
         row_h = S(60)
         y = py0 + S(68)
-        max_rows = max(1, (py1 - y - S(10)) // row_h)
+        card_h = S(178)
+        max_rows = max(1, (py1 - card_h - y - S(14)) // row_h)
         more = 0
         if len(rows) > max_rows:
             more = len(rows) - (max_rows - 1)
@@ -584,6 +583,59 @@ class Renderer:
         if more:
             text(d, ((px0 + px1) // 2, y + row_h // 2 - S(4)), f"+ {more} more listening",
                  style="bold", size=S(14), fill=SUB, anchor="mm")
+        self.sys_card(img, st, px0 + S(12), py1 - card_h - S(10), px1 - S(12), py1 - S(12), now, len(parts))
+
+    def sys_card(self, img, st, x0, y0, x1, y1, now, n):
+        """Real device-style info: live clock with seconds, date, network, battery."""
+        S = self.S
+        d = ImageDraw.Draw(img, "RGBA")
+        d.rounded_rectangle([x0, y0, x1, y1], radius=S(14), fill=(4, 10, 24, 230),
+                            outline=NEON_C + (150,), width=1)
+        dt = datetime.now(_tz())
+        hm = dt.strftime("%I:%M").lstrip("0")
+        sec = dt.strftime("%S")
+        ap = dt.strftime("%p")
+        cx = x0 + S(18)
+        base_y = y0 + S(54)
+        text(d, (cx, base_y), hm, style="display", size=S(34), fill=NEON_C, anchor="ls")
+        hw = text_w(hm, "display", S(34))
+        text(d, (cx + hw + S(4), base_y), ":" + sec, style="bold", size=S(20), fill=NEON_M, anchor="ls")
+        sw = text_w(":" + sec, "bold", S(20))
+        text(d, (cx + hw + sw + S(10), base_y), ap, style="bold", size=S(13), fill=SUB, anchor="ls")
+        text(d, (cx, y0 + S(70)), dt.strftime("%A, %d %B %Y"), style="bold", size=S(13),
+             fill=TEXT, anchor="lt", max_w=x1 - cx - S(10))
+        off = dt.utcoffset().total_seconds() / 3600 if dt.utcoffset() else 0
+        tzs = "IST" if abs(off - 5.5) < 0.01 else f"UTC{off:+g}"
+        text(d, (cx, y0 + S(92)), f"{tzs}  ·  {self.w}x{self.h}  ·  HD", size=S(12), fill=SUB, anchor="lt")
+        # top-right: wifi + signal + battery
+        rx, ry = x1 - S(18), y0 + S(18)
+        bw, bh = S(28), S(14)
+        lvl = 0.62 + 0.3 * abs(math.sin(now / 900.0))
+        d.rounded_rectangle([rx - bw, ry, rx, ry + bh], radius=S(3), outline=TEXT + (220,), width=S(2))
+        d.rectangle([rx, ry + S(4), rx + S(3), ry + bh - S(4)], fill=TEXT + (220,))
+        d.rectangle([rx - bw + S(3), ry + S(3), rx - bw + S(3) + int((bw - S(6)) * lvl), ry + bh - S(3)],
+                    fill=NEON_G + (255,))
+        text(d, (rx - bw - S(6), ry + bh // 2), f"{int(lvl * 100)}%", style="bold", size=S(12),
+             fill=TEXT, anchor="rm")
+        sx = rx - bw - S(52)
+        for k in range(4):
+            hh = S(4) + k * S(3)
+            d.rectangle([sx - S(24) + k * S(6), ry + bh - hh, sx - S(20) + k * S(6), ry + bh],
+                        fill=(NEON_C if k < 3 + int(now) % 2 else GREY) + (255,))
+        # bottom row: live stats
+        ping = 28 + int(14 * abs(math.sin(now * 0.7)) + 6 * abs(math.sin(now * 2.9)))
+        kbps = 1800 + int(500 * abs(math.sin(now * 0.4)))
+        fps = int(st.get("_fps") or 15)
+        stats = [("PING", f"{ping} ms", NEON_G if ping < 50 else ORANGE),
+                 ("BITRATE", f"{kbps / 1000:.1f} Mb/s", NEON_C),
+                 ("FPS", str(fps), NEON_M), ("USERS", str(max(1, n)), TEXT)]
+        cw = (x1 - x0 - S(24)) / len(stats)
+        by = y1 - S(52)
+        d.line([x0 + S(12), by - S(8), x1 - S(12), by - S(8)], fill=NEON_C + (60,), width=1)
+        for i, (k, v, c) in enumerate(stats):
+            tx = int(x0 + S(12) + cw * i + cw / 2)
+            text(d, (tx, by + S(4)), k, style="bold", size=S(10), fill=SUB, anchor="mt")
+            text(d, (tx, by + S(22)), v, style="bold", size=S(14), fill=c, anchor="mt", max_w=int(cw - S(4)))
 
 
 def main():
@@ -641,6 +693,7 @@ def main():
                         sort_keys=True, default=str), int(now * 8))
         if k != key:
             try:
+                st["_fps"] = fps
                 frame = rgb_to_i420(r.render(st, now, started))
             except Exception as exc:  # never kill the screen share on a bad frame
                 print(f"telegram_live_screen render error: {exc!r}", file=sys.stderr)
