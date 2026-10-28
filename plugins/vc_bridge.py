@@ -154,6 +154,9 @@ async def _toggle_bridge_ss(cq) -> None:
     if b is None:
         await safe_answer(cq, "Pehle 🟢 Mic ON karo — phir Live Screen chalega.", show_alert=True)
         return
+    if getattr(b.relay, "ss_busy", None) and b.relay.ss_busy(b.target_chat):
+        await safe_answer(cq, "⏳ Screen share switch ho raha hai… 2 sec ruko.")
+        return
     want = not _bridge_ss(b)
     try:
         ok = await b.relay.set_screen_share(b.target_chat, want,

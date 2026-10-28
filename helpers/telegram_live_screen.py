@@ -45,13 +45,13 @@ except Exception:  # pragma: no cover - ultra fallback, never crash the SS
         return y.tobytes() + u.astype(np.uint8).tobytes() + v.astype(np.uint8).tobytes()
 
 # ------------------------------------------------------- Telegram dark palette
-BG = (21, 27, 36)
+BG = (6, 7, 18)
 PANEL = (30, 37, 48)
 PANEL2 = (38, 46, 59)
 ROW_HI = (44, 54, 69)
 LINE = (52, 62, 78)
 TEXT = (255, 255, 255)
-SUB = (139, 152, 170)
+SUB = (150, 160, 200)
 BLUE = (77, 166, 255)      # Telegram "listening" / active button
 GREEN = (75, 205, 110)     # speaking
 TEAL = (52, 199, 168)
@@ -92,6 +92,8 @@ def _color_for(key):
 
 NEON_C = (0, 240, 255)
 NEON_G = (57, 255, 150)
+NEON_M = (255, 46, 196)
+NEON_V = (140, 82, 255)
 
 
 def _mix(a, b, t):
@@ -212,8 +214,43 @@ class Renderer:
         self._av[ck] = im
         return im
 
+    # ------------------------------------------------------------ neon fx
+    def glow(self, img, box, color, alpha=170, blur=10, kind="ellipse",
+             radius=0, width=0):
+        """Cheap neon glow: blur only a small crop, never the whole frame."""
+        x0, y0, x1, y1 = [int(v) for v in box]
+        pad = int(blur * 3) + max(2, width)
+        gw, gh = x1 - x0 + 2 * pad, y1 - y0 + 2 * pad
+        if gw <= 0 or gh <= 0:
+            return
+        lay = Image.new("RGBA", (gw, gh), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(lay)
+        bb = [pad, pad, pad + x1 - x0, pad + y1 - y0]
+        col = tuple(color[:3]) + (int(alpha),)
+        if kind == "ellipse":
+            if width:
+                ld.ellipse(bb, outline=col, width=width)
+            else:
+                ld.ellipse(bb, fill=col)
+        else:
+            if width:
+                ld.rounded_rectangle(bb, radius=radius, outline=col, width=width)
+            else:
+                ld.rounded_rectangle(bb, radius=radius, fill=col)
+        if blur > 0:
+            lay = lay.filter(ImageFilter.GaussianBlur(blur))
+        img.paste(lay, (x0 - pad, y0 - pad), lay)
+
+    def neon_box(self, img, box, color, radius, fill=None, width=2, glow_a=150):
+        self.glow(img, box, color, alpha=glow_a, blur=self.S(9), kind="rr",
+                  radius=radius, width=max(2, self.S(5)))
+        d = ImageDraw.Draw(img, "RGBA")
+        d.rounded_rectangle(box, radius=radius, fill=fill, outline=tuple(color[:3]) + (255,),
+                            width=max(1, width))
+
+    # ------------------------------------------------------------ static layer
     def background(self, photo, name):
-        """Main user's DP, blurred + darkened, as the whole window background."""
+        """Cached static layer: DP backdrop + cyber grid + vignette + frames."""
         try:
             mt = os.path.getmtime(photo) if photo else 0
         except Exception:
@@ -221,39 +258,70 @@ class Renderer:
         key = (photo, mt, name)
         if key == self._bg_key and self._bg is not None:
             return self._bg
-        W, H = self.w, self.h
+        W, H, S = self.w, self.h, self.S
+        bg = Image.new("RGB", (W, H), BG)
         sq = self._load_square(photo) if photo else None
         if sq is not None:
             side = max(W, H)
-            bg = sq.resize((side // 4, side // 4), Image.BILINEAR)
-            bg = bg.filter(ImageFilter.GaussianBlur(14))
-            bg = bg.resize((side, side), Image.BILINEAR)
-            bg = bg.crop(((side - W) // 2, (side - H) // 2,
+            ph = sq.resize((max(8, side // 6), max(8, side // 6)), Image.BILINEAR)
+            ph = ph.filter(ImageFilter.GaussianBlur(6)).resize((side, side), Image.BILINEAR)
+            ph = ph.crop(((side - W) // 2, (side - H) // 2,
                           (side - W) // 2 + W, (side - H) // 2 + H))
-            # Blending: 0.52 with BG instead of 0.72 so user's photo & colors
-            # are prominently visible as an atmospheric backdrop behind the call!
-            bg = Image.blend(bg, Image.new("RGB", (W, H), BG), 0.52)
-        else:
-            c = _color_for(name)
-            bg = Image.new("RGB", (W, H), BG)
-            g = Image.new("RGB", (W, H), _mix(BG, c, 0.35))
-            m = Image.new("L", (W, H), 0)
-            ImageDraw.Draw(m).ellipse([W * 0.05, -H * 0.4, W * 0.75, H * 0.9], fill=180)
-            m = m.filter(ImageFilter.GaussianBlur(self.S(140)))
-            bg.paste(g, (0, 0), m)
-        # bottom/top vignette for readability
-        v = Image.new("L", (1, H), 0)
-        for y in range(H):
-            t = abs(y / H - 0.45) / 0.55
-            v.putpixel((0, y), int(150 * max(0.0, t) ** 1.6))
-        bg.paste(Image.new("RGB", (W, H), (8, 11, 16)), (0, 0), v.resize((W, H)))
-        # huge watermark name in the display font
-        d = ImageDraw.Draw(bg)
-        wm = clean_name(name, "")
-        if wm:
-            text(d, (int(W * 0.345), self.S(108)), wm, style="display", size=self.S(62),
-                 fill=_mix(BG, (255, 255, 255), 0.09), anchor="mt",
-                 max_w=self.w * 0.64)
+            bg = Image.blend(ph, bg, 0.72)
+        bg = bg.convert("RGBA")
+        # neon colour washes (top-left cyan, bottom-right magenta)
+        for cx, cy, rr, c, a in ((W * 0.18, H * 0.05, W * 0.45, NEON_C, 70),
+                                 (W * 0.85, H * 1.05, W * 0.50, NEON_M, 80),
+                                 (W * 0.35, H * 0.55, W * 0.30, NEON_V, 40)):
+            small = Image.new("RGBA", (W // 4, H // 4), (0, 0, 0, 0))
+            ImageDraw.Draw(small).ellipse([(cx - rr) / 4, (cy - rr) / 4, (cx + rr) / 4, (cy + rr) / 4],
+                                          fill=c + (a,))
+            small = small.filter(ImageFilter.GaussianBlur(S(30) / 4 + 6)).resize((W, H), Image.BILINEAR)
+            bg.alpha_composite(small)
+        # perspective cyber grid on the floor of the stage
+        grid = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(grid)
+        panel_x = int(W * 0.69)
+        hz = int(H * 0.60)
+        vx = panel_x // 2
+        for i in range(-12, 13):
+            gd.line([(vx + i * S(22), hz), (vx + i * S(170), H)], fill=NEON_V + (55,), width=1)
+        y, step = hz, S(6)
+        while y < H:
+            a = int(25 + 70 * (y - hz) / max(1, H - hz))
+            gd.line([(0, y), (panel_x, y)], fill=NEON_M + (a,), width=1)
+            step = int(step * 1.35) + 1
+            y += step
+        bg.alpha_composite(grid)
+        # subtle scanlines
+        sl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        sd = ImageDraw.Draw(sl)
+        for yy in range(0, H, 3):
+            sd.line([(0, yy), (W, yy)], fill=(0, 0, 0, 38))
+        bg.alpha_composite(sl)
+        bg = bg.convert("RGB")
+        # vignette
+        v = Image.new("L", (W // 8, H // 8), 0)
+        vd = ImageDraw.Draw(v)
+        vd.rectangle([0, 0, W // 8, H // 8], fill=170)
+        vd.ellipse([-W // 40, -H // 40, W // 8 + W // 40, H // 8 + H // 40], fill=0)
+        v = v.filter(ImageFilter.GaussianBlur(6)).resize((W, H), Image.BILINEAR)
+        bg.paste(Image.new("RGBA", (W, H), (2, 2, 8, 255)), (0, 0), v)
+        # header bar + participants panel frame
+        self.neon_box(bg, [S(20), S(18), panel_x - S(16), S(84)], NEON_C, S(18),
+                      fill=(6, 8, 22, 200), width=S(2), glow_a=120)
+        self.neon_box(bg, [panel_x, S(18), W - S(20), H - S(20)], NEON_M, S(20),
+                      fill=(8, 6, 22, 215), width=S(2), glow_a=130)
+        # bottom dock
+        self.neon_box(bg, [panel_x // 2 - S(230), H - S(138), panel_x // 2 + S(230), H - S(24)],
+                      NEON_V, S(40), fill=(6, 6, 20, 210), width=S(2), glow_a=110)
+        # corner brackets (HUD look)
+        d = ImageDraw.Draw(bg, "RGBA")
+        L = S(26)
+        for (x, y, sx, sy) in ((S(10), S(10), 1, 1), (W - S(10), S(10), -1, 1),
+                               (S(10), H - S(10), 1, -1), (W - S(10), H - S(10), -1, -1)):
+            d.line([(x, y), (x + sx * L, y)], fill=NEON_C + (255,), width=S(3))
+            d.line([(x, y), (x, y + sy * L)], fill=NEON_C + (255,), width=S(3))
         self._bg_key, self._bg = key, bg
         return bg
 
@@ -301,11 +369,14 @@ class Renderer:
     def render(self, st, now, started):
         W, H = self.w, self.h
         S = self.S
+        st = st or {}
         parts = list(st.get("participants") or [])
         me_p = next((p for p in parts if p.get("is_me")), None)
         me_name = clean_name(st.get("me_name") or (me_p or {}).get("name")
                              or (("@" + st["me_user"]) if st.get("me_user") else ""), "You")
         me_photo = st.get("me_photo") or (me_p or {}).get("photo") or ""
+        if me_photo and not os.path.exists(me_photo):
+            me_photo = ""
         mic_on = bool(st.get("mic_on"))
         playing = bool(st.get("now_playing")) and not st.get("paused")
         audio = bool(st.get("audio_active")) or playing
@@ -314,177 +385,152 @@ class Renderer:
                                                     and bool(me_p and me_p.get("muted")))
 
         img = self.background(me_photo, me_name).copy()
-        d = ImageDraw.Draw(img)
-
+        d = ImageDraw.Draw(img, "RGBA")
         panel_x = int(W * 0.69)
+
         # ================= header
-        title = f"{me_name} Live mic"
-        text(d, (S(32), S(30)), title, style="display", size=S(28), fill=NEON_C,
-             max_w=panel_x - S(260))
+        hue = 0.5 + 0.5 * math.sin(now * 1.3)
+        title_col = _mix(NEON_C, NEON_M, hue * 0.35)
+        text(d, (S(42), S(30)), f"{me_name}", style="display", size=S(26), fill=title_col,
+             max_w=panel_x - S(330))
         n = len(parts) or 1
-        sub = f"{n} participant" + ("" if n == 1 else "s") + "  ·  live"
-        text(d, (S(32), S(68)), sub, size=S(17), fill=SUB, max_w=panel_x - S(260))
+        sub = f"VOICE CHAT  ·  {n} participant" + ("" if n == 1 else "s")
+        text(d, (S(42), S(64)), sub, style="bold", size=S(13), fill=SUB, max_w=panel_x - S(330))
         # LIVE pill + timer
-        lx = panel_x - S(28)
+        lx = panel_x - S(34)
         tm = _clock(now - started)
         tw = text_w(tm, "bold", S(17))
-        pw = tw + S(96)
-        d.rounded_rectangle([lx - pw, S(30), lx, S(62)], radius=S(16), fill=(0, 0, 0))
+        pw = int(tw + S(100))
+        pill = [lx - pw, S(34), lx, S(68)]
         blink = 0.55 + 0.45 * math.sin(now * 4)
-        d.ellipse([lx - pw + S(14), S(40), lx - pw + S(26), S(52)], fill=_mix(BG, RED, blink))
-        text(d, (lx - pw + S(32), S(46)), "LIVE", style="bold", size=S(14), fill=TEXT, anchor="lm")
-        text(d, (lx - S(14), S(46)), tm, style="bold", size=S(17), fill=SUB, anchor="rm")
+        self.glow(img, pill, RED, alpha=int(90 + 90 * blink), blur=S(8), kind="rr", radius=S(17))
+        d = ImageDraw.Draw(img, "RGBA")
+        d.rounded_rectangle(pill, radius=S(17), fill=(18, 4, 12, 235), outline=RED + (255,), width=S(2))
+        d.ellipse([lx - pw + S(14), S(45), lx - pw + S(26), S(57)], fill=_mix((60, 10, 20), RED, blink))
+        text(d, (lx - pw + S(33), S(51)), "LIVE", style="bold", size=S(14), fill=TEXT, anchor="lm")
+        text(d, (lx - S(14), S(51)), tm, style="bold", size=S(17), fill=NEON_C, anchor="rm")
 
-        # ================= centre stage (main user)
+        # ================= centre stage
         cx = panel_x // 2
         cy = int(H * 0.40)
-        r = S(112)
+        r = S(104)
         energy = 0.0
         if me_speaking:
             energy = 0.55 + 0.45 * abs(math.sin(now * 2.3)) * (0.6 + 0.4 * math.sin(now * 5.7))
-        layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ring_col = GREEN if me_speaking else (GREY if me_muted else BLUE)
-        self.waves(layer, cx, cy, r, ring_col, now, energy if me_speaking else 0.15)
-        layer = layer.filter(ImageFilter.GaussianBlur(S(6)))
-        img.paste(layer, (0, 0), layer)
-
-        # Ambient blurred aura behind user's profile photo
-        aura = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        aur_r = r + S(22) + int(S(12) * energy)
-        ImageDraw.Draw(aura).ellipse([cx - aur_r, cy - aur_r, cx + aur_r, cy + aur_r],
-                                     fill=ring_col + (75,))
-        aura = aura.filter(ImageFilter.GaussianBlur(S(24)))
-        img.paste(aura, (0, 0), aura)
-
-        d = ImageDraw.Draw(img)
-        d.ellipse([cx - r - S(4), cy - r - S(4), cx + r + S(4), cy + r + S(4)], outline=ring_col,
-                  width=S(4))
+        ring_col = NEON_G if me_speaking else (GREY if me_muted else NEON_C)
+        # soft aura
+        ar = r + S(30) + int(S(18) * energy)
+        self.glow(img, [cx - ar, cy - ar, cx + ar, cy + ar], ring_col,
+                  alpha=int(70 + 90 * energy), blur=S(22))
+        # rotating neon arc segments (HUD ring)
+        d = ImageDraw.Draw(img, "RGBA")
+        rot = (now * 60) % 360
+        for i, (rr, w_, col, sp) in enumerate(((r + S(18), S(3), NEON_C, 1.0),
+                                                (r + S(30), S(2), NEON_M, -0.7),
+                                                (r + S(42), S(2), NEON_V, 0.45))):
+            base = rot * sp
+            for k in range(3 if i != 1 else 4):
+                a0 = base + k * (360 / (3 if i != 1 else 4))
+                d.arc([cx - rr, cy - rr, cx + rr, cy + rr], start=a0, end=a0 + 55 + 25 * energy,
+                      fill=col + (230,), width=w_)
+        # radial equaliser bars around avatar
+        nbar = 48
+        for i in range(nbar):
+            ang = i / nbar * 2 * math.pi
+            v = abs(math.sin(now * (4.0 + (i % 6) * 0.9) + i * 0.7))
+            ln = S(4) + int(S(26) * v * (energy if me_speaking else 0.08))
+            r0 = r + S(52)
+            x0, y0 = cx + math.cos(ang) * r0, cy + math.sin(ang) * r0
+            x1, y1 = cx + math.cos(ang) * (r0 + ln), cy + math.sin(ang) * (r0 + ln)
+            col = _mix(NEON_C, NEON_M, (math.sin(ang + now) + 1) / 2)
+            d.line([(x0, y0), (x1, y1)], fill=col + (235,), width=max(2, S(3)))
+        # avatar
         av = self.avatar(me_photo, 2 * r, me_name, key=st.get("me_user") or me_name)
         img.paste(av, (cx - r, cy - r), av)
-        # name (display font) + status
-        ny = cy + r + S(30)
-        text(d, (cx, ny + S(2)), me_name, style="display", size=S(40),
-             fill=(0, 0, 0), anchor="mt", max_w=panel_x - S(80))
-        text(d, (cx, ny), me_name, style="display", size=S(40), fill=TEXT, anchor="mt",
+        d = ImageDraw.Draw(img, "RGBA")
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=ring_col + (255,), width=S(4))
+        d.ellipse([cx - r - S(6), cy - r - S(6), cx + r + S(6), cy + r + S(6)],
+                  outline=ring_col + (90,), width=S(2))
+        # name + status
+        ny = cy + r + S(70)
+        text(d, (cx, ny), me_name, style="display", size=S(32), fill=TEXT, anchor="mt",
              max_w=panel_x - S(80))
-        handle = ("@" + st["me_user"]) if st.get("me_user") else ""
         if me_speaking:
-            stat, sc = "speaking", GREEN
+            line, sc = "● speaking", NEON_G
         elif me_muted:
-            stat, sc = "muted", SUB
+            line, sc = "muted", SUB
         elif mic_on:
-            stat, sc = "mic on", BLUE
+            line, sc = "● live", NEON_C
         else:
-            stat, sc = "listening", BLUE
-        line = f"{handle}  ·  {stat}" if handle else stat
-        text(d, (cx, ny + S(58)), line, style="ui", size=S(19), fill=sc, anchor="mt",
+            line, sc = "listening", NEON_C
+        text(d, (cx, ny + S(44)), line, style="bold", size=S(16), fill=sc, anchor="mt",
              max_w=panel_x - S(80))
 
-        # live neon mic + waveform (no track name / duration: looks like real live voice)
-        if me_speaking or mic_on or audio:
-            pw2 = min(panel_x - S(120), S(560))
-            ph = S(64)
-            px0, py0 = cx - pw2 // 2, ny + S(96)
-            glow2 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            gd = ImageDraw.Draw(glow2)
-            gd.rounded_rectangle([px0, py0, px0 + pw2, py0 + ph], radius=S(32),
-                                 outline=NEON_C + (220,), width=S(6))
-            glow2 = glow2.filter(ImageFilter.GaussianBlur(S(8)))
-            img.paste(glow2, (0, 0), glow2)
-            d = ImageDraw.Draw(img)
-            d.rounded_rectangle([px0, py0, px0 + pw2, py0 + ph], radius=S(32), fill=(8, 10, 20),
-                                outline=NEON_C, width=S(2))
-            mcx, mcy = px0 + S(34), py0 + ph // 2
-            d.ellipse([mcx - S(20), mcy - S(20), mcx + S(20), mcy + S(20)], fill=NEON_G if me_speaking else GREY)
-            self.mic_icon(d, mcx, mcy, S(24), (0, 0, 0), muted=me_muted, width=S(3))
-            bx0, bx1 = px0 + S(68), px0 + pw2 - S(28)
-            nb = max(12, (bx1 - bx0) // S(9))
-            step = (bx1 - bx0) / nb
-            amp = energy if me_speaking else 0.08
-            for i in range(nb):
-                v = abs(math.sin(now * (6.0 + (i % 5) * 1.3) + i * 0.9)) * \
-                    (0.45 + 0.55 * abs(math.sin(now * 2.1 + i * 0.37)))
-                hh = max(S(3), int((ph - S(20)) * (0.12 + 0.88 * v * amp)))
-                x = int(bx0 + i * step)
-                col = _mix(NEON_G, NEON_C, i / max(1, nb - 1))
-                d.rounded_rectangle([x, mcy - hh // 2, x + max(S(3), int(step * 0.55)), mcy + hh // 2],
-                                    radius=S(2), fill=col)
-
-        # ================= bottom control bar (Telegram style)
-        by = H - S(82)
-        # Screen (active)
-        sx = cx - S(150)
-        d.ellipse([sx - S(30), by - S(30), sx + S(30), by + S(30)], fill=BLUE)
-        self.screen_icon(d, sx, by, S(30), TEXT)
-        text(d, (sx, by + S(40)), "screen", size=S(14), fill=SUB, anchor="mt")
-        # Leave
-        rx = cx + S(150)
-        d.ellipse([rx - S(30), by - S(30), rx + S(30), by + S(30)], fill=RED)
-        self.leave_icon(d, rx, by, S(30), TEXT)
-        text(d, (rx, by + S(40)), "leave", size=S(14), fill=SUB, anchor="mt")
-        # Big mic button with the main user's DP behind the icon
-        mr = S(48)
-        mcol = GREEN if me_speaking else (GREY if me_muted else BLUE)
-        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        gr = mr + S(10) + int(S(10) * energy)
-        ImageDraw.Draw(glow).ellipse([cx - gr, by - S(8) - gr, cx + gr, by - S(8) + gr],
-                                     fill=mcol + (140,))
-        glow = glow.filter(ImageFilter.GaussianBlur(S(10)))
-        img.paste(glow, (0, 0), glow)
-        d = ImageDraw.Draw(img)
-        mav = self.avatar(me_photo, 2 * mr, me_name, key=st.get("me_user") or me_name)
-        img.paste(mav, (cx - mr, by - S(8) - mr), mav)
-        tint = Image.new("RGBA", (2 * mr, 2 * mr), (0, 0, 0, 0))
-        ImageDraw.Draw(tint).ellipse([0, 0, 2 * mr - 1, 2 * mr - 1], fill=mcol + (150,))
-        img.paste(tint, (cx - mr, by - S(8) - mr), tint)
-        d = ImageDraw.Draw(img)
-        d.ellipse([cx - mr, by - S(8) - mr, cx + mr, by - S(8) + mr], outline=TEXT, width=S(3))
-        self.mic_icon(d, cx, by - S(8), S(44), TEXT, muted=me_muted, width=S(4))
-        label = "speaking" if me_speaking else ("muted" if me_muted else "unmute" if not mic_on else "live")
-        text(d, (cx, by + mr + S(4)), label, style="bold", size=S(15), fill=TEXT, anchor="mt")
+        # ================= bottom dock
+        by = H - S(80)
+        for bx, col, kind, lab in ((cx - S(150), NEON_C, "screen", "screen"),
+                                   (cx + S(150), RED, "leave", "leave")):
+            box = [bx - S(28), by - S(28), bx + S(28), by + S(28)]
+            self.glow(img, box, col, alpha=120, blur=S(8))
+            d = ImageDraw.Draw(img, "RGBA")
+            d.ellipse(box, fill=(10, 10, 26, 255), outline=col + (255,), width=S(2))
+            if kind == "screen":
+                self.screen_icon(d, bx, by, S(28), col)
+            else:
+                self.leave_icon(d, bx, by, S(28), col)
+            text(d, (bx, by + S(36)), lab, style="bold", size=S(12), fill=SUB, anchor="mt")
+        mr = S(44)
+        mcol = NEON_G if me_speaking else (GREY if me_muted else NEON_C)
+        gr = mr + S(8) + int(S(12) * energy)
+        self.glow(img, [cx - gr, by - S(6) - gr, cx + gr, by - S(6) + gr], mcol,
+                  alpha=int(120 + 100 * energy), blur=S(12))
+        d = ImageDraw.Draw(img, "RGBA")
+        d.ellipse([cx - mr, by - S(6) - mr, cx + mr, by - S(6) + mr], fill=_mix((8, 8, 20), mcol, 0.35) + (255,),
+                  outline=mcol + (255,), width=S(3))
+        self.mic_icon(d, cx, by - S(6), S(40), TEXT, muted=me_muted, width=S(4))
 
         # ================= participants panel
         self.panel(d, img, st, parts, me_name, me_photo, panel_x, now)
-
-        # clock
+        d = ImageDraw.Draw(img, "RGBA")
         clk = datetime.now(_tz()).strftime("%I:%M %p").lstrip("0")
-        text(d, (W - S(28), S(46)), clk, style="bold", size=S(17), fill=SUB, anchor="rm")
+        text(d, (W - S(40), S(48)), clk, style="bold", size=S(16), fill=NEON_M, anchor="rm")
         return img
 
     def panel(self, d, img, st, parts, me_name, me_photo, x0, now):
         W, H, S = self.w, self.h, self.S
-        px0, py0, px1, py1 = x0, S(90), W - S(20), H - S(20)
-        ov = Image.new("RGBA", (px1 - px0, py1 - py0), (0, 0, 0, 0))
-        ImageDraw.Draw(ov).rounded_rectangle([0, 0, px1 - px0 - 1, py1 - py0 - 1],
-                                             radius=S(18), fill=PANEL + (232,))
-        img.paste(ov, (px0, py0), ov)
-        d = ImageDraw.Draw(img)
-        text(d, (px0 + S(20), py0 + S(30)), "Participants", style="bold", size=S(19),
-             fill=TEXT, anchor="lm")
+        px0, py0, px1, py1 = x0, S(18), W - S(20), H - S(20)
+        d = ImageDraw.Draw(img, "RGBA")
+        text(d, (px0 + S(22), py0 + S(30)), "PARTICIPANTS", style="bold", size=S(15),
+             fill=NEON_M, anchor="lm")
         n = len(parts)
-        text(d, (px1 - S(20), py0 + S(30)), str(n), style="bold", size=S(16), fill=SUB, anchor="rm")
-        d.line([px0 + S(16), py0 + S(56), px1 - S(16), py0 + S(56)], fill=LINE, width=1)
+        cnt = str(n)
+        cw = int(text_w(cnt, "bold", S(14)) + S(20))
+        d.rounded_rectangle([px1 - S(20) - cw - S(70), py0 + S(18), px1 - S(20) - S(70), py0 + S(42)],
+                            radius=S(12), fill=NEON_M + (60,), outline=NEON_M + (255,), width=1)
+        text(d, (px1 - S(20) - S(70) - cw // 2, py0 + S(30)), cnt, style="bold", size=S(14),
+             fill=TEXT, anchor="mm")
+        d.line([px0 + S(16), py0 + S(58), px1 - S(16), py0 + S(58)], fill=NEON_M + (90,), width=1)
 
         def order(p):
             if p.get("is_me"):
-                return (0, 0)
+                return 0
             if p.get("speaking"):
-                return (1, 0)
+                return 1
             if p.get("hand"):
-                return (2, 0)
-            return (3 if not p.get("muted") else 4, 0)
+                return 2
+            return 3 if not p.get("muted") else 4
 
         rows = sorted(parts, key=order)
         if not rows:
             rows = [{"name": me_name, "photo": me_photo, "is_me": True}]
-        row_h = S(62)
-        y = py0 + S(66)
+        row_h = S(60)
+        y = py0 + S(68)
         max_rows = max(1, (py1 - y - S(10)) // row_h)
         more = 0
         if len(rows) > max_rows:
             more = len(rows) - (max_rows - 1)
             rows = rows[:max_rows - 1]
-        avs = S(44)
+        avs = S(42)
         for p in rows:
             is_me = bool(p.get("is_me"))
             nm = clean_name(me_name if is_me else p.get("name"), "Deleted Account")
@@ -492,42 +538,52 @@ class Renderer:
                                              (bool(st.get("audio_active")) or bool(st.get("now_playing"))))
             muted = bool(p.get("muted")) and not spk
             if spk:
-                d.rounded_rectangle([px0 + S(8), y, px1 - S(8), y + row_h - S(4)], radius=S(12),
-                                    fill=ROW_HI)
-            ax, ay = px0 + S(18), y + (row_h - S(4) - avs) // 2
-            if spk:
-                pulse = 0.5 + 0.5 * math.sin(now * 5)
-                rr = avs // 2 + S(3) + int(S(2) * pulse)
-                c = (ax + avs // 2, ay + avs // 2)
-                d.ellipse([c[0] - rr, c[1] - rr, c[0] + rr, c[1] + rr], outline=GREEN, width=S(2))
-            av = self.avatar(p.get("photo") or (me_photo if is_me else ""), avs, nm, key=p.get("uid") or nm)
+                d.rounded_rectangle([px0 + S(10), y, px1 - S(10), y + row_h - S(6)], radius=S(12),
+                                    fill=NEON_G + (28,), outline=NEON_G + (140,), width=1)
+            ax, ay = px0 + S(20), y + (row_h - S(6) - avs) // 2
+            ph = p.get("photo") or (me_photo if is_me else "")
+            if ph and not os.path.exists(ph):
+                ph = ""
+            av = self.avatar(ph, avs, nm, key=p.get("uid") or nm)
             img.paste(av, (ax, ay), av)
-            d = ImageDraw.Draw(img)
+            d = ImageDraw.Draw(img, "RGBA")
+            ring = NEON_G if spk else (GREY if muted else NEON_C)
+            pulse = (0.5 + 0.5 * math.sin(now * 5)) if spk else 0
+            rr = avs // 2 + S(2) + int(S(2) * pulse)
+            c = (ax + avs // 2, ay + avs // 2)
+            d.ellipse([c[0] - rr, c[1] - rr, c[0] + rr, c[1] + rr], outline=ring + (255,), width=S(2))
             tx = ax + avs + S(14)
             name_max = px1 - tx - S(56)
             suffix = "  (you)" if is_me else ""
-            wname = text(d, (tx, y + S(20)), nm, style="bold", size=S(17), fill=TEXT, anchor="lm",
-                         max_w=name_max - (text_w(suffix, "ui", S(14)) if suffix else 0))
+            wname = text(d, (tx, y + S(18)), nm, style="bold", size=S(16), fill=TEXT, anchor="lm",
+                         max_w=name_max - (text_w(suffix, "ui", S(13)) if suffix else 0))
             if suffix:
-                text(d, (tx + wname, y + S(20)), suffix, size=S(14), fill=SUB, anchor="lm")
+                text(d, (tx + (wname or 0), y + S(18)), suffix, size=S(13), fill=NEON_C, anchor="lm")
             if spk:
-                s, c = "speaking", GREEN
+                s, col = "speaking", NEON_G
             elif p.get("hand"):
-                s, c = "✋ wants to speak", ORANGE
+                s, col = "✋ wants to speak", ORANGE
             elif muted:
-                s, c = "muted", SUB
+                s, col = "muted", SUB
             else:
-                s, c = "listening", BLUE
+                s, col = "listening", NEON_C
             vol = int(p.get("volume") or 100)
             if vol != 100 and not is_me:
                 s += f"  ·  {vol}%"
-            text(d, (tx, y + S(42)), s, size=S(14), fill=c, anchor="lm", max_w=name_max)
-            ic = GREEN if spk else (GREY if muted else BLUE)
-            self.mic_icon(d, px1 - S(32), y + (row_h - S(4)) // 2, S(24), ic, muted=muted)
+            text(d, (tx, y + S(39)), s, size=S(13), fill=col, anchor="lm", max_w=name_max)
+            mx, my = px1 - S(34), y + (row_h - S(6)) // 2
+            if spk:  # mini equaliser instead of static icon
+                for k in range(4):
+                    hh = S(4) + int(S(16) * abs(math.sin(now * (7 + k) + k)))
+                    xk = mx - S(12) + k * S(7)
+                    d.rounded_rectangle([xk, my - hh // 2, xk + S(4), my + hh // 2], radius=S(2),
+                                        fill=NEON_G + (255,))
+            else:
+                self.mic_icon(d, mx, my, S(22), ring, muted=muted)
             y += row_h
         if more:
             text(d, ((px0 + px1) // 2, y + row_h // 2 - S(4)), f"+ {more} more listening",
-                 style="bold", size=S(15), fill=SUB, anchor="mm")
+                 style="bold", size=S(14), fill=SUB, anchor="mm")
 
 
 def main():
@@ -558,6 +614,8 @@ def main():
     frame, key, last, st = None, None, 0.0, {}
     t0 = time.time()
     n = 0
+    parent = os.getppid()
+    seen_state, last_seen = False, time.time()
     while True:
         now = time.time()
         if now - last > 0.75:
@@ -568,9 +626,19 @@ def main():
             last = now
             if st.get("started"):
                 started = float(st["started"])
-        # ~3 renders/sec: smooth enough for waves + timer, light on CPU.
+        # ORPHAN GUARD (SS on/off crash root fix): har toggle pe naya renderer
+        # spawn hota hai. Agar ntgcalls ne pipe band kiye bina chhod diya ya
+        # bot ne SS off karke state file hata di, to yeh process khud exit
+        # kare — warna 2-3 toggle me zombie renderers CPU/RAM kha ke bot ko
+        # crash/restart karwa dete the.
+        if os.getppid() != parent or (seen_state and not os.path.exists(a.state)
+                                       and now - last_seen > 4.0):
+            return
+        if os.path.exists(a.state):
+            seen_state, last_seen = True, now
+        # ~8 renders/sec (frame ~10ms) : smooth neon animation, light on CPU.
         k = (json.dumps({kk: vv for kk, vv in st.items() if kk != "_read_at"},
-                        sort_keys=True, default=str), int(now * 3))
+                        sort_keys=True, default=str), int(now * 8))
         if k != key:
             try:
                 frame = rgb_to_i420(r.render(st, now, started))

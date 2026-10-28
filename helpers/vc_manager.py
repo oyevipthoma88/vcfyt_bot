@@ -1141,6 +1141,59 @@ class UserVC:
         lock = locks.setdefault(chat_id, asyncio.Lock())
         async with lock:
             st = self.state(chat_id)
+            try:
+                ok = await self._set_screen_share_serial(chat_id, on, image_path, title)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # SS ka koi bhi error bot ko crash na kare
+                logger.exception("set_screen_share crashed: %r", exc)
+                st.ss_error = (str(exc)[:300] or type(exc).__name__)
+                ok = False
+            st.ss_last_toggle = time.monotonic()
+            if not on or not ok:
+                await self._ss_cleanup(chat_id, st)
+            return ok
+
+    def ss_busy(self, chat_id: int) -> bool:
+        """True jab SS toggle abhi chal raha ho (button spam ignore karne ke liye)."""
+        lock = self.__dict__.get("_ss_locks", {}).get(chat_id)
+        return bool(lock and lock.locked())
+
+    _SS_MIN_GAP = 2.5  # sec: ntgcalls ko track teardown ka time do
+
+    async def _ss_cleanup(self, chat_id: int, st) -> None:
+        """ROOT FIX (2-3 toggle crash): purana live-loop + renderer pura band."""
+        if getattr(st, "ss_on", False):
+            return
+        task = getattr(st, "ss_task", None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=2)
+            except BaseException:
+                pass
+        st.ss_task = None
+        try:
+            os.remove(self._ss_state_path(chat_id))  # renderer khud exit karega
+        except OSError:
+            pass
+
+    async def _set_screen_share_serial(self, chat_id: int, on: bool,
+                                       image_path: str = None, title: str = None) -> bool:
+        st = self.state(chat_id)
+        if True:
+            # Already in requested state -> no-op (double click / spam safe).
+            pres = getattr(self.calls, "_presentations", None)
+            if pres is not None:
+                actual = chat_id in pres
+                if actual == bool(on) and bool(st.ss_on) == bool(on) and not image_path:
+                    return True
+                if not on and not actual and not st.ss_on:
+                    return True
+            # Rapid on/off native crash guard: toggles ke beech min gap.
+            gap = time.monotonic() - float(getattr(st, "ss_last_toggle", 0.0) or 0.0)
+            if gap < self._SS_MIN_GAP:
+                await asyncio.sleep(self._SS_MIN_GAP - gap)
             st.ss_error = ""
             if title is not None:
                 st.ss_title = title

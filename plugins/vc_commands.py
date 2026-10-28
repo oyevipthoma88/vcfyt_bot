@@ -1213,10 +1213,12 @@ async def cb_vc(bot, cq):
                 pass
         await safe_answer(cq, "🧑 Human Mode " + ("ON" if on else "OFF"))
     elif action == "ss":
+        if getattr(uvc, "ss_busy", None) and uvc.ss_busy(cid):
+            await safe_answer(cq, "⏳ Screen share switch ho raha hai… 2 sec ruko.")
+            return
         st = uvc.state(cid)
         pres = getattr(getattr(uvc, "calls", None), "_presentations", None)
         actual = (cid in pres) if pres is not None else bool(getattr(st, "ss_on", False))
-        st.ss_on = actual  # stale flag se galat toggle na ho
         want = not actual
         try:
             ok = await uvc.set_screen_share(cid, want, image_path="" if want else None)
@@ -1417,10 +1419,12 @@ async def cb_mic(bot: Client, cq):
             await safe_answer(cq, "Pehle 🎤 Mic ON karo — phir Live Screen chalega.",
                               show_alert=True)
             return
+        if getattr(relay, "ss_busy", None) and relay.ss_busy(cid):
+            await safe_answer(cq, "⏳ Screen share switch ho raha hai… 2 sec ruko.")
+            return
         st = relay.state(cid)
         pres = getattr(getattr(relay, "calls", None), "_presentations", None)
         actual = (cid in pres) if pres is not None else bool(getattr(st, "ss_on", False))
-        st.ss_on = actual
         want = not actual
         try:
             ok = await relay.set_screen_share(cid, want, image_path="" if want else None)
