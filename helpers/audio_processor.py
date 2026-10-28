@@ -767,35 +767,51 @@ def play_final_push_db() -> float:
     return _env_db("PLAY_FINAL_PUSH_DB", PLAY_FINAL_PUSH_DB, high=24.0, low=0.0)
 
 
+PLAY_CEILING_SAFE = 0.84      # -1.5 dBFS: Opus decode overshoot headroom
+
+
 def playback_fight_stage(bass: int = None, boost: int = None, over: float = 1.0) -> list:
-    """v44 playback FIGHT chain (restored in v54): presence EQ, hot speech
-    leveller, fast 7:1 compressor and two band-limited tanh clip stages.
-    ``boost`` 0..10 -> +30..+38 dB into the 1st clipper (density)."""
+    """v55 LOUD + CLEAR playback chain ("awaaz dab rahi" ROOT FIX).
+
+    Measured (speech -> chain -> Opus 48k voip -> decode), v54 chain:
+      -2.5 LUFS but true-peak +7.9 dBFS and 11 % of samples CLIPPED = square
+      wave.  Telegram's AGC / phone limiter duck a square wave, so it sounded
+      distorted and "dabi hui".  Missing links in the chain: a gate AFTER the
+      compressor chopped word tails, triple tanh (+38/+10/+3 dB), and the
+      final ceiling was 0 dBFS with no headroom for the Opus encoder.
+    This chain: presence EQ -> leveller -> 7:1 comp -> ONE band-limited tanh
+    -> slow density limiter -> +3 dB -> -1.5 dBFS ceiling.
+      ~-8 LUFS (very loud), ~0.1 % post-Opus clip (clean), quiet or loud input.
+    """
     b = max(0, min(40, 14 if bass is None else int(bass)))
     bo = LEVEL_MAX if boost is None else clamp(int(boost), LEVEL_MIN, LEVEL_MAX)
     out = [
-        f"equalizer=f=95:t=q:w=1.1:g={min(16.0, b * 0.8):.1f}",
+        f"equalizer=f=95:t=q:w=1.1:g={min(8.0, b * 0.45):.1f}",
         "equalizer=f=400:t=q:w=1:g=-3",
         "equalizer=f=1500:t=q:w=1:g=3",
-        "equalizer=f=2700:t=q:w=1.1:g=7",
-        "equalizer=f=4000:t=q:w=1.2:g=4",
-        "equalizer=f=6500:t=q:w=1.2:g=3.5",
+        "equalizer=f=2700:t=q:w=1.1:g=6",
+        "equalizer=f=4000:t=q:w=1.2:g=3",
     ]
     if _has_filter("speechnorm"):
         out.append("speechnorm=e=25:r=0.0008:l=1:p=0.9")
     else:
         out.append("dynaudnorm=f=150:g=15:p=0.9:m=30")
-    if _has_filter("agate"):
-        out.append("agate=threshold=0.03:range=0.02:ratio=4:attack=2:release=250:"
-                   "knee=4:detection=rms")
     out.append(f"acompressor=threshold=0.09:ratio=7:attack=2:release=60:"
                f"makeup={3.0 + bo * 0.15:.1f}:knee=4")
-    d1 = _env_db("PLAY_DRIVE_DB", 30.0 + 0.8 * bo, high=40.0, low=0.0)
-    tail = voice_band_tail(d1=d1, d2=4.0 + 6.0 * max(0.0, min(1.0, over)),
-                           hp=int(_env_db("PLAY_HP_FREQ", 120.0, high=220.0, low=80.0)))
-    if tail and tail[-1].startswith("alimiter"):
-        tail = tail[:-1]          # final ceiling = full_scale_push_tail
-    return out + tail
+    hp = int(_env_db("PLAY_HP_FREQ", 120.0, high=220.0, low=80.0))
+    drive = _env_db("PLAY_DRIVE_DB", 16.0 + 0.4 * bo, high=24.0, low=0.0)
+    out += [f"highpass=f={hp}:p=2", f"volume={_db(drive)}dB"]
+    if _has_filter("asoftclip"):
+        out.append("asoftclip=type=tanh:oversample=4")
+    out += ["lowpass=f=11000:p=2",
+            "alimiter=level_in=1:level_out=1:limit=0.6:attack=3:release=50:level=false",
+            "volume=3dB"]
+    return out
+
+
+def playback_ceiling() -> list:
+    lim = min(PLAY_CEILING_SAFE, 10 ** (_env_db("PLAY_CEILING_DB", -1.5, high=-0.5, low=-3.0) / 20.0))
+    return [f"alimiter=level_in=1:level_out=1:limit={lim:.4f}:attack=1:release=30:level=false"]
 
 
 def build_ffmpeg_filter(
@@ -854,7 +870,7 @@ def build_ffmpeg_filter(
         # then the v53 full-scale ceiling.  Live mic / bridge keep the master.
         filters += playback_fight_stage(bass=bass, boost=boost, over=over)
         # final full-scale ceiling (0.00 dBFS) for every played file.
-        filters += full_scale_push_tail(push_db=play_final_push_db())
+        filters += playback_ceiling()
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())

@@ -120,9 +120,9 @@
       "value": "14"
     },
     "PLAY_CEILING_DB": {
-      "description": "Final peak of every played audio in dBFS (-3..0). 0 = full scale 0.00 dBFS (max loud).",
+      "description": "Final peak of every played audio in dBFS (-3..-0.5). -1.5 = loudest level that stays clean after Telegram Opus.",
       "required": false,
-      "value": "0"
+      "value": "-1.5"
     },
     "PLAY_PUSH_DB": {
       "description": "Extra drive (dB, 0-24) into the 0 dBFS limiter for played audio. Quiet ya loud, sab isi se full tak jaata hai. Default 18.",
