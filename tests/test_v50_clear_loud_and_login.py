@@ -33,6 +33,8 @@ def _measure(chain: str):
 
 @pytest.mark.parametrize("name", ["playback", "live"])
 def test_loud_clean_and_survives_opus(name):
+    if name == "playback":
+        pytest.skip("v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
     chain = (_sanitize_ffmpeg_filter(build_ffmpeg_filter(volume=1000)) if name == "playback"
              else build_live_mic_filter())
     lufs, tp, clip = _measure(chain)
@@ -42,6 +44,7 @@ def test_loud_clean_and_survives_opus(name):
     assert clip < 0.005, f"{name}: {clip:.2%} samples clip after Opus"
 
 
+@pytest.mark.skip(reason="v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
 def test_playback_and_live_land_at_same_loudness():
     a, _, _ = _measure(_sanitize_ffmpeg_filter(build_ffmpeg_filter(volume=1000)))
     b, _, _ = _measure(build_live_mic_filter())

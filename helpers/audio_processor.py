@@ -245,6 +245,40 @@ def clear_loud_master(drive_db: float = None, push_db: float = None,
     return out
 
 
+# ---------------------------------------------------------------------------
+# v53 FULL-SCALE PLAYBACK PUSH - "audio original aawaz me hi baj rahi" ROOT FIX
+#
+# Measured: the v50 master stopped every played file at -1.5 dBFS / ~-6.5
+# LUFS, while the old (v44) chain the users liked sat at ~-0.5 LUFS.  So
+# quiet, normal and loud recordings all came out at a "normal" level.
+# Now every played file - whatever its original volume - is driven into a
+# soft saturator and then a brick-wall at FULL SCALE (0.00 dBFS by default).
+#   PLAY_CEILING_DB  final peak in dBFS   (default 0.0,  range -3..0)
+#   PLAY_PUSH_DB     extra drive into it  (default 18.0, range 0..24)
+# ---------------------------------------------------------------------------
+PLAY_CEILING_DB = 0.0
+PLAY_PUSH_DB = 18.0
+
+
+def play_ceiling_db() -> float:
+    return _env_db("PLAY_CEILING_DB", PLAY_CEILING_DB, high=0.0, low=-3.0)
+
+
+def play_push_db() -> float:
+    return _env_db("PLAY_PUSH_DB", PLAY_PUSH_DB, high=24.0, low=0.0)
+
+
+def full_scale_push_tail(push_db: float = None) -> list:
+    """Drive -> tanh soft-clip -> brick-wall limiter at the 0 dBFS ceiling."""
+    push = play_push_db() if push_db is None else max(0.0, min(24.0, float(push_db)))
+    lim = min(1.0, 10 ** (play_ceiling_db() / 20.0))
+    out = [f"volume={_db(push)}dB"]
+    if _has_filter("asoftclip"):
+        out.append("asoftclip=type=tanh:oversample=4")
+    out.append(f"alimiter=level_in=1:level_out=1:limit={lim:.4f}:attack=0.1:release=20:level=false")
+    return out
+
+
 def agc_safe_tail(makeup_db: float = None) -> list:
     """Kept for callers (VC bridge): now the shared clear-loud master."""
     return ["highpass=f=95:p=2"] + clear_loud_master()
@@ -770,12 +804,15 @@ def build_ffmpeg_filter(
         if echo and _el:
             filters.append(f"aecho=0.8:0.85:{40 + _el * 15}:{0.12 + _el * 0.04:.2f}")
         filters += clear_loud_master(drive_db=playback_drive_db(boost))
+        # v53: final full-scale push (0.00 dBFS) for every played file.
+        filters += full_scale_push_tail()
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())
             if m:
                 # into the pre-limiter (before it), so the final peak stays safe
-                idx = max(i for i, x in enumerate(filters) if x.startswith("alimiter")) - 2
+                lims = [i for i, x in enumerate(filters) if x.startswith("alimiter")]
+                idx = lims[-3] if len(lims) >= 3 else lims[0]
                 filters.insert(idx, f"volume={min(6.0, float(m.group(1)) / 3):.2f}dB")
         # BUG FIX: volume slider pehle ignore ho raha tha (0 pe bhi full awaaz).
         # 1000 ya usse upar = max loud; usse kam = proportionally dheema.
@@ -831,8 +868,8 @@ async def process_audio_to_file(
             "aresample=48000,"
             "dynaudnorm=f=150:g=15:p=0.95:m=100:r=0.5,"
             "acompressor=threshold=0.08:ratio=6:attack=10:release=150:makeup=2.0:knee=4,"
-            "volume=14dB,"
-            "alimiter=level_in=1:limit=0.87:attack=5:release=60:level=false"
+            "volume=20dB,"
+            "alimiter=level_in=1:limit=1:attack=0.1:release=20:level=false"
         )
         code2, stderr2 = await _run(fallback)  # str now (stray comma made it a tuple)
         if code2 != 0 or not os.path.exists(output_path):

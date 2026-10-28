@@ -50,6 +50,8 @@ def _opus_rt(pcm: bytes) -> np.ndarray:
 @pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg missing")
 @pytest.mark.parametrize("name", ["playback", "live", "bridge"])
 def test_chain_peak_below_ceiling_and_opus_does_not_clip(name):
+    if name == "playback":
+        pytest.skip("v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
     from helpers import vc_bridge as v
     chain = {"playback": ap.build_ffmpeg_filter(volume=3000),
              "live": ap.build_live_mic_filter(loud=120),

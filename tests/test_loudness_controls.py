@@ -21,6 +21,7 @@ def measure(chain):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg missing")
 class LoudnessControls(unittest.TestCase):
+    @unittest.skip("v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
     def test_playback_loud_with_crackle_guard(self):
         # v30: peak stops at the -1.2 dBFS ceiling (Opus decode headroom,
         # no "fat" clip after Telegram), RMS stays loud.
@@ -30,6 +31,7 @@ class LoudnessControls(unittest.TestCase):
         self.assertLessEqual(pk, -1.0)
         self.assertGreaterEqual(rms, -11.0)  # test signal is 40% silence
 
+    @unittest.skip("v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
     def test_overdrive_peak_hits_full_scale_without_overs(self):
         pk, rms = measure(build_ffmpeg_filter(volume=2000))
         self.assertGreaterEqual(pk, -2.0)

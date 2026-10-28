@@ -71,6 +71,12 @@ class Config:
     EXTRA_GAIN_DB: int = _int("EXTRA_GAIN_DB", 60)
     LOUD_EXTRA_DB: int = _int("LOUD_EXTRA_DB", 30)
 
+    # v53 full-scale playback: every played file is pushed to this peak.
+    PLAY_CEILING_DB: float = max(-3.0, min(0.0, float(os.environ.get("PLAY_CEILING_DB", "") or 0.0)))
+    PLAY_PUSH_DB: float = max(0.0, min(24.0, float(os.environ.get("PLAY_PUSH_DB", "") or 18.0)))
+    PLAY_ALLOW_QUIET: bool = _bool("PLAY_ALLOW_QUIET", False)
+    ULTRA_LOUD: bool = _bool("ULTRA_LOUD", True)
+
     FAST_PLAY: bool = _bool("FAST_PLAY", True)
 
     HAND_RAISE_DEFAULT: bool = _bool("HAND_RAISE_DEFAULT", True)

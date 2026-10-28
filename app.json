@@ -70,9 +70,9 @@
       "value": "2"
     },
     "DEFAULT_BOOST": {
-      "description": "Loudness boost stage 0-10. Strong default: 9",
+      "description": "Loudness boost stage 0-10. Max default: 10",
       "required": false,
-      "value": "9"
+      "value": "10"
     },
     "LIVE_BOOST_DEFAULT": {
       "description": "Live mic participant volume 1-20000 (20000 = 200% max)",
@@ -85,9 +85,9 @@
       "value": "3000"
     },
     "RELAY_DEFAULT_GAIN": {
-      "description": "Relay playback gain 0-400. Strong real-audio default: 300",
+      "description": "Relay playback gain 0-500. Max default: 500",
       "required": false,
-      "value": "300"
+      "value": "500"
     },
     "RELAY_DEFAULT_BASS": {
       "description": "Relay bass 0-100. Keep moderate for clear speech.",
@@ -113,6 +113,36 @@
       "description": "Extra loud drive tail on all audio (1=on, 0=off). Default on.",
       "required": false,
       "value": "1"
+    },
+    "DEFAULT_BASS": {
+      "description": "Bass lift 0-100. Default: 14",
+      "required": false,
+      "value": "14"
+    },
+    "PLAY_CEILING_DB": {
+      "description": "Final peak of every played audio in dBFS (-3..0). 0 = full scale 0.00 dBFS (max loud).",
+      "required": false,
+      "value": "0"
+    },
+    "PLAY_PUSH_DB": {
+      "description": "Extra drive (dB, 0-24) into the 0 dBFS limiter for played audio. Quiet ya loud, sab isi se full tak jaata hai. Default 18.",
+      "required": false,
+      "value": "18"
+    },
+    "PLAY_ALLOW_QUIET": {
+      "description": "1 = allow volume slider below max for playback. 0 = always full loud.",
+      "required": false,
+      "value": "0"
+    },
+    "LOUD_EXTRA_DB": {
+      "description": "Extra make-up gain 0-30 dB. Default 30.",
+      "required": false,
+      "value": "30"
+    },
+    "EXTRA_GAIN_DB": {
+      "description": "Extra output gain 0-66 dB. Default 60.",
+      "required": false,
+      "value": "60"
     }
   },
   "buildpacks": [
