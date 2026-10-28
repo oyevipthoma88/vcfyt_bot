@@ -641,8 +641,53 @@ def playback_drive_db(boost: int = None) -> float:
     return 14.0 + 6.0 * b / float(LEVEL_MAX)
 
 
+_INPUT_GAIN_CACHE: dict = {}
+INPUT_TARGET_LUFS = -18.0     # every file enters the chain at this loudness
+INPUT_MAX_GAIN_DB = 40.0
+
+
+def measure_input_gain(path: str) -> float:
+    """Static per-file gain (dB) so quiet, normal and loud recordings all
+    enter the playback chain at the SAME loudness.
+
+    ROOT FIX ("dheemi / normal recording normal hi bajti"): the chain's hiss
+    gate has a fixed -48 dB threshold and ran on the RAW file, so a softly
+    recorded voice sat under it and got pulled down ~30 dB; the leveller
+    after it could only bring it back to "normal".  A static gain (not a
+    leveller) keeps the file's own voice-to-hiss ratio, so the gate after it
+    still removes only hiss.  One fast FFmpeg scan (~0.1 s per minute)."""
+    if not path or not os.path.exists(path):
+        return 0.0
+    try:
+        key = (os.path.abspath(path), os.path.getsize(path), int(os.path.getmtime(path)))
+    except OSError:
+        return 0.0
+    if key in _INPUT_GAIN_CACHE:
+        return _INPUT_GAIN_CACHE[key]
+    gain = 0.0
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostdin", "-t", "90", "-i", path, "-vn", "-sn", "-dn",
+             "-af", "aresample=48000,ebur128=peak=sample", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=30).stderr
+        lufs = re.findall(r"I:\s+(-?[\d.]+|-inf) LUFS", out)
+        peak = re.findall(r"Peak:\s+(-?[\d.]+|-inf) dBFS", out)
+        if lufs and lufs[-1] != "-inf" and float(lufs[-1]) > -70:
+            gain = INPUT_TARGET_LUFS - float(lufs[-1])
+            if peak and peak[-1] != "-inf":
+                gain = min(gain, -1.0 - float(peak[-1]))   # never clip here
+            gain = max(0.0, min(INPUT_MAX_GAIN_DB, gain))   # only lift, never cut
+    except Exception:
+        gain = 0.0
+    if len(_INPUT_GAIN_CACHE) > 256:
+        _INPUT_GAIN_CACHE.clear()
+    _INPUT_GAIN_CACHE[key] = gain
+    return gain
+
+
 def playback_voice_stage(bass: int = None, treble: int = None,
-                         gain: int = None) -> list:
+                         gain: int = None, input_gain_db: float = 0.0) -> list:
     """Pre-master tone + level stage for played files (peak-safe).
 
     * gain 0..500  -> up to +12 dB pre-gain so a softly recorded voice note
@@ -652,6 +697,15 @@ def playback_voice_stage(bass: int = None, treble: int = None,
     * treble 0..100 -> -1.4..+3.2 dB high shelf (`.voice female` = bright).
     """
     out = []
+    # ROOT FIX (soft / normal recording stayed "normal"): the hiss gate below
+    # has a FIXED -48 dB threshold and ran on the RAW file.  A softly
+    # recorded voice note (speech at -45..-60 dBFS) sat under it, got pulled
+    # down 30 dB, and the rest of the chain could only bring it back to
+    # "normal".  Level the input to a fixed speech level FIRST (up to +40 dB
+    # for whisper-quiet files, never boosts already-loud ones), so every
+    # file hits the gate + master at the same level.
+    if input_gain_db and input_gain_db > 0.05:
+        out.append(f"volume={_db(input_gain_db)}dB")
     if _has_filter("agate"):
         # same soft expander as the live mic: hiss between words stays down
         # so the extra gain/drive below lifts only the voice.
@@ -687,6 +741,7 @@ def build_ffmpeg_filter(
         turbo: float = None,
         clarity: float = None,
         stream: bool = False,
+        input_gain_db: float = 0.0,
     ) -> str:
         if live:
             return build_live_mic_filter()
@@ -708,7 +763,8 @@ def build_ffmpeg_filter(
             "aresample=48000",
             "highpass=f=70:p=2", "highpass=f=70:p=2",
         ]
-        filters += playback_voice_stage(bass=bass, treble=treble, gain=gain)
+        filters += playback_voice_stage(bass=bass, treble=treble, gain=gain,
+                                        input_gain_db=input_gain_db)
         # BUG FIX: the Echo setting was silently ignored in playback.
         _el = max(0, min(LEVEL_MAX, int(echo_level if echo_level is not None else 0)))
         if echo and _el:
@@ -750,6 +806,7 @@ async def process_audio_to_file(
         volume=volume, bass=bass, echo=echo, echo_level=echo_level,
         boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
         extra_filters=extra_filters,
+        input_gain_db=await asyncio.to_thread(measure_input_gain, input_path),
     ))
     async def _run(filter_chain: str) -> tuple:
         cmd = [
@@ -822,6 +879,7 @@ def build_stream_command(
         volume=volume, bass=bass, echo=echo, echo_level=echo_level,
         boost=boost, relay_volume=relay_volume, gain=gain, treble=treble,
         extra_filters=extra_filters, stream=True,
+        input_gain_db=measure_input_gain(input_path),
     ))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
            "-fflags", "nobuffer+genpts+flush_packets", "-flags", "low_delay",
@@ -840,7 +898,13 @@ def build_stream_command(
     if not (start_at and start_at > 0):
         # 0-sec start: cut the file's leading silence so sound is heard
         # the moment .play hits the VC.
-        af = "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.05," + af
+        # ROOT FIX (dheemi / normal recording "normal ya chup" bajti thi):
+        # -50 dB RMS threshold raw input pe lagta tha, gain se PEHLE.  Soft
+        # voice note (RMS < -50 dB) poora "silence" maan ke kaat diya jaata
+        # tha (0 bytes output), aur normal recording ke shuru ke dheeme
+        # shabd kat jaate the.  Ab sirf digital silence (-75 dB peak) trim.
+        af = ("silenceremove=start_periods=1:start_threshold=-75dB:"
+              "start_silence=0.05:detection=peak," + af)
     cmd += [
         "-i", input_path, "-vn", "-sn", "-dn", "-af", af,
         "-ar", "48000", "-ac", "2", "-f", "s16le", "-flush_packets", "1",

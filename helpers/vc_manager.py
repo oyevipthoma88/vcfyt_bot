@@ -1187,6 +1187,43 @@ class UserVC:
     _SS_MIN_GAP = 4.0  # sec: ntgcalls ko presentation teardown ka poora time do
     _SS_JOIN_TIMEOUT = 25.0  # sec: presentation join kabhi lock ko hamesha ke liye na pakde
 
+    async def _ss_join_shielded(self, chat_id: int) -> None:
+        """Presentation join WITHOUT cancelling it mid-way.
+
+        Last push me ``asyncio.wait_for`` timeout pe join ko beech me cancel
+        karta tha: ``init_presentation`` native side pe ho chuka hota tha par
+        ``_presentations`` me entry nahi aati thi -> cleanup ``leave`` kuch
+        nahi karta tha (chat set me nahi) -> agle ON pe dusra
+        init_presentation same call pe = ntgcalls native crash."""
+        job = asyncio.ensure_future(self.calls._join_presentation(chat_id, True))
+        try:
+            await asyncio.wait_for(asyncio.shield(job), timeout=self._SS_JOIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            # let the native join finish, then tear it down cleanly
+            try:
+                await asyncio.wait_for(job, timeout=10)
+            except BaseException:
+                pass
+            raise
+
+    async def _ss_leave_hard(self, chat_id: int) -> None:
+        """Presentation ko native + Telegram dono side se band karo, chahe
+        pytgcalls ke ``_presentations`` set me ho ya na ho."""
+        pres = getattr(self.calls, "_presentations", None)
+        binding = getattr(self.calls, "_binding", None)
+        try:
+            await asyncio.wait_for(binding.stop_presentation(chat_id), timeout=10)
+        except BaseException:
+            pass  # ConnectionNotFound = already closed
+        if pres is None or chat_id in pres:
+            try:
+                await asyncio.wait_for(self.calls._app.leave_presentation(chat_id), timeout=10)
+            except BaseException:
+                pass
+        if pres is not None:
+            pres.discard(chat_id)
+        await asyncio.sleep(0.5)  # native teardown settle
+
     async def _ss_stop_task(self, st) -> None:
         task = getattr(st, "ss_task", None)
         if task and not task.done():
@@ -1285,22 +1322,26 @@ class UserVC:
         prev = st.ss_on
         st.ss_on = bool(on)
         try:
-            await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
-            await asyncio.wait_for(self.calls._join_presentation(chat_id, bool(on)),
-                                   timeout=self._SS_JOIN_TIMEOUT)
+            if on:
+                await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
+                await self._ss_join_shielded(chat_id)
+            else:
+                # ROOT FIX (2nd OFF/ON crash): pehle presentation connection
+                # band karo, PHIR screen track hatao.  Ulta order me ntgcalls
+                # chalte presentation se track chheen leta tha aur agla
+                # init_presentation aadhe-band connection pe native crash
+                # karta tha (pura bot process mar jaata tha).
+                await self._ss_leave_hard(chat_id)
+                await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
         except BaseException as exc:
             st.ss_on = prev if not on else False
             if on:
                 # Half-open presentation = next toggle pe native crash.
-                # Screen track + presentation dono saaf band karo.
+                await self._ss_leave_hard(chat_id)
                 try:
                     await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, MediaDescription(
                         microphone=mic, speaker=desc.speaker, camera=desc.camera, screen=None))
                 except Exception:
-                    pass
-                try:
-                    await asyncio.wait_for(self.calls._join_presentation(chat_id, False), timeout=10)
-                except BaseException:
                     pass
             if isinstance(exc, asyncio.TimeoutError):
                 raise RuntimeError("Screen share join timeout — Telegram ne jawab nahi diya.") from None
@@ -2260,6 +2301,9 @@ class UserVC:
                 audio_src = self._audio_source(st, path, loop=(st.loop and st.loop_left < 0),
                                                start_at=start_at)
                 st.last_mic = audio_src
+                # BUG FIX: purani processed WAV loop pe dobara bajti thi
+                # (pichla gaana / bina boost) — fast path ka koi WAV nahi.
+                st.processed_file = None
                 raw_stream = self._raw_stream(st, audio_src)
                 await self.calls.play(chat_id, raw_stream, GroupCallConfig(auto_start=False))
                 self._seed_capture(chat_id, audio_src)
