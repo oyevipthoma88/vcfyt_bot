@@ -629,6 +629,49 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
 
 
 # MAX LOUDNESS V3
+def playback_drive_db(boost: int = None) -> float:
+    """`.boost 0-10` -> drive into the master pre-limiter (14..20 dB).
+
+    ROOT FIX ("tag/reply karke play kiya to awaaz normal"): the playback chain
+    used to accept boost/gain/treble but never used them, so `.boost`,
+    `.gain`, `.treble`, `.voice male|female` and the `.max` preset changed
+    nothing and a normal-voice recording came out sounding normal.
+    """
+    b = LEVEL_MAX if boost is None else clamp(int(boost), LEVEL_MIN, LEVEL_MAX)
+    return 14.0 + 6.0 * b / float(LEVEL_MAX)
+
+
+def playback_voice_stage(bass: int = None, treble: int = None,
+                         gain: int = None) -> list:
+    """Pre-master tone + level stage for played files (peak-safe).
+
+    * gain 0..500  -> up to +12 dB pre-gain so a softly recorded voice note
+      reaches the leveller hot (speechnorm can only lift ~+20 dB on its own),
+      guarded by a limiter so it never clips before the master;
+    * bass 0..100  -> +0..10 dB warm body at 120 Hz (`.voice male` = heavy);
+    * treble 0..100 -> -1.4..+3.2 dB high shelf (`.voice female` = bright).
+    """
+    out = []
+    if _has_filter("agate"):
+        # same soft expander as the live mic: hiss between words stays down
+        # so the extra gain/drive below lifts only the voice.
+        out.append("agate=threshold=0.00400:range=0.03:ratio=3:"
+                   "attack=3:release=300:knee=6:detection=rms")
+    g = GAIN_MAX if gain is None else clamp(int(gain), 0, GAIN_MAX)
+    pre = 12.0 * g / float(GAIN_MAX)
+    if pre > 0.05:
+        out += [f"volume={_db(pre)}dB",
+                "alimiter=level_in=1:level_out=1:limit=0.9:attack=2:release=50:level=false"]
+    b = clamp(14 if bass is None else int(bass), BASS_MIN, BASS_MAX)
+    if b:
+        out.append(f"equalizer=f=120:t=q:w=1.1:g={min(10.0, b * 0.3):.1f}")
+    t = clamp(100 if treble is None else int(treble), 0, 100)
+    tg = (t - 30) * 0.045
+    if abs(tg) >= 0.1:
+        out.append(f"highshelf=f=3500:g={tg:.1f}")
+    return out
+
+
 def build_ffmpeg_filter(
         volume: int = None,
         bass: int = None,
@@ -665,15 +708,12 @@ def build_ffmpeg_filter(
             "aresample=48000",
             "highpass=f=70:p=2", "highpass=f=70:p=2",
         ]
-        _b = max(0, min(40, 14 if bass is None else int(bass)))
-        if _b:
-            # warm body only — big sub-bass eats the headroom the voice needs
-            filters.append(f"equalizer=f=120:t=q:w=1.1:g={min(5.0, _b * 0.3):.1f}")
+        filters += playback_voice_stage(bass=bass, treble=treble, gain=gain)
         # BUG FIX: the Echo setting was silently ignored in playback.
         _el = max(0, min(LEVEL_MAX, int(echo_level if echo_level is not None else 0)))
         if echo and _el:
             filters.append(f"aecho=0.8:0.85:{40 + _el * 15}:{0.12 + _el * 0.04:.2f}")
-        filters += clear_loud_master()
+        filters += clear_loud_master(drive_db=playback_drive_db(boost))
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())

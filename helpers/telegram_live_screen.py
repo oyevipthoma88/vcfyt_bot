@@ -683,8 +683,12 @@ def main():
         # bot ne SS off karke state file hata di, to yeh process khud exit
         # kare — warna 2-3 toggle me zombie renderers CPU/RAM kha ke bot ko
         # crash/restart karwa dete the.
+        # v2: state file per SS session (generation) hai, isliye yeh kabhi
+        # "revive" nahi hota.  Normal OFF pe ntgcalls pipe band karta hai ->
+        # BrokenPipe -> exit.  Ye guard sirf leak ke liye hai: jaldi exit
+        # karna (4 s) ntgcalls ke chalte reader ko EOF deta tha = crash.
         if os.getppid() != parent or (seen_state and not os.path.exists(a.state)
-                                       and now - last_seen > 4.0):
+                                       and now - last_seen > 20.0):
             return
         if os.path.exists(a.state):
             seen_state, last_seen = True, now

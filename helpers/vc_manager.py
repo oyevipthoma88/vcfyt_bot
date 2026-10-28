@@ -4,6 +4,7 @@ import inspect
 import logging
 import os
 import shutil
+import tempfile
 import random
 import time
 from collections import OrderedDict
@@ -134,6 +135,28 @@ class _BindingRecorder:
         except Exception:
             pass
         return res
+
+
+_SAFE_PATH_RE = __import__("re").compile(r"^[A-Za-z0-9_./+-]+$")
+
+
+def _shell_safe_path(path: str) -> str:
+    """ntgcalls SHELL source splits the command on spaces.  A Telegram audio
+    named "my voice 2.mp3" broke the FFmpeg command (silence / wrong file).
+    Unsafe names get a space-free symlink (copy as fallback)."""
+    if not path or _SAFE_PATH_RE.match(path):
+        return path
+    import hashlib
+    safe_dir = os.path.join(tempfile.gettempdir(), "vcplay_links")
+    os.makedirs(safe_dir, exist_ok=True)
+    ext = "".join(c for c in os.path.splitext(path)[1] if c.isalnum() or c == ".")[:8]
+    link = os.path.join(safe_dir, hashlib.sha1(os.path.abspath(path).encode()).hexdigest()[:16] + ext)
+    if not os.path.exists(link):
+        try:
+            os.symlink(os.path.abspath(path), link)
+        except OSError:
+            shutil.copyfile(path, link)
+    return link
 
 
 def _keep_open_copy(desc):
@@ -408,6 +431,8 @@ class ChatState:
         # Live participants grid removed (user request): old PC mixer SS is default.
         self.ss_mode: str = "mixer"
         self.ss_task = None
+        self.ss_gen: int = 0
+        self.ss_last_toggle: float = 0.0
         self.play_start_time = None
         self.play_start_offset = 0.0
         self.pause_time = None
@@ -1159,12 +1184,10 @@ class UserVC:
         lock = self.__dict__.get("_ss_locks", {}).get(chat_id)
         return bool(lock and lock.locked())
 
-    _SS_MIN_GAP = 2.5  # sec: ntgcalls ko track teardown ka time do
+    _SS_MIN_GAP = 4.0  # sec: ntgcalls ko presentation teardown ka poora time do
+    _SS_JOIN_TIMEOUT = 25.0  # sec: presentation join kabhi lock ko hamesha ke liye na pakde
 
-    async def _ss_cleanup(self, chat_id: int, st) -> None:
-        """ROOT FIX (2-3 toggle crash): purana live-loop + renderer pura band."""
-        if getattr(st, "ss_on", False):
-            return
+    async def _ss_stop_task(self, st) -> None:
         task = getattr(st, "ss_task", None)
         if task and not task.done():
             task.cancel()
@@ -1173,6 +1196,21 @@ class UserVC:
             except BaseException:
                 pass
         st.ss_task = None
+
+    async def _ss_new_session(self, chat_id: int, st) -> None:
+        """OFF -> ON: purana loop + uska state file pura khatam, naya generation."""
+        await self._ss_stop_task(st)
+        try:
+            os.remove(self._ss_state_path(chat_id))
+        except OSError:
+            pass
+        st.ss_gen = int(getattr(st, "ss_gen", 0) or 0) + 1
+
+    async def _ss_cleanup(self, chat_id: int, st) -> None:
+        """ROOT FIX (2-3 toggle crash): purana live-loop + renderer pura band."""
+        if getattr(st, "ss_on", False):
+            return
+        await self._ss_stop_task(st)
         try:
             os.remove(self._ss_state_path(chat_id))  # renderer khud exit karega
         except OSError:
@@ -1200,6 +1238,8 @@ class UserVC:
             if on and not Config.SCREEN_SHARE_ENABLED:
                 st.ss_error = "SCREEN_SHARE_ENABLED=false (env) hai."
                 return False
+            if on and not st.ss_on:
+                await self._ss_new_session(chat_id, st)
             # ROOT FIX: screen share audio se poori tarah alag. Agar call chal
             # rahi hai to sirf screen track add/remove hota hai — mic/audio
             # pipeline (gaana, live mic) ko bilkul touch nahi kiya jata.
@@ -1246,9 +1286,24 @@ class UserVC:
         st.ss_on = bool(on)
         try:
             await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
-            await self.calls._join_presentation(chat_id, bool(on))
-        except Exception:
+            await asyncio.wait_for(self.calls._join_presentation(chat_id, bool(on)),
+                                   timeout=self._SS_JOIN_TIMEOUT)
+        except BaseException as exc:
             st.ss_on = prev if not on else False
+            if on:
+                # Half-open presentation = next toggle pe native crash.
+                # Screen track + presentation dono saaf band karo.
+                try:
+                    await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, MediaDescription(
+                        microphone=mic, speaker=desc.speaker, camera=desc.camera, screen=None))
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(self.calls._join_presentation(chat_id, False), timeout=10)
+                except BaseException:
+                    pass
+            if isinstance(exc, asyncio.TimeoutError):
+                raise RuntimeError("Screen share join timeout — Telegram ne jawab nahi diya.") from None
             raise
         if on:
             pres = getattr(self.calls, "_presentations", None)
@@ -1817,6 +1872,7 @@ class UserVC:
         """FFmpeg -> raw PCM audio source: playback starts in ~0 s."""
         from ntgcalls import MediaSource
         from pytgcalls.types.raw import AudioParameters, AudioStream
+        path = _shell_safe_path(path)
         cmd = build_stream_command(
             path, volume=st.volume, bass=st.bass, echo=st.echo,
             echo_level=st.echo_level, boost=st.boost,
@@ -1865,8 +1921,16 @@ class UserVC:
             })
         return out
 
-    def _ss_state_path(self, chat_id: int) -> str:
-        return os.path.join("/tmp", f"ss_live_{self.owner_id}_{abs(chat_id)}.json")
+    def _ss_state_path(self, chat_id: int, gen: int = None) -> str:
+        # ROOT FIX (2x SS on/off crash): har ON ka apna state file (generation).
+        # Pehle sab toggles ek hi file share karte the -> OFF ke baad file
+        # hati, ON ne turant wahi file dobara likhi, purana renderer "zinda"
+        # ho gaya aur naya bhi chala -> 2 renderers + 2 live loops ek hi
+        # track pe = RAM/CPU spike + ntgcalls native crash.
+        if gen is None:
+            st = self.chats.get(chat_id)
+            gen = int(getattr(st, "ss_gen", 0) or 0) if st else 0
+        return os.path.join("/tmp", f"ss_live_{self.owner_id}_{abs(chat_id)}_{gen}.json")
 
     async def _ss_avatar(self, uid, client=None) -> str:
         """Download a participant's profile photo once, cache it on disk."""
@@ -1931,8 +1995,11 @@ class UserVC:
     async def _ss_live_loop(self, chat_id: int):
         """Keep the live screen's state file fresh while screen share is ON."""
         import json
-        path = self._ss_state_path(chat_id)
+        _st0 = self.chats.get(chat_id)
+        gen = int(getattr(_st0, "ss_gen", 0) or 0) if _st0 else 0
+        path = self._ss_state_path(chat_id, gen)
         started = time.time()
+        off_since = None
         title = ""
         try:
             chat = await self.client.get_chat(chat_id)
@@ -2030,8 +2097,17 @@ class UserVC:
         last_pos = 0.0
         while True:
             st = self.chats.get(chat_id)
-            if not st or not st.ss_on:
-                break
+            if not st or int(getattr(st, "ss_gen", 0) or 0) != gen:
+                break  # newer SS session owns the screen now
+            if not st.ss_on:
+                # ss_on is set a moment AFTER the screen source is built;
+                # only a real OFF (> 3 s) ends this loop.
+                off_since = off_since or time.time()
+                if time.time() - off_since > 3.0:
+                    break
+                await asyncio.sleep(0.5)
+                continue
+            off_since = None
             if st.is_playing:
                 try:
                     last_pos = await self._current_position(chat_id)
