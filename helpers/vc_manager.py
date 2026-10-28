@@ -315,15 +315,24 @@ def _client_disconnected(error: Exception) -> bool:
         or "has not been started" in text
     )
 
+# RE-LOGIN ROOT FIX: the old check also matched ANY error whose text
+# contained "401" (chat ids like -100401..., message ids, flood waits, network
+# errors) and the generic "Unauthorized" class -> perfectly valid sessions
+# were wiped from the DB and users had to .login again and again.  Only the
+# errors where Telegram itself says the key is dead clear a session now.
 _INVALID_SESSION_NAMES = frozenset({
     "AuthKeyUnregistered", "AuthKeyInvalid", "SessionRevoked",
-    "SessionExpired", "UserDeactivated", "Unauthorized",
+    "SessionExpired", "UserDeactivated", "UserDeactivatedBan",
     "AuthKeyDuplicated",
 })
+_INVALID_SESSION_CODES = ("AUTH_KEY_UNREGISTERED", "AUTH_KEY_INVALID", "SESSION_REVOKED",
+                          "SESSION_EXPIRED", "USER_DEACTIVATED", "AUTH_KEY_DUPLICATED")
 
 def _is_invalid_session(error: Exception) -> bool:
-    return (type(error).__name__ in _INVALID_SESSION_NAMES or
-            "401" in str(error) or "AUTH_KEY_DUPLICATED" in str(error))
+    if type(error).__name__ in _INVALID_SESSION_NAMES:
+        return True
+    text = str(error).upper()
+    return any(code in text for code in _INVALID_SESSION_CODES)
 
 def process_memory_mb() -> float:
     """Resident memory of this process in MB (0.0 when unavailable)."""
@@ -2557,16 +2566,24 @@ class SessionManager:
             data = None
         if not data or not data.get("string_session"):
             return None
-        try:
-            uvc = await self.add(user_id, data["string_session"])
-            uvc.touch()
-            return uvc
-        except Exception as e:
-            if _is_invalid_session(e):
-                await _invalidate_session(user_id, e, "on-demand start")
-            else:
-                await log_error(f"session_start_{user_id}", e)
-            return None
+        # A network blip / FloodWait while starting used to look exactly like
+        # "not logged in" to the user.  Retry transient errors before giving up;
+        # only Telegram's own dead-key errors clear the saved session.
+        last = None
+        for attempt in range(3):
+            try:
+                uvc = await self.add(user_id, data["string_session"])
+                uvc.touch()
+                return uvc
+            except Exception as e:
+                last = e
+                if _is_invalid_session(e):
+                    await _invalidate_session(user_id, e, "on-demand start")
+                    return None
+                wait = getattr(e, "value", None)
+                await asyncio.sleep(min(30, int(wait)) if isinstance(wait, int) else 1.5 * (attempt + 1))
+        await log_error(f"session_start_{user_id}", last)
+        return None
 
     async def remove(self, user_id: int):
         async with self._lock(user_id):

@@ -110,7 +110,7 @@ def test_soft_voice_reaches_full_scale_and_pauses_silent():
         xs, ms = x[sl], mask[sl]
         lufs = _lufs(xs[ms == 0])
         print(label, "LUFS", lufs)
-        assert lufs > -9.0, f"{label}: {lufs} LUFS — too quiet"
+        assert lufs > -12.0, f"{label}: {lufs} LUFS — too quiet"  # v50 clean master target ~-10
     # v30: no square wave -> after Opus decode almost nothing clips ("fat")
     clip = float(np.mean(np.abs(x) > 0.99))
     print("post-opus clipped samples", clip)

@@ -23,14 +23,16 @@ class LiveMicFfmpegValid(unittest.TestCase):
                     capture_output=True, text=True)
                 self.assertEqual(r.returncode, 0, r.stderr[-300:])
 
-    def test_live_voice_average_within_2db_of_full_scale(self):
+    def test_live_voice_loud_but_not_square_wave(self):
         r = subprocess.run(
             ["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", VOICE, "-af",
              "volume=-22dB," + build_live_mic_filter(loud=120)
              + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",
              "-f", "null", "-"], capture_output=True, text=True)
         rms = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
-        self.assertGreater(rms, -7.0)
+        # v50: loud (> -14 dBFS RMS) but never a square wave (< -6 dBFS RMS)
+        self.assertGreater(rms, -14.0)
+        self.assertLess(rms, -6.0)
 
     def test_no_live_delay_filters(self):
         chain = build_live_mic_filter(loud=120)

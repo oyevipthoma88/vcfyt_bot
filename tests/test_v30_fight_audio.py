@@ -60,7 +60,8 @@ def test_chain_peak_below_ceiling_and_opus_does_not_clip(name):
     assert peak_db <= -1.0, f"{name}: peak {peak_db:.2f} dBFS above the -1 dBFS ceiling"
     act = y[np.abs(y) > 0.01]
     rms_db = 20 * np.log10(np.sqrt(np.mean(act ** 2)))
-    assert rms_db >= -14.0, f"{name}: voice only {rms_db:.1f} dBFS RMS"
+    # v50: clean dense voice (crest ~10 dB) instead of a square wave
+    assert rms_db >= -17.0, f"{name}: voice only {rms_db:.1f} dBFS RMS"
     clip = float(np.mean(np.abs(_opus_rt(out)) > 0.99))
     assert clip < 0.05, f"{name}: {clip:.1%} samples clip after Opus (old chains: 12-20 %)"
 

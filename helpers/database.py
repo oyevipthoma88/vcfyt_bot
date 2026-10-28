@@ -423,7 +423,34 @@ class Database:
         def _s():
             rows = self._sql("SELECT * FROM users WHERE user_id=?", (user_id,), fetch=True)
             return dict(rows[0]) if rows else None
-        return await self._safe_read(_m, _s)
+        doc = await self._safe_read(_m, _s)
+        # RE-LOGIN ROOT FIX: when Mongo was write-blocked (Atlas quota) the
+        # new session landed only in SQLite, but Mongo still returned the old
+        # doc with an empty/stale string_session -> "login again".  The
+        # SQLite mirror always holds the latest session, so prefer it.
+        if self._use_mongo and self._mongo is not None:
+            try:
+                local = _s()
+            except Exception:
+                local = None
+            if local:
+                if not doc:
+                    return local
+                lss = local.get("string_session") or ""
+                if lss and lss != (doc.get("string_session") or ""):
+                    doc = dict(doc)
+                    doc["string_session"] = lss
+        return doc
+
+    def _mirror_string(self, user_id: int, string_session: str):
+        """Always keep the session in SQLite too (never lost to a Mongo fault)."""
+        try:
+            self._sql("INSERT OR IGNORE INTO users (user_id, username, first_name, string_session, joined_at, extra_json) "
+                      "VALUES (?,?,?,?,?,?)",
+                      (user_id, "", "", string_session, datetime.now(timezone.utc).isoformat(), "{}"))
+            self._sql("UPDATE users SET string_session=? WHERE user_id=?", (string_session, user_id))
+        except Exception as e:
+            logger.warning("[DB] SQLite session mirror failed: %s", e)
 
     async def update_string(self, user_id: int, string_session: str):
         async def _m():
@@ -434,6 +461,7 @@ class Database:
         def _s():
             self._sql("UPDATE users SET string_session=? WHERE user_id=?", (string_session, user_id))
         await self._safe_write(_m, _s)
+        self._mirror_string(user_id, string_session)
 
     async def clear_string(self, user_id: int):
         await self.update_string(user_id, "")

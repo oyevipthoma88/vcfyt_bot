@@ -46,7 +46,8 @@ class RelayFeatureTests(unittest.TestCase):
     def test_filter_chain_shape(self):
         af = build_ffmpeg_filter(volume=1000, gain=150, boost=10, echo=False)
         stages = [s.split("=")[0] for s in af.split(",")]
-        self.assertEqual(stages[0], "highpass")
+        self.assertIn(stages[0], ("aresample", "highpass"))
+        self.assertIn("highpass", stages[:3])
         self.assertEqual(stages[-1], "alimiter")
         self.assertIn("acompressor", stages)
         # 100x: density compressor stack is intentional now.

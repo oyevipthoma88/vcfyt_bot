@@ -37,7 +37,7 @@ class GuidedSetupTests(unittest.TestCase):
         from plugins.vc_bridge import loud_kb
         for live in (False, True):
             rows = loud_kb(live).inline_keyboard
-            self.assertLessEqual(len(rows), 5)  # +Ghost Mic row
+            self.assertLessEqual(len(rows), 6)  # +Ghost Mic + Live Screen rows
             self.assertEqual(len(rows[0]), 1)  # sirf ek bada ON/OFF button
         self.assertEqual(loud_kb(False).inline_keyboard[0][0].callback_data, "brc:on")
         self.assertEqual(loud_kb(True).inline_keyboard[0][0].callback_data, "brc:off")
@@ -45,7 +45,7 @@ class GuidedSetupTests(unittest.TestCase):
     def test_every_panel_button_has_handler(self):
         import re
         from plugins.vc_bridge import loud_kb
-        ok = re.compile(r"^(brc:(on|off|status|leave|loud|help)|brl:.+|brv:(tune|setup|more)|"
+        ok = re.compile(r"^(brc:(on|off|status|leave|loud|help|ss)|brl:.+|brv:(tune|setup|more)|"
                         r"brs:(src|tgt|auto)|tut:video|menu:home|mic:(acct|chat)|gm:live(:-?\d+)?)$")
         for page in ("main", "more", "tune", "setup"):
             for row in loud_kb(False, page).inline_keyboard:

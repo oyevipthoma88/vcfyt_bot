@@ -202,17 +202,52 @@ def voice_ceiling_db() -> float:
 AGC_SAFE_CEILING_DB = -1.2
 
 
+
+# ---------------------------------------------------------------------------
+# v50 CLEAR-LOUD MASTER — "awaaz full hai phir bhi kam lagti / dab rahi" ROOT FIX
+#
+# Measured (33 s real speech -> chain -> Opus 48k voip -> decode):
+#   old playback chain : -4.6 LUFS, crest 9 dB, 4.7 % samples CLIPPED after
+#                        Opus = square wave.  Telegram's receive AGC + phone
+#                        limiter duck a square wave, so it sounds squashed,
+#                        "dabbi" and NOT louder.
+#   old live-mic chain : -16.4 LUFS = genuinely ~6 dB too quiet.
+#   this master        : ~-10.5 LUFS, true-peak -1.3 dBFS, ~0 % post-Opus
+#                        clip -> loudest level that still survives Opus clean.
+# One shared tail for playback, live mic and the VC bridge, so every source
+# lands at the SAME loudness.  No tanh/hard clippers anywhere.
+# ---------------------------------------------------------------------------
+MASTER_CEILING = 0.84          # -1.5 dBFS: headroom for Opus overshoot
+MASTER_PRE_LIMIT = 0.5         # slow word-level limiter (density)
+
+
+def clear_loud_master(drive_db: float = None, push_db: float = None,
+                      leveller: bool = True) -> list:
+    drive = _env_db("MASTER_DRIVE_DB", 14.0 if drive_db is None else drive_db, high=20.0, low=0.0)
+    push = _env_db("MASTER_PUSH_DB", 7.0 if push_db is None else push_db, high=9.0, low=0.0)
+    out = []
+    if leveller:
+        if _has_filter("speechnorm"):
+            out.append("speechnorm=e=10:r=0.0005:l=1:p=0.7")
+        else:
+            out.append("dynaudnorm=f=150:g=15:p=0.7:m=10")
+    out += [
+        "acompressor=threshold=0.1:ratio=4:attack=8:release=140:makeup=2:knee=3",
+        "equalizer=f=300:t=q:w=1:g=-3",       # mud cut = clarity
+        "equalizer=f=2800:t=q:w=1.2:g=4",     # ear's most sensitive band
+        "highshelf=f=5000:g=2",               # consonants / air
+        "lowpass=f=13500",
+        f"volume={_db(drive)}dB",
+        f"alimiter=level_in=1:level_out=1:limit={MASTER_PRE_LIMIT}:attack=6:release=90:level=false",
+        f"volume={_db(push)}dB",
+        f"alimiter=level_in=1:level_out=1:limit={MASTER_CEILING}:attack=1:release=40:level=false",
+    ]
+    return out
+
+
 def agc_safe_tail(makeup_db: float = None) -> list:
-    if makeup_db is None:
-        makeup_db = _env_db("LIVE_MIC_MAKEUP_DB", 6.0, high=18.0, low=0.0)
-    lim = 10 ** (AGC_SAFE_CEILING_DB / 20.0)
-    return ["highpass=f=95:p=2",
-            "equalizer=f=400:t=q:w=1.2:g=-4",
-            "equalizer=f=3500:t=q:w=1.0:g=6.5",
-            "acompressor=threshold=0.1:ratio=3.5:attack=25:release=90:makeup=1:knee=4",
-            f"volume={_db(makeup_db)}dB",
-            "lowpass=f=12000",
-            f"alimiter=level_in=1:level_out=1:limit={lim:.3f}:attack=5:release=60:level=false"]
+    """Kept for callers (VC bridge): now the shared clear-loud master."""
+    return ["highpass=f=95:p=2"] + clear_loud_master()
 
 
 def clear_loud_tail(drive: float = 26.0, ceiling_db: float = None) -> list:
@@ -578,22 +613,18 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     # a look-ahead brick-wall at -1 dBFS.  Average sits ~6-8 dB under peak:
     # loud, dense and clean through Opus.
     f = ["aresample=48000:async=1:first_pts=0",
-         "highpass=f=105:p=2",
-         "lowpass=f=12000"]
+         "highpass=f=90:p=2", "highpass=f=90:p=2"]
     if _has_filter("afftdn"):
-        f.append("afftdn=nr=8:nf=-60:tn=0")
+        # fixed noise floor (tn=0) -> never learns the voice as noise
+        f.append("afftdn=nr=6:nf=-55:tn=0")
     if _has_filter("agate"):
-        gate_db = _env_db("LIVE_MIC_GATE_DB", -55.0, high=0.0, low=-70.0)
+        gate_db = _env_db("LIVE_MIC_GATE_DB", -48.0, high=0.0, low=-70.0)
         if gate_db < -0.5:
-            thr = 10 ** (gate_db / 20.0)
-            # soft downward expander (range -20 dB), never chops words
-            f.append(f"agate=threshold={thr:.5f}:range=0.08:ratio=2:attack=4:"
-                     "release=350:knee=6:detection=rms")
-    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 12.0, high=24.0, low=0.0))}dB")
-    if _has_filter("speechnorm"):
-        f.append("speechnorm=e=16:r=0.0004:l=1:p=0.8")
-    f.append("equalizer=f=180:t=q:w=1.2:g=1.5")   # vocal body
-    f += agc_safe_tail()
+            # soft downward expander: pause hiss stays down, words never chopped
+            f.append(f"agate=threshold={10 ** (gate_db / 20.0):.5f}:range=0.03:ratio=3:"
+                     "attack=3:release=300:knee=6:detection=rms")
+    f.append(f"volume={_db(_env_db('LIVE_MIC_PREAMP_DB', 6.0, high=24.0, low=0.0))}dB")
+    f += clear_loud_master()
     return _sanitize_ffmpeg_filter(apply_sync_and_presence(",".join(f), boost=False, drive=False))
 
 
@@ -632,39 +663,24 @@ def build_ffmpeg_filter(
         over = max(0.0, min(1.0, (v - VOLUME_CLEAN_MAX) / float(VOLUME_MAX - VOLUME_CLEAN_MAX)))
         filters = [
             "aresample=48000",
-            f"highpass=f={int(_env_db('PLAY_SUB_HP', 65.0, high=120.0, low=50.0))}:p=2",
+            "highpass=f=70:p=2", "highpass=f=70:p=2",
         ]
         _b = max(0, min(40, 14 if bass is None else int(bass)))
-        _bo = max(0, min(10, 10 if boost is None else int(boost)))
-        if _has_filter("agate"):
-            # raw hiss / room noise (< -45 dBFS) never reaches the leveller
-            filters.append("agate=threshold=0.0056:range=0.05:ratio=4:attack=2:release=250:knee=4:detection=peak")
-        filters += [
-            f"equalizer=f=95:t=q:w=1.1:g={min(16.0, _b * 0.8):.1f}",  # damdar bass
-            "equalizer=f=400:t=q:w=1:g=-3",      # mud cut
-            "equalizer=f=1500:t=q:w=1:g=3",      # body of the words
-            "equalizer=f=2700:t=q:w=1.1:g=7",    # ear's most sensitive band
-            "equalizer=f=4000:t=q:w=1.2:g=4",    # consonants cut through
-            "equalizer=f=6500:t=q:w=1.2:g=3.5",  # sparkle / clarity
-        ]
-        if _has_filter("speechnorm"):
-            filters.append("speechnorm=e=25:r=0.0008:l=1:p=0.9")
-        else:
-            filters.append("dynaudnorm=f=150:g=15:p=0.9:m=30")
-        if _has_filter("agate"):
-            # pause hiss (lifted by the leveller) stays down
-            filters.append("agate=threshold=0.03:range=0.02:ratio=4:attack=2:release=250:knee=4:detection=rms")
-        filters.append(f"acompressor=threshold=0.09:ratio=7:attack=2:release=60:makeup={3.0 + _bo * 0.15:.1f}:knee=4")
-        # VOLUME 1000 -> 3000 (OVERDRIVE) = more drive into the 2nd clipper.
-        filters += voice_band_tail(d1=_env_db("PLAY_DRIVE_DB", 38.0, high=40.0, low=0.0),
-                                   d2=4.0 + 6.0 * over,
-                                   hp=int(_env_db("PLAY_HP_FREQ", 120.0, high=220.0, low=80.0)))
+        if _b:
+            # warm body only — big sub-bass eats the headroom the voice needs
+            filters.append(f"equalizer=f=120:t=q:w=1.1:g={min(5.0, _b * 0.3):.1f}")
+        # BUG FIX: the Echo setting was silently ignored in playback.
+        _el = max(0, min(LEVEL_MAX, int(echo_level if echo_level is not None else 0)))
+        if echo and _el:
+            filters.append(f"aecho=0.8:0.85:{40 + _el * 15}:{0.12 + _el * 0.04:.2f}")
+        filters += clear_loud_master()
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())
             if m:
-                idx = len(filters) - 1
-                filters.insert(idx - 2, f"volume={min(6.0, float(m.group(1)) / 3):.2f}dB")
+                # into the pre-limiter (before it), so the final peak stays safe
+                idx = max(i for i, x in enumerate(filters) if x.startswith("alimiter")) - 2
+                filters.insert(idx, f"volume={min(6.0, float(m.group(1)) / 3):.2f}dB")
         # BUG FIX: volume slider pehle ignore ho raha tha (0 pe bhi full awaaz).
         # 1000 ya usse upar = max loud; usse kam = proportionally dheema.
         if v == 0:
