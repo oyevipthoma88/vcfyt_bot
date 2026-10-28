@@ -760,6 +760,44 @@ def playback_voice_stage(bass: int = None, treble: int = None,
     return out
 
 
+PLAY_FINAL_PUSH_DB = 3.0
+
+
+def play_final_push_db() -> float:
+    return _env_db("PLAY_FINAL_PUSH_DB", PLAY_FINAL_PUSH_DB, high=24.0, low=0.0)
+
+
+def playback_fight_stage(bass: int = None, boost: int = None, over: float = 1.0) -> list:
+    """v44 playback FIGHT chain (restored in v54): presence EQ, hot speech
+    leveller, fast 7:1 compressor and two band-limited tanh clip stages.
+    ``boost`` 0..10 -> +30..+38 dB into the 1st clipper (density)."""
+    b = max(0, min(40, 14 if bass is None else int(bass)))
+    bo = LEVEL_MAX if boost is None else clamp(int(boost), LEVEL_MIN, LEVEL_MAX)
+    out = [
+        f"equalizer=f=95:t=q:w=1.1:g={min(16.0, b * 0.8):.1f}",
+        "equalizer=f=400:t=q:w=1:g=-3",
+        "equalizer=f=1500:t=q:w=1:g=3",
+        "equalizer=f=2700:t=q:w=1.1:g=7",
+        "equalizer=f=4000:t=q:w=1.2:g=4",
+        "equalizer=f=6500:t=q:w=1.2:g=3.5",
+    ]
+    if _has_filter("speechnorm"):
+        out.append("speechnorm=e=25:r=0.0008:l=1:p=0.9")
+    else:
+        out.append("dynaudnorm=f=150:g=15:p=0.9:m=30")
+    if _has_filter("agate"):
+        out.append("agate=threshold=0.03:range=0.02:ratio=4:attack=2:release=250:"
+                   "knee=4:detection=rms")
+    out.append(f"acompressor=threshold=0.09:ratio=7:attack=2:release=60:"
+               f"makeup={3.0 + bo * 0.15:.1f}:knee=4")
+    d1 = _env_db("PLAY_DRIVE_DB", 30.0 + 0.8 * bo, high=40.0, low=0.0)
+    tail = voice_band_tail(d1=d1, d2=4.0 + 6.0 * max(0.0, min(1.0, over)),
+                           hp=int(_env_db("PLAY_HP_FREQ", 120.0, high=220.0, low=80.0)))
+    if tail and tail[-1].startswith("alimiter"):
+        tail = tail[:-1]          # final ceiling = full_scale_push_tail
+    return out + tail
+
+
 def build_ffmpeg_filter(
         volume: int = None,
         bass: int = None,
@@ -803,16 +841,28 @@ def build_ffmpeg_filter(
         _el = max(0, min(LEVEL_MAX, int(echo_level if echo_level is not None else 0)))
         if echo and _el:
             filters.append(f"aecho=0.8:0.85:{40 + _el * 15}:{0.12 + _el * 0.04:.2f}")
-        filters += clear_loud_master(drive_db=playback_drive_db(boost))
-        # v53: final full-scale push (0.00 dBFS) for every played file.
-        filters += full_scale_push_tail()
+        # v54 ROOT FIX ("audio original aawaz me hi baj rahi", v50-v53):
+        # v50 replaced the playback FIGHT chain (presence EQ + hot leveller +
+        # 7:1 compressor + double band-limited tanh at +38 dB) with the
+        # "clear-loud" master: speechnorm p=0.7 -> 4:1 comp -> limiter at
+        # -6 dBFS -> limiter -1.5 dBFS.  That master levels EVERY file to one
+        # clean, uncoloured voice - quiet, normal and loud recordings all came
+        # out sounding like a normal recording.  v53's extra +18 dB push only
+        # clipped the already-limited signal; it added no density/presence.
+        # Playback gets the fight chain back (the one that "bohot tez bajta
+        # tha"), on top of the v52 input lift so soft files are not gated out,
+        # then the v53 full-scale ceiling.  Live mic / bridge keep the master.
+        filters += playback_fight_stage(bass=bass, boost=boost, over=over)
+        # final full-scale ceiling (0.00 dBFS) for every played file.
+        filters += full_scale_push_tail(push_db=play_final_push_db())
         if extra_filters:
             # .loud N extra dB: only into the clipper side, peak stays safe.
             m = re.match(r"^volume=(\d+(?:\.\d+)?)dB$", extra_filters.strip())
             if m:
                 # into the pre-limiter (before it), so the final peak stays safe
-                lims = [i for i, x in enumerate(filters) if x.startswith("alimiter")]
-                idx = lims[-3] if len(lims) >= 3 else lims[0]
+                # before the 2nd tanh clipper of the fight stage
+                vols = [i for i, x in enumerate(filters) if x.startswith("volume=")]
+                idx = vols[-2] if len(vols) >= 2 else len(filters) - 1
                 filters.insert(idx, f"volume={min(6.0, float(m.group(1)) / 3):.2f}dB")
         # BUG FIX: volume slider pehle ignore ho raha tha (0 pe bhi full awaaz).
         # 1000 ya usse upar = max loud; usse kam = proportionally dheema.
