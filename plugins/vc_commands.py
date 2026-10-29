@@ -80,6 +80,12 @@ def friendly_error(error: Exception) -> str:
     if name == "FloodWait" or "FLOOD_WAIT" in text.upper():
         return ("⏳ Telegram ne thoda rate limit laga diya hai. Kuch second ruk kar "
                 "dobara <code>.play</code> karein.")
+    if name == "FFmpegError" or "not installed" in text.lower():
+        return ("❌ <b>Audio engine start nahi hua</b>\n\n"
+                "Server par ffmpeg/ffprobe nahi mila. Bot ko ek baar restart karein — "
+                "startup par yeh apne aap install ho jaata hai.")
+    if name in ("NoAudioSourceFound",):
+        return "❌ Is file mein audio nahi mila — koi aur audio/video bhejein."
     if "FFmpeg failed" in text:
         return "❌ Audio process nahi ho paaya — dusri file try karein."
     return f"❌ Error: <code>{text[:400]}</code>"
