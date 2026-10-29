@@ -80,7 +80,7 @@ def set_source_code_url(url: str) -> str:
 def source_button():
     return [[B("💻 Source Code", url=SOURCE_CODE_URL)]] if SOURCE_CODE_URL else []
 
-LINE = "━━━━━━━━━━━━━━━━━━━━"
+LINE = "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
 
 class ButtonStyle(str, Enum):
     PRIMARY = "primary"
@@ -217,30 +217,48 @@ def _bar(value, maximum, width: int = 10) -> str:
     return "▰" * n + "▱" * (width - n)
 
 
+# ─── Design system ─────────────────────────────────────────────
+# Every screen = card(): bold header, thin rule, body, optional tip.
+RULE = "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
+
+def card(icon: str, title: str, body: str, tip: str = "") -> str:
+    out = f"{icon} <b>{title.upper()}</b>\n<code>{RULE}</code>\n{body.rstrip()}"
+    if tip:
+        out += f"\n\n<blockquote expandable>💡 {tip}</blockquote>"
+    return out
+
+def meter(label: str, value, maximum, suffix: str = "") -> str:
+    return f"<code>{label:<7}</code> {_bar(value, maximum)} <b>{value}{suffix}</b>"
+
+def chip(on: bool) -> str:
+    return "🟢 <b>ON</b>" if on else "⚫ <b>OFF</b>"
+
+
 def home_text(name: str, logged_in: bool) -> str:
     if logged_in:
-        status = "🟢 <b>Ready</b> — account connected"
+        status = "🟢 <b>Connected</b> · ready to fight"
         steps = (
-            "<b>⚡ 3 steps me fight shuru</b>\n"
-            "<b>1.</b> Group me <code>.setgc</code> likho <i>(ek baar)</i>\n"
-            "<b>2.</b> Voice chat start karo\n"
-            "<b>3.</b> 🎤 <b>Live Mic</b> ya audio reply karke <code>.play</code>"
+            "<b>⚡ Quick start</b>\n"
+            "<b>①</b> Group me <code>.setgc</code> <i>(sirf ek baar)</i>\n"
+            "<b>②</b> Voice chat start karo\n"
+            "<b>③</b> 🎤 <b>Live Mic</b> ya audio pe reply → <code>.play</code>"
         )
     else:
-        status = "🔴 <b>Not connected</b>"
+        status = "🔴 <b>Not connected</b> · setup baaki hai"
         steps = (
             "<b>⚡ 2 minute setup</b>\n"
-            "<b>1.</b> 🔐 <b>Start Setup</b> dabao\n"
-            "<b>2.</b> Phone number bhejo <i>(+91…)</i>\n"
-            "<b>3.</b> Telegram ka OTP bhejo — done ✅"
+            "<b>①</b> 🔐 <b>Start Setup</b> dabao\n"
+            "<b>②</b> Phone number bhejo <i>(+91…)</i>\n"
+            "<b>③</b> Telegram OTP bhejo — done ✅"
         )
     return (
-        "🎧 <b>APEX VC FIGHT BOT</b>\n"
-        f"<blockquote>👋 Hey <b>{name}</b>!\n"
-        "🔊 Loud & clear VC audio • 🎤 Live mic</blockquote>\n"
-        f"{status}\n\n"
+        "🎧 <b>A P E X  ·  V C  F I G H T</b>\n"
+        f"<code>{RULE}</code>\n"
+        f"<blockquote>👋 Welcome, <b>{name}</b>\n"
+        "🔊 Ultra-loud VC audio  ·  🎤 Live mic  ·  🔗 Sync</blockquote>\n"
+        f"<b>Status:</b> {status}\n\n"
         f"{steps}\n\n"
-        "<i>❓ Kuch samajh na aaye to 📘 Help dabao.</i>"
+        "<i>❓ Confusion? Neeche 📘 <b>Help</b> dabao.</i>"
     )
 
 def home_kb(is_owner: bool = False, logged_in: bool = False,
@@ -255,10 +273,12 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
         now = (f"vc:now:{active_chat_id}" if active_chat_id is not None else "vc:list:0")
         rows = [
             [B("🎤 Live Mic", callback_data="mic:panel", style="success"),
-             B("▶️ Player", callback_data=now, style="primary")],
+             B("▶️ Player", callback_data=now, style="success")],
             [B("🎚️ Sound", callback_data="menu:settings", style="primary"),
-             B("🔗 Sync Play", callback_data="sync:menu", style="primary")],
-            [B("☰ More", callback_data="menu:more", style="primary"),
+             B("🔗 Sync Play", callback_data="sync:menu", style="primary"),
+             B("🎵 Library", callback_data="aud:menu", style="primary")],
+            [B("👤 Account", callback_data="menu:status", style="primary"),
+             B("☰ More", callback_data="menu:more", style="primary"),
              B("📘 Help", callback_data="menu:tutorial", style="primary")],
         ]
     if is_owner:
@@ -266,14 +286,20 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     rows.extend(source_button())
     return K(rows)
 
+MORE_TEXT = card("☰", "More options",
+                 "🎵 <b>Library</b> — saved audios\n"
+                 "👤 <b>Account</b> — login & plan info\n"
+                 "💎 <b>Premium</b> · 👥 <b>Refer & Earn</b>\n"
+                 "🔁 <b>Re-Login</b> · 🚪 <b>Logout</b>")
+
 def more_kb() -> K:
     return K([
         [B("🎵 Library", callback_data="aud:menu", style="primary"),
          B("👤 My Account", callback_data="menu:status", style="primary")],
         [B("🎬 Video Guide", callback_data="tut:video", style="primary"),
          B("📘 Help", callback_data="menu:tutorial", style="primary")],
-        [B("💎 Premium", callback_data="pay:menu", style="primary"),
-         B("👥 Refer & Earn", callback_data="ref:menu", style="primary")],
+        [B("💎 Premium", callback_data="pay:menu", style="success"),
+         B("👥 Refer & Earn", callback_data="ref:menu", style="success")],
         [B("🔁 Re-Login", callback_data="menu:login", style="primary"),
          B("🚪 Logout", callback_data="menu:logout", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
@@ -283,13 +309,11 @@ def back_kb(target: str = "menu:home") -> K:
     return K([[B("⬅ Back", callback_data=target, style="primary"),
                B("🏠 Home", callback_data="menu:home", style="primary")]])
 
-LOGIN_INTRO = (
-    "🔐 <b>Account connect karein</b>\n\n"
-    "<b>1.</b> Phone number bhejo <i>(country code ke saath, jaise +91…)</i>\n"
-    "<b>2.</b> Telegram ka OTP bot ko bhejo\n"
-    "<b>3.</b> 2-step password ho to wo bhi\n\n"
-    "<blockquote>🛡️ Session sirf aapke VC control ke liye use hota hai.</blockquote>"
-)
+LOGIN_INTRO = card("🔐", "Connect account",
+    "<b>①</b> Phone number bhejo <i>(country code ke saath, jaise +91…)</i>\n"
+    "<b>②</b> Telegram ka OTP bot ko bhejo\n"
+    "<b>③</b> 2-step password ho to wo bhi",
+    "Session sirf aapke VC control ke liye use hota hai. Kabhi bhi 🚪 Logout kar sakte ho.")
 
 def login_kb() -> K:
     rows = [
@@ -307,17 +331,13 @@ def settings_text(s: dict) -> str:
     gain = int(_g(s, "gain", Config.RELAY_DEFAULT_GAIN) or 0)
     bass = int(_g(s, "bass", Config.DEFAULT_BASS) or 0)
     boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
-    echo = "🟢 ON" if _g(s, "echo", 0) else "⚪ OFF"
-    return (
-        "🎚️ <b>Sound Controls</b>\n\n"
-        f"🔊 Volume  <code>{_bar(vol, 3000)}</code> <b>{vol}</b>\n"
-        f"📈 Gain    <code>{_bar(gain, 500)}</code> <b>{gain}</b>\n"
-        f"🎵 Bass    <code>{_bar(bass, 100)}</code> <b>{bass}</b>\n"
-        f"💥 Boost   <code>{_bar(boost, 10)}</code> <b>{boost}</b>\n"
-        f"🔁 Echo    {echo}\n\n"
-        "<blockquote>💡 Sabse tez + saaf: <b>🔥 MAX LOUD</b> dabao.\n"
-        "Badlav chal rahe audio pe khud lag jaata hai.</blockquote>"
-    )
+    return card("🎚️", "Sound controls",
+        f"🔊 {meter('Volume', vol, 3000)}\n"
+        f"📈 {meter('Gain', gain, 500)}\n"
+        f"🎵 {meter('Bass', bass, 100)}\n"
+        f"💥 {meter('Boost', boost, 10)}\n"
+        f"🔁 <code>{'Echo':<7}</code> {chip(_g(s, 'echo', 0))}",
+        "Sabse tez + saaf: <b>🔥 MAX LOUD</b>. Badlav chal rahe audio pe turant lagta hai.")
 
 def settings_kb() -> K:
     return K([
@@ -344,20 +364,16 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
     except (TypeError, ValueError):
         lv = 0
     pct = round(lv / 100)
-    status_line = "🔴 <b>LIVE</b> — aapki awaaz VC me ja rahi hai" if mic_on else "⚪ <b>Mic OFF</b>"
+    status_line = ("🔴 <b>LIVE</b> · aapki awaaz VC me ja rahi hai" if mic_on
+                   else "⚫ <b>Mic OFF</b> · start karne ke liye 🎤 dabao")
     device_line = f"📱 Input: <b>{mic_title}</b>\n" if mic_title else ""
     boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
-    return (
-        "🎤 <b>Live Mic</b>\n\n"
-        f"{status_line}\n"
-        f"{device_line}\n"
-        f"🔊 Mic volume <code>{_bar(lv, 20000)}</code> <b>{pct}%</b>\n"
-        f"💥 Boost      <code>{_bar(boost, 10)}</code> <b>{boost}</b>\n"
-        f"🔁 Echo       {'🟢 ON' if _g(s, 'echo', 0) else '⚪ OFF'}\n\n"
-        "<blockquote><b>1.</b> 🎤 <b>Mic ON</b> dabao\n"
-        "<b>2.</b> Aur tez chahiye? <b>⚡ MAX ALL</b>\n"
-        "<b>3.</b> Kuch badla? <b>✅ Apply</b></blockquote>"
-    )
+    return card("🎤", "Live mic",
+        f"{status_line}\n{device_line}\n"
+        f"🔊 {meter('Mic', pct, 200, '%')}\n"
+        f"💥 {meter('Boost', boost, 10)}\n"
+        f"🔁 <code>{'Echo':<7}</code> {chip(_g(s, 'echo', 0))}",
+        "<b>①</b> 🎤 Mic ON  <b>②</b> ⚡ MAX ALL  <b>③</b> kuch badla? ✅ Apply")
 
 def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K:
     if not logged_in:
@@ -387,32 +403,34 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K
     ])
 
 def status_text(user_id: int, data: dict, uvc, s: dict, premium: dict = None) -> str:
-    logged = "✅ Active" if uvc else ("💾 Saved (idle)" if data and data.get("string_session") else "❌ Not logged in")
+    data = data or {}
+    logged = ("🟢 Active" if uvc else
+              ("💾 Saved (idle)" if data.get("string_session") else "🔴 Not logged in"))
     acc = (
-        f"├ <b>Connected Acc:</b> {uvc.account_name} "
-        f"(@{uvc.account_username or 'none'})\n"
+        f"├ <b>VC Account:</b> {uvc.account_name} (@{uvc.account_username or 'none'})\n"
         f"├ <b>Acc ID:</b> <code>{uvc.account_id}</code>\n"
-        f"├ <b>Active VCs:</b> {len(uvc.chats)}\n"
-        if uvc else ""
+        f"└ <b>Active VCs:</b> {len(uvc.chats)}\n"
+        if uvc else "└ <i>Koi active VC session nahi</i>\n"
     )
     if premium and premium.get("active"):
-        prem_line = f"├ <b>Premium:</b> ✅ Active ({premium.get('plan', '—')})\n"
-        prem_line += f"├ <b>Until:</b> <code>{premium.get('until', '—')}</code>\n"
+        prem = (f"💎 <b>Premium</b> · {premium.get('plan', '—')}\n"
+                f"   until <code>{premium.get('until', '—')}</code>")
     else:
-        prem_line = "├ <b>Premium:</b> ❌ Free plan\n"
-    return (
-        "👤 <b>Your Account</b>\n\n"
-        f"{LINE}\n"
+        prem = "🆓 <b>Free plan</b> · upgrade ke liye 💎 Premium"
+    return card("👤", "Your account",
+        "<b>Profile</b>\n"
         f"├ <b>ID:</b> <code>{user_id}</code>\n"
-        f"├ <b>Name:</b> {(data or {}).get('first_name', '—')}\n"
-        f"├ <b>Username:</b> @{(data or {}).get('username') or 'none'}\n"
+        f"├ <b>Name:</b> {data.get('first_name', '—')}\n"
+        f"├ <b>Username:</b> @{data.get('username') or 'none'}\n"
+        f"└ <b>Joined:</b> {data.get('joined_at', '—')}\n\n"
+        "<b>Session</b>\n"
         f"├ <b>Login:</b> {logged}\n"
-        f"{acc}{prem_line}"
+        f"{acc}\n"
+        "<b>Sound</b>\n"
         f"├ <b>Volume:</b> <code>{_g(s, 'relay_volume', Config.RELAY_DEFAULT_VOLUME)}/3000</code>\n"
-        f"├ <b>Gain:</b> {_g(s, 'gain', Config.RELAY_DEFAULT_GAIN)} | <b>Bass:</b> +{_g(s, 'bass')} | <b>Treble:</b> {_g(s, 'treble', Config.RELAY_DEFAULT_TREBLE)}\n"
+        f"├ <b>Gain:</b> {_g(s, 'gain', Config.RELAY_DEFAULT_GAIN)} · <b>Bass:</b> +{_g(s, 'bass')} · "
+        f"<b>Treble:</b> {_g(s, 'treble', Config.RELAY_DEFAULT_TREBLE)}\n"
         f"├ <b>Voice:</b> {_g(s, 'voice', 'normal')}\n"
-        f"├ <b>Boost:</b> {_g(s, 'boost')}/10 | <b>Echo:</b> "
-        f"{'On' if _g(s, 'echo') else 'Off'} {_g(s, 'echo_level')}/10\n"
-        f"└ <b>Joined:</b> {(data or {}).get('joined_at', '—')}\n"
-        f"{LINE}"
-    )
+        f"└ <b>Boost:</b> {_g(s, 'boost')}/10 · <b>Echo:</b> "
+        f"{'On' if _g(s, 'echo') else 'Off'} {_g(s, 'echo_level')}/10\n\n"
+        f"{prem}")
