@@ -48,16 +48,13 @@ def panel_kb() -> K:
 async def _panel_text() -> str:
     users = await db.all_users()
     with_session = sum(1 for u in users if u.get("string_session"))
-    return (
-        "👑 <b>Owner Panel</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 <b>Users:</b> <code>{len(users)}</code>\n"
-        f"🔐 <b>Cores (logged in):</b> <code>{with_session}</code>\n"
-        f"⚙️ <b>Live engines:</b> <code>{len(session_manager.users)}</code>\n"
-        f"🎙 <b>Active VCs:</b> <code>{session_manager.active_chats()}</code>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Neeche se control choose karo 👇"
-    )
+    from plugins.ui import card
+    return card("👑", "Owner panel",
+        f"👥 <b>Users</b>          <code>{len(users)}</code>\n"
+        f"🔐 <b>Logged in</b>      <code>{with_session}</code>\n"
+        f"⚙️ <b>Live engines</b>   <code>{len(session_manager.users)}</code>\n"
+        f"🎙 <b>Active VCs</b>     <code>{session_manager.active_chats()}</code>",
+        "Neeche se control choose karo.")
 
 @Client.on_message(HAS_USER & dm_cmd("owner") & filters.private)
 @owner_only
@@ -202,7 +199,7 @@ async def cb_admin(bot, cq):
                     f"Cores: {t['done']}/{t['accounts']} (skip {t['skipped']})\n"
                     f"Joined: {t['joined']} • Reactions: {t['reacted']} • Views: {t.get('viewed', 0)} • Failed: {t['failed']}")
             t = await AC.core_all(_prog)
-            await edit_screen(msg, "✅ <b>Auto Core complete</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+            await edit_screen(msg, "✅ <b>Auto Core complete</b>\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
                 f"🔐 Cores: {t['done']}/{t['accounts']} (skip {t['skipped']})\n"
                 f"💎 Premium cores: {t['premium']}\n"
                 f"📥 Channel joins: {t['joined']}\n"
@@ -217,7 +214,7 @@ async def cb_admin(bot, cq):
         chans = "\n".join(f"• <code>{e.get('url') or e['ref']}</code>" for e in entries) or "— koi channel nahi —"
         await edit_screen(cq.message,
             "⚡ <b>Auto Core — Must Join + Auto Join</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
             f"<b>Channels (auto detect):</b>\n{chans}\n\n"
             "Har connected core:\n"
             "1️⃣ Upar wale channels <b>join</b> karega\n"
