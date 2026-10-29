@@ -245,5 +245,6 @@ async def cb_settings_change(bot, cq):
 async def cb_more(bot, cq):
     from plugins.ui import more_kb
     await safe_answer(cq)
-    await edit_screen(cq.message, "☰ <b>More</b>\n<i>Jo chahiye wo chuno 👇</i>",
+    from plugins.ui import MORE_TEXT
+    await edit_screen(cq.message, MORE_TEXT,
                       reply_markup=more_kb())
