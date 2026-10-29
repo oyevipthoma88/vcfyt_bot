@@ -446,7 +446,7 @@ async def cmd_syncgroup(bot: Client, msg: Message):
 
 SYNC_HELP = (
     "🔗 <b>SYNC PLAY</b> — saari IDs, ek awaaz, 0 delay\n"
-    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄━━━━━━━━\n"
     "1️⃣ <code>.syncgroup</code> — bot khud group banayega + saari IDs add + link dega\n"
     "2️⃣ <code>.synctarget -100xxxx</code> — fight GC set karo\n"
     "3️⃣ Recording reply karke <code>.syncplay</code>\n"
