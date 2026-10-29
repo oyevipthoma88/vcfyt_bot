@@ -218,7 +218,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
                 f"┃ Phone: <code>{raw_phone}</code>\n"
                 "┃ Enter OTP with spaces: <code>1 2 3 4 5</code>\n"
                 "┃\n"
-                "╰━━━━━━━━━━━━━━━━━━━━━╯"
+                "╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄━╯"
             ), CANCEL_KB)
         except FloodWait as e:
             _reset(sender_id)
