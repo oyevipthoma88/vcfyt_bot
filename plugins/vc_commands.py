@@ -7,7 +7,7 @@ import re
 from pyrogram import Client, filters
 from pyrogram.errors import (SessionPasswordNeeded, PhoneCodeInvalid,
                              PhoneCodeExpired, PasswordHashInvalid)
-from plugins.ui import HAS_USER, cmd_text, B, edit_screen, safe_answer, mic_text, mic_kb, cmd_prefix
+from plugins.ui import card, meter, HAS_USER, cmd_text, B, edit_screen, safe_answer, mic_text, mic_kb, cmd_prefix
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
 
@@ -1142,7 +1142,7 @@ async def cmd_myboost(bot: Client, msg: Message):
     )
 
 IDLE_TEXT = (
-    "🔇 <b>Abhi koi audio play nahi ho raha</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+    "🔇 <b>Abhi koi audio play nahi ho raha</b>\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
     "<b>▶️ Audio kaise chalayein:</b>\n"
     "1️⃣ Group ka VC (voice chat) on karo\n"
     "2️⃣ Group me kisi audio/video ko reply karke <code>.play</code> likho\n"
@@ -1184,12 +1184,12 @@ async def cb_vc(bot, cq):
             await _show_idle(cq)
             return
         await edit_screen(cq.message,
-            f"🎧 <b>NOW PLAYING</b>\n\n"
-            f"🎵 {st.source_name}\n"
-            f"{'⏸ Paused' if st.is_paused else '▶ Playing'} · "
-            f"🔊 {st.relay_volume}/3000 · 💥 {st.boost}/10\n\n"
-            "<i>Human Mode = hand raise + mic on/off blink, taaki account "
-            "asli insaan jaisa lage.</i>",
+            card("🎧", "Now playing",
+                 f"🎵 <b>{st.source_name}</b>\n"
+                 f"{'⏸ <b>Paused</b>' if st.is_paused else '▶️ <b>Playing</b>'}\n\n"
+                 f"🔊 {meter('Volume', st.relay_volume, 3000)}\n"
+                 f"💥 {meter('Boost', st.boost, 10)}",
+                 "Human Mode = hand raise + mic blink, taaki account asli insaan jaisa lage."),
             reply_markup=now_playing_kb(cid, st),
         )
         await safe_answer(cq, "Now Playing updated")
