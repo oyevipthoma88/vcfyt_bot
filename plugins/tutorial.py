@@ -8,16 +8,13 @@ from pyrogram.types import Message
 from helpers.logger_channel import log_command
 from plugins.ui import LINE, back_kb, edit_screen, safe_answer, source_button
 
-TUTORIAL_MENU_TEXT = (
-    "📘 <b>Apex vc fyt bot — Complete Tutorial</b>\n\n"
-    "<blockquote>✨ Naye ho? Pehle <b>Quick Start</b> follow karein.\n"
-    "🎧 Play & Queue se audio control karein.\n"
-    "🎚️ Audio Settings se live controls badlein.\n"
-    "🗃️ Played audio archive se duplicate download avoid hota hai.</blockquote>\n\n"
-    "Har button mein commands, examples aur important tips diye gaye hain.\n\n"
-    "ℹ️ Kisi bhi command ki poori info: <code>.help mic</code>, <code>.help ss</code>, "
-    "<code>.help chat</code> — ya <code>.mic help</code>, <code>.play ?</code>"
-)
+from plugins.ui import card as _card
+TUTORIAL_MENU_TEXT = _card("📘", "Help & tutorial",
+    "🚀 Naye ho? Pehle <b>Quick Start</b>\n"
+    "▶️ <b>Play & Queue</b> — audio control\n"
+    "🎚️ <b>Audio Settings</b> — live sound tuning\n"
+    "🗃️ <b>Library</b> — duplicate download se bacho",
+    "Poori info: <code>.help mic</code> · <code>.help ss</code> · <code>.help chat</code> · <code>.play ?</code>")
 
 def tutorial_kb() -> K:
     rows = [
