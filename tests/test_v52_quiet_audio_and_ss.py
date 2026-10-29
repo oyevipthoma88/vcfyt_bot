@@ -35,7 +35,7 @@ def test_quiet_normal_loud_all_reach_full_level(peak):
     finally:
         os.unlink(src)
     assert size > 48000 * 4, "very quiet audio was cut to silence"
-    assert mx > -2.5          # reaches the -1.5 dBFS master ceiling
+    assert mx > -3.5          # reaches the -3 dBFS (v57) master ceiling
     assert mean > -16.0       # loud, not "normal"
 
 

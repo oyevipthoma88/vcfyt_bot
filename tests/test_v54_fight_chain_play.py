@@ -10,7 +10,7 @@ def test_chain_has_single_clipper_no_gate_after_comp_and_safe_ceiling():
     assert sum(p.startswith("asoftclip") for p in parts) <= 1
     comp = next(i for i, p in enumerate(parts) if p.startswith("acompressor"))
     assert not any(p.startswith("agate") for p in parts[comp:])
-    assert parts[-1].startswith("alimiter") and "limit=0.8400" in parts[-1]
+    assert parts[-1].startswith("alimiter") and "limit=0.7079" in parts[-1]  # v57: -3 dBFS, Opus-safe
 
 
 def _stats(level_db):
