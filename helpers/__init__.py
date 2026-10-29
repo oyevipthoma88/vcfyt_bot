@@ -4,3 +4,6 @@ from .playback_v57 import install as _install_playback_v57
 
 _install_playback()
 _install_playback_v57()
+from .playback_v58 import install as _install_playback_v58
+
+_install_playback_v58()
