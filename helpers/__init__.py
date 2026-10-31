@@ -15,3 +15,8 @@ _install_playback_v59()
 from .playback_v60 import install as _install_playback_v60
 
 _install_playback_v60()
+# v61 (last): ULTRA fight chain - -1.5 dBFS ceiling, de-box EQ, exciter,
+# double peak catch around the clipper: ~+3.6 LU louder after Opus.
+from .playback_v61 import install as _install_playback_v61
+
+_install_playback_v61()
