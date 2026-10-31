@@ -331,17 +331,53 @@ def settings_text(s: dict) -> str:
     gain = int(_g(s, "gain", Config.RELAY_DEFAULT_GAIN) or 0)
     bass = int(_g(s, "bass", Config.DEFAULT_BASS) or 0)
     boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
-    return card("🎚️", "Sound controls",
+    play_db = float(_g(s, "play_drive_db", 10.0) or 10.0)
+    master_db = float(_g(s, "master_drive_db", 12.0) or 12.0)
+    ceil_db = float(_g(s, "play_ceiling_db", -3.0) or -3.0)
+
+    if ceil_db <= -2.8:
+        ceil_tag = "🛡️ Safe (-3.0 dB)"
+    elif ceil_db <= -2.0:
+        ceil_tag = "⚡ Punch (-2.5 dB)"
+    else:
+        ceil_tag = "🔥 Extreme (-1.5 dB)"
+
+    body = (
         f"🔊 {meter('Volume', vol, 3000)}\n"
         f"📈 {meter('Gain', gain, 500)}\n"
+        f"📻 <code>{'Play dB':<9}</code> <b>{play_db:+.1f} dB</b> (Audio/Tag drive)\n"
+        f"🎙️ <code>{'Master dB':<9}</code> <b>{master_db:+.1f} dB</b> (Mic/Bridge power)\n"
+        f"🛡️ <code>{'Ceiling':<9}</code> <b>{ceil_db:.1f} dB</b> ({ceil_tag})\n"
         f"🎵 {meter('Bass', bass, 100)}\n"
         f"💥 {meter('Boost', boost, 10)}\n"
-        f"🔁 <code>{'Echo':<7}</code> {chip(_g(s, 'echo', 0))}",
-        "Sabse tez + saaf: <b>🔥 MAX LOUD</b>. Badlav chal rahe audio pe turant lagta hai.")
+        f"🔁 <code>{'Echo':<9}</code> {chip(_g(s, 'echo', 0))}"
+    )
 
-def settings_kb() -> K:
+    tip = (
+        "💡 <b>dB Controls Guide:</b>\n"
+        "• <b>Play dB:</b> Normal recording/song play drive (heavy & loud punch).\n"
+        "• <b>Master dB:</b> Live mic & VC bridge power (aawaz dabi lage to +2 badhao).\n"
+        "• <b>Ceiling:</b> Telegram anti-duck limiter (aawaz phatne se rokta hai).\n"
+        "🔥 <b>MAX LOUD:</b> 1 tap me sabse best fight settings."
+    )
+    return card("🎚️", "Sound controls", body, tip)
+
+def settings_kb(s: dict = None) -> K:
+    ceil_db = float(_g(s or {}, "play_ceiling_db", -3.0) or -3.0)
+    if ceil_db <= -2.8:
+        ceil_btn = "🛡️ Ceiling: -3.0dB (Safe)"
+    elif ceil_db <= -2.0:
+        ceil_btn = "⚡ Ceiling: -2.5dB (Punch)"
+    else:
+        ceil_btn = "🔥 Ceiling: -1.5dB (Max)"
+
     return K([
         [B("🔥 MAX LOUD (1 tap)", callback_data="set:max", style="success")],
+        [B("📻 Play dB −", callback_data="set:playdb:-2", style="primary"),
+         B("📻 Play dB +", callback_data="set:playdb:2", style="primary")],
+        [B("🎙️ Master dB −", callback_data="set:masterdb:-2", style="primary"),
+         B("🎙️ Master dB +", callback_data="set:masterdb:2", style="primary")],
+        [B(ceil_btn, callback_data="set:ceiling:cycle", style="primary")],
         [B("🔉 Vol −", callback_data="set:relay:-250", style="primary"),
          B("🔊 Vol +", callback_data="set:relay:250", style="primary")],
         [B("📉 Gain −", callback_data="set:gain:-50", style="primary"),
@@ -368,11 +404,14 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
                    else "⚫ <b>Mic OFF</b> · start karne ke liye 🎤 dabao")
     device_line = f"📱 Input: <b>{mic_title}</b>\n" if mic_title else ""
     boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
+    master_db = float(_g(s, "master_drive_db", 12.0) or 12.0)
     return card("🎤", "Live mic",
         f"{status_line}\n{device_line}\n"
         f"🔊 {meter('Mic', pct, 200, '%')}\n"
+        f"🎙️ <code>{'Master dB':<9}</code> <b>{master_db:+.1f} dB</b> (Mic/Bridge power)\n"
         f"💥 {meter('Boost', boost, 10)}\n"
         f"🔁 <code>{'Echo':<7}</code> {chip(_g(s, 'echo', 0))}",
+        "💡 <i>Tip: Agar live aawaz dabi lage to Master dB badhao!</i>\n"
         "<b>①</b> 🎤 Mic ON  <b>②</b> ⚡ MAX ALL  <b>③</b> kuch badla? ✅ Apply")
 
 def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K:
@@ -388,6 +427,8 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K
         [B(f"🖥 Live Screen: {'ON' if ss else 'OFF'}", callback_data="mic:ss",
            style="success" if ss else "danger")],
         [B("⚡ MAX ALL (sabse loud)", callback_data="mic:max", style="success")],
+        [B("🎙️ Master dB −", callback_data="set:masterdb:-2", style="primary"),
+         B("🎙️ Master dB +", callback_data="set:masterdb:2", style="primary")],
         [B("🔉 Mic −", callback_data="mic:vol:-2000", style="primary"),
          B("🔥 200%", callback_data="mic:vol:20000", style="success"),
          B("🔊 Mic +", callback_data="mic:vol:2000", style="primary")],

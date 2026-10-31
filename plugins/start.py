@@ -1,4 +1,5 @@
 
+import os
 from pyrogram import Client, filters
 from plugins.ui import dm_cmd
 from pyrogram.types import Message
@@ -120,12 +121,12 @@ async def cb_status(bot, cq):
 @Client.on_message(HAS_USER & dm_cmd("settings") & filters.private)
 async def cmd_settings(bot: Client, msg: Message):
     s = await db.get_settings(msg.from_user.id)
-    await msg.reply_text(settings_text(s), reply_markup=settings_kb())
+    await msg.reply_text(settings_text(s), reply_markup=settings_kb(s))
 
 @Client.on_callback_query(filters.regex(r"^menu:settings$"))
 async def cb_settings(bot, cq):
     s = await db.get_settings(cq.from_user.id)
-    await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
+    await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb(s))
     await safe_answer(cq)
 
 DEFAULT_SETTINGS = {
@@ -135,6 +136,9 @@ DEFAULT_SETTINGS = {
     "echo": 1 if Config.DEFAULT_ECHO else 0,
     "echo_level": Config.DEFAULT_ECHO_LEVEL, "boost": Config.DEFAULT_BOOST,
     "auto": 0,
+    "play_drive_db": 10.0,
+    "master_drive_db": 12.0,
+    "play_ceiling_db": -3.0,
 }
 
 _APPLY_TASKS: dict = {}
@@ -220,6 +224,27 @@ async def cb_settings_change(bot, cq):
         s["echo"] = 1 if s["echo_level"] > 0 else s["echo"]
     elif action == "echo":
         s["echo"] = 0 if s["echo"] else 1
+    elif action == "playdb":
+        delta = float(rest[0]) if rest else 2.0
+        cur = float(s.get("play_drive_db", 10.0) or 10.0)
+        s["play_drive_db"] = round(max(0.0, min(24.0, cur + delta)), 1)
+        os.environ["PLAY_DRIVE_DB"] = str(s["play_drive_db"])
+    elif action == "masterdb":
+        delta = float(rest[0]) if rest else 2.0
+        cur = float(s.get("master_drive_db", 12.0) or 12.0)
+        s["master_drive_db"] = round(max(0.0, min(24.0, cur + delta)), 1)
+        os.environ["MASTER_DRIVE_DB"] = str(s["master_drive_db"])
+    elif action == "ceiling":
+        cur = float(s.get("play_ceiling_db", -3.0) or -3.0)
+        if cur <= -2.8:
+            nxt = -2.5
+        elif cur <= -2.0:
+            nxt = -1.5
+        else:
+            nxt = -3.0
+        s["play_ceiling_db"] = nxt
+        os.environ["PLAY_CEILING_DB"] = str(nxt)
+        os.environ["MASTER_CEILING_DB"] = str(nxt)
     elif action == "auto":
         s["auto"] = 0 if s.get("auto") else 1
         if s["auto"]:
@@ -227,8 +252,19 @@ async def cb_settings_change(bot, cq):
             s.update(AUTO_PRESET)
     elif action == "reset":
         s.update(DEFAULT_SETTINGS)
+        os.environ["PLAY_DRIVE_DB"] = "10.0"
+        os.environ["MASTER_DRIVE_DB"] = "12.0"
+        os.environ["PLAY_CEILING_DB"] = "-3.0"
+        os.environ["MASTER_CEILING_DB"] = "-3.0"
     elif action == "max":
         s.update(AUTO_PRESET, auto=1)
+        s["play_drive_db"] = 16.0
+        s["master_drive_db"] = 16.0
+        s["play_ceiling_db"] = -2.5
+        os.environ["PLAY_DRIVE_DB"] = "16.0"
+        os.environ["MASTER_DRIVE_DB"] = "16.0"
+        os.environ["PLAY_CEILING_DB"] = "-2.5"
+        os.environ["MASTER_CEILING_DB"] = "-2.5" 
     elif action == "apply":
         await apply_settings_live(uid)
         return
@@ -236,7 +272,7 @@ async def cb_settings_change(bot, cq):
     await db.save_settings(uid, **s)
     await apply_settings_live(uid)
     try:
-        await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb())
+        await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb(s))
     except Exception:
         pass
 

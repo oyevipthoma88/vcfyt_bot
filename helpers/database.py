@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 import logging
@@ -321,7 +322,10 @@ class Database:
                 crunch INTEGER DEFAULT 0,
                 pregain INTEGER DEFAULT 80,
                 turbo INTEGER DEFAULT 12,
-                clarity INTEGER DEFAULT 14
+                clarity INTEGER DEFAULT 14,
+                play_drive_db REAL DEFAULT 10.0,
+                master_drive_db REAL DEFAULT 12.0,
+                play_ceiling_db REAL DEFAULT -3.0
             )
         """)
 
@@ -337,6 +341,9 @@ class Database:
             "ALTER TABLE settings ADD COLUMN pregain INTEGER DEFAULT 80",
             "ALTER TABLE settings ADD COLUMN turbo INTEGER DEFAULT 12",
             "ALTER TABLE settings ADD COLUMN clarity INTEGER DEFAULT 14",
+            "ALTER TABLE settings ADD COLUMN play_drive_db REAL DEFAULT 10.0",
+            "ALTER TABLE settings ADD COLUMN master_drive_db REAL DEFAULT 12.0",
+            "ALTER TABLE settings ADD COLUMN play_ceiling_db REAL DEFAULT -3.0",
         ):
             try:
                 c.execute(statement)
@@ -661,6 +668,9 @@ class Database:
             "live_volume": Config.LIVE_BOOST_DEFAULT,
             "loud": 120, "crunch": 0,
             "pregain": 80, "turbo": 12, "clarity": 14,
+            "play_drive_db": 10.0,
+            "master_drive_db": 12.0,
+            "play_ceiling_db": -3.0,
         }
         async def _m():
             return await self._mongo.settings.find_one({"user_id": user_id})
@@ -688,7 +698,8 @@ class Database:
             self._sql(
                 "UPDATE settings SET volume=?, bass=?, echo=?, echo_level=?, "
                 "boost=?, auto=?, relay_volume=?, gain=?, treble=?, voice=?, live_volume=?, "
-                "loud=?, crunch=?, pregain=?, turbo=?, clarity=? "
+                "loud=?, crunch=?, pregain=?, turbo=?, clarity=?, "
+                "play_drive_db=?, master_drive_db=?, play_ceiling_db=? "
                 "WHERE user_id=?",
                 (current["volume"], current["bass"], int(current["echo"]),
                  current["echo_level"], current["boost"],
@@ -697,9 +708,23 @@ class Database:
                  current["live_volume"],
                  int(current.get("loud") or 120), int(current.get("crunch") or 0),
                  int(current.get("pregain") or 80), int(current.get("turbo") or 12),
-                 int(current.get("clarity") or 14), user_id),
+                 int(current.get("clarity") or 14),
+                 float(current.get("play_drive_db", 10.0) or 10.0),
+                 float(current.get("master_drive_db", 12.0) or 12.0),
+                 float(current.get("play_ceiling_db", -3.0) or -3.0),
+                 user_id),
             )
         await self._safe_write(_m, _s)
+        try:
+            if "play_drive_db" in current:
+                os.environ["PLAY_DRIVE_DB"] = str(current["play_drive_db"])
+            if "master_drive_db" in current:
+                os.environ["MASTER_DRIVE_DB"] = str(current["master_drive_db"])
+            if "play_ceiling_db" in current:
+                os.environ["PLAY_CEILING_DB"] = str(current["play_ceiling_db"])
+                os.environ["MASTER_CEILING_DB"] = str(current["play_ceiling_db"])
+        except Exception:
+            pass
 
     async def get_linked_user_ids(self, user_id: int) -> list[int]:
         try:

@@ -61,3 +61,16 @@ def test_live_mic_and_bridge_loud_no_clip_after_opus(tmp_path):
         x = _opus_roundtrip(tmp_path, c)
         assert np.sqrt((x ** 2).mean()) > 0.1
         assert (np.abs(x) > 0.99).mean() < 0.005
+
+
+def test_tunable_db_controls():
+    import os
+    try:
+        os.environ["PLAY_DRIVE_DB"] = "18.0"
+        os.environ["PLAY_CEILING_DB"] = "-2.5"
+        chain = ap.build_ffmpeg_filter()
+        assert "volume=18.00dB" in chain
+        assert "limit=0.7499" in chain
+    finally:
+        os.environ.pop("PLAY_DRIVE_DB", None)
+        os.environ.pop("PLAY_CEILING_DB", None)

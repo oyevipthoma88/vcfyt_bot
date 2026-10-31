@@ -1023,11 +1023,11 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
     applied = await apply_settings_live(uid)
     await msg.reply_text(
         f"{label}\n\n"
-        f" Vol <code>{s['volume']}/3000</code> |  Gain <code>{s['gain']}/500</code> | "
-        f" Bass <code>{s['bass']}</code> |  Boost <code>{s['boost']}/10</code> |  Echo "
-        f"<code>{'On' if s['echo'] else 'Off'} {s['echo_level']}/10</code>\n"
+        f" Vol <code>{s['volume']}/3000</code> | Gain <code>{s['gain']}/500</code>\n"
+        f" 📻 Play <code>{float(s.get('play_drive_db', 10.0)):+.1f} dB</code> | 🎙️ Master <code>{float(s.get('master_drive_db', 12.0)):+.1f} dB</code>\n"
+        f" 🛡️ Ceil <code>{float(s.get('play_ceiling_db', -3.0)):.1f} dB</code> | Bass <code>{s['bass']}</code> | Boost <code>{s['boost']}/10</code>\n"
         + (f" {applied} live VC par apply hua." if applied else
-           " Saved — agli play par lagega."),
+           " Saved — agli play/mic par lagega."),
         reply_markup=K([[B("🔹 Settings Panel", callback_data="menu:settings")]]),
     )
 
@@ -2423,3 +2423,103 @@ async def spare_chat_listener(bot: Client, msg: Message):
         await msg.delete()
     except Exception:
         pass
+
+
+@Client.on_message(HAS_USER & cmd_prefix(r"(playdb|pldb)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_playdb(bot: Client, msg: Message):
+    parts = cmd_text(msg).split()
+    s = await db.get_settings(msg.from_user.id)
+    if len(parts) < 2:
+        cur = float(s.get("play_drive_db", 10.0) or 10.0)
+        await msg.reply_text(
+            f"📻 <b>Play Drive dB:</b> <code>{cur:+.1f} dB</code>\n\n"
+            "💡 <i>Play/Tag audio & songs ki boost power. Range: 0 to 24 dB.</i>\n"
+            "Usage: <code>.playdb 14</code> ya <code>.playdb +2</code> ya <code>.playdb -2</code>",
+            reply_markup=K([[B("🎚️ Sound Controls", callback_data="menu:settings")]])
+        )
+        return
+    raw = parts[1].strip()
+    try:
+        if raw.startswith(("+", "-")):
+            val = float(s.get("play_drive_db", 10.0) or 10.0) + float(raw)
+        else:
+            val = float(raw)
+    except ValueError:
+        await msg.reply_text("❌ Sahi number dalein, jaise: <code>.playdb 14</code> ya <code>.playdb +2</code>")
+        return
+    val = round(max(0.0, min(24.0, val)), 1)
+    os.environ["PLAY_DRIVE_DB"] = str(val)
+    await _apply_and_reply(
+        msg,
+        f"📻 <b>Play Drive set: {val:+.1f} dB</b>\n"
+        "<i>(Played audio & tagged voice boost updated)</i>",
+        play_drive_db=val
+    )
+
+@Client.on_message(HAS_USER & cmd_prefix(r"(masterdb|mstrdb)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_masterdb(bot: Client, msg: Message):
+    parts = cmd_text(msg).split()
+    s = await db.get_settings(msg.from_user.id)
+    if len(parts) < 2:
+        cur = float(s.get("master_drive_db", 12.0) or 12.0)
+        await msg.reply_text(
+            f"🎙️ <b>Master Drive dB:</b> <code>{cur:+.1f} dB</code>\n\n"
+            "💡 <i>Live mic aur VC bridge ki power. Range: 0 to 24 dB.</i>\n"
+            "Usage: <code>.masterdb 16</code> ya <code>.masterdb +2</code> ya <code>.masterdb -2</code>",
+            reply_markup=K([[B("🎚️ Sound Controls", callback_data="menu:settings")]])
+        )
+        return
+    raw = parts[1].strip()
+    try:
+        if raw.startswith(("+", "-")):
+            val = float(s.get("master_drive_db", 12.0) or 12.0) + float(raw)
+        else:
+            val = float(raw)
+    except ValueError:
+        await msg.reply_text("❌ Sahi number dalein, jaise: <code>.masterdb 14</code> ya <code>.masterdb +2</code>")
+        return
+    val = round(max(0.0, min(24.0, val)), 1)
+    os.environ["MASTER_DRIVE_DB"] = str(val)
+    await _apply_and_reply(
+        msg,
+        f"🎙️ <b>Master Drive set: {val:+.1f} dB</b>\n"
+        "<i>(Live mic & VC bridge power updated)</i>",
+        master_drive_db=val
+    )
+
+@Client.on_message(HAS_USER & cmd_prefix(r"(ceiling|ceilingdb|ceildb)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_ceiling(bot: Client, msg: Message):
+    parts = cmd_text(msg).split()
+    s = await db.get_settings(msg.from_user.id)
+    if len(parts) < 2:
+        cur = float(s.get("play_ceiling_db", -3.0) or -3.0)
+        await msg.reply_text(
+            f"🛡️ <b>Limiter Ceiling:</b> <code>{cur:.1f} dBFS</code>\n\n"
+            "• <code>-3.0</code> = 🛡️ Opus Safe (No AGC duck, no crackle - Best)\n"
+            "• <code>-2.5</code> = ⚡ Punchy (Zyada punch, safe on most phones)\n"
+            "• <code>-1.5</code> = 🔥 Aggressive (Ultra loud, slight clipping)\n\n"
+            "Usage: <code>.ceiling -2.5</code> ya <code>.ceiling -3.0</code>",
+            reply_markup=K([[B("🎚️ Sound Controls", callback_data="menu:settings")]])
+        )
+        return
+    raw = parts[1].strip()
+    try:
+        val = float(raw)
+    except ValueError:
+        await msg.reply_text("❌ Sahi number dalein, jaise: <code>.ceiling -2.5</code>")
+        return
+    val = round(max(-6.0, min(-0.5, val)), 1)
+    os.environ["PLAY_CEILING_DB"] = str(val)
+    os.environ["MASTER_CEILING_DB"] = str(val)
+    await _apply_and_reply(
+        msg,
+        f"🛡️ <b>Limiter Ceiling set: {val:.1f} dBFS</b>\n"
+        "<i>(Telegram anti-duck headroom updated)</i>",
+        play_ceiling_db=val
+    )
+
+@Client.on_message(HAS_USER & cmd_prefix(r"(sound|controls)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+async def cmd_sound_shortcut(bot: Client, msg: Message):
+    from plugins.ui import settings_kb, settings_text
+    s = await db.get_settings(msg.from_user.id)
+    await msg.reply_text(settings_text(s), reply_markup=settings_kb(s))
