@@ -29,3 +29,8 @@ _install_playback_v62()
 # drive; fixes "code me max, VC me normal".
 from .playback_v63 import install as _install_playback_v63
 _install_playback_v63()
+
+# v64 (last): FIGHT LOUD - drive floor 20 dB at max boost; saved .playdb can
+# only push higher. Fixes "normal audio music bot ke barabar".
+from .playback_v64 import install as _install_playback_v64
+_install_playback_v64()
