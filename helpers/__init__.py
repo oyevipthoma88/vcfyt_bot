@@ -11,3 +11,7 @@ _install_playback_v58()
 from .playback_v59 import install as _install_playback_v59
 
 _install_playback_v59()
+# v60 (last): fight chain restored - presence + peak compressor, Opus-safe.
+from .playback_v60 import install as _install_playback_v60
+
+_install_playback_v60()

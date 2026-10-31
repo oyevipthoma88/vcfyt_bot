@@ -1,4 +1,4 @@
-"""v59: playback must be loud without lifting the noise floor."""
+"""v59/v60: playback must be loud without lifting the noise floor."""
 import helpers  # noqa: F401  (installs playback patches)
 from helpers import audio_processor as ap
 
@@ -9,7 +9,9 @@ def _chain():
 
 def test_no_noise_pumping_levellers():
     chain = _chain()
-    assert not any(f.startswith(("speechnorm", "dynaudnorm")) for f in chain)
+    assert not any(f.startswith("speechnorm") for f in chain)
+    # a leveler is allowed only with a noise threshold (pauses never lifted)
+    assert all(":t=" in f for f in chain if f.startswith("dynaudnorm"))
 
 
 def test_gate_runs_after_drive():

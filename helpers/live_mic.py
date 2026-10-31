@@ -658,6 +658,32 @@ class LiveMicSession:
                     logger.debug("%s failed: %s", fn_name, exc)
         return False
 
+    @staticmethod
+    def _admin_required(exc: Exception) -> bool:
+        return (type(exc).__name__ == "ChatAdminRequired"
+                or "CHAT_ADMIN_REQUIRED" in str(exc).upper())
+
+    async def _vc_exists_strict(self) -> bool:
+        """Like _vc_exists but 'unknown' counts as NOT running."""
+        try:
+            return await self.relay._call_input(self.chat_id) is not None
+        except Exception:
+            return False
+
+    async def _start_vc_any(self) -> bool:
+        """Start the group VC with whichever account is allowed to:
+        main ID first (usually group owner/admin), then the relay."""
+        for acct in (getattr(self, "uvc", None), self.relay):
+            if acct is None or not hasattr(acct, "start_voice_chat"):
+                continue
+            try:
+                if await acct.start_voice_chat(self.chat_id) and \
+                        await self._vc_exists_strict():
+                    return True
+            except Exception as exc:
+                logger.debug("start VC via %r failed: %r", acct, exc)
+        return await self._vc_exists_strict()
+
     async def _vc_exists(self) -> bool:
         try:
             return await self.relay._call_input(self.chat_id) is not None
@@ -808,6 +834,21 @@ class LiveMicSession:
                 # peer once and retry before giving up.
                 if is_peer_error(first):
                     await self._ensure_relay_peer()
+                    await self._attach_stream()
+                elif (self._admin_required(first)
+                      and not await self._vc_exists_strict()):
+                    # ROOT FIX: VC band ho to py-tgcalls khud CreateGroupCall
+                    # bhejta hai; non-admin spare ID ko Telegram
+                    # CHAT_ADMIN_REQUIRED deta hai. Ye restriction nahi hai —
+                    # VC ko main ID (group admin) se start karo, phir join.
+                    if not await self._start_vc_any():
+                        raise RuntimeError(
+                            "Is group me voice chat band hai aur spare ID admin nahi "
+                            "hai, isliye VC start nahi kar sakti.\n"
+                            "Fix: group me Voice Chat khud start karein (ya spare ID ko "
+                            "'Manage Voice Chats' admin right dein), phir mic ON karein."
+                        ) from first
+                    self.created_vc = True
                     await self._attach_stream()
                 elif self._restricted_error(first):
                     who = ("Aapka account" if self.shared_account

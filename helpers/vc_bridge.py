@@ -454,6 +454,7 @@ class VCBridge:
         _ensure_handler(self.relay)
         # 1) spare ID PRIVATE VC me listener ban ke join (kuch nahi bolti)
         await self.relay._peer(self.source_chat)
+        await self._ensure_source_vc()
         await self.relay.calls.record(
             self.source_chat, RecordStream(audio=True, audio_parameters=AudioParameters(48000, 1)))
         for n in ("mute", "mute_stream"):
@@ -476,6 +477,36 @@ class VCBridge:
             raise
         self._on_target_live()
         self._watch = asyncio.create_task(self._watchdog())
+
+    async def _ensure_source_vc(self) -> None:
+        """ROOT FIX (CHAT_ADMIN_REQUIRED / phone.CreateGroupCall):
+        py-tgcalls record() creates the group call itself when the PRIVATE
+        group's VC is off.  The spare ID is not admin there, so Telegram
+        refused and the bridge died with a raw error.  Start the VC with the
+        main ID (it owns / admins the private group) first; only then join."""
+        async def running() -> bool:
+            for acct in (self.relay, self.uvc):
+                try:
+                    if await acct._call_input(self.source_chat) is not None:
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        if await running():
+            return
+        for acct in (self.uvc, self.relay):
+            try:
+                if await acct.start_voice_chat(self.source_chat) and await running():
+                    return
+            except Exception as exc:
+                logger.debug("bridge: start source VC via %r failed: %r", acct, exc)
+        raise RuntimeError(
+            "Private group me voice chat band hai aur start nahi ho payi "
+            "(spare ID admin nahi hai).\n"
+            "Fix: main ID se private group me Voice Chat start karein — ya spare ID "
+            "ko us group me 'Manage Voice Chats' admin right dein — phir dobara "
+            "<code>.mic on</code>.")
 
     def _add_peer_hints(self) -> None:
         """Main ID ko batao spare ID(s) kin groups me milti hain (200 % boost
