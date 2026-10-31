@@ -7,10 +7,11 @@ import helpers  # noqa: F401
 from helpers import audio_processor as ap
 
 
-def test_default_ceiling_is_minus_0_3_dbfs(monkeypatch):
+def test_default_ceiling_is_minus_1_dbfs_since_v65(monkeypatch):
+    # v65: played files cap at -1.0 dBFS (above that Opus overs = square)
     monkeypatch.delenv("PLAY_CEILING_DB", raising=False)
     lims = [f for f in ap.build_ffmpeg_filter().split(",") if f.startswith("alimiter")]
-    assert lims and all("limit=0.9661" in f for f in lims)
+    assert lims and all("limit=0.8913" in f for f in lims)
 
 
 def test_no_level_eating_stages_after_drive():
