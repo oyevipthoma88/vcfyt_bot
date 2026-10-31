@@ -524,6 +524,13 @@ class UserVC:
             # The fake screen share is a separate (video) track; only the
             # microphone track ending means the recording finished.
             if getattr(update, "stream_type", None) == StreamEnded.Type.VIDEO:
+                # ROOT FIX (SS dikhta hi nahi / blurred DP): screen renderer
+                # ka pipe band hua to Telegram ko frames milna band -> sabko
+                # sirf blurred DP dikhta tha, par bot ss_on=True hi maanta
+                # tha. Ab screen track turant naye renderer se wapas lagta hai.
+                st = self.chats.get(update.chat_id)
+                if st is not None and getattr(st, "ss_on", False):
+                    asyncio.ensure_future(self._ss_revive(update.chat_id, "video track ended"))
                 return
             await self._on_stream_end(update.chat_id)
 
@@ -1212,6 +1219,34 @@ class UserVC:
                 pass
     _SS_JOIN_TIMEOUT = 25.0  # sec: presentation join kabhi lock ko hamesha ke liye na pakde
 
+    async def _ss_revive(self, chat_id: int, why: str = "") -> bool:
+        """Screen track ko naye renderer ke saath dobara attach karo (audio
+        untouched). Max 4 revive per minute taaki loop na bane."""
+        st = self.chats.get(chat_id)
+        if st is None or not getattr(st, "ss_on", False):
+            return False
+        now = time.monotonic()
+        hist = [t for t in (getattr(st, "ss_revives", None) or []) if now - t < 60]
+        if len(hist) >= 4:
+            logger.warning("SS revive limit hit for %s (%s)", chat_id, why)
+            return False
+        hist.append(now)
+        st.ss_revives = hist
+        await asyncio.sleep(1.0)
+        locks = self.__dict__.setdefault("_ss_locks", {})
+        lock = locks.setdefault(chat_id, asyncio.Lock())
+        async with lock:
+            st = self.chats.get(chat_id)
+            if st is None or not getattr(st, "ss_on", False):
+                return False
+            try:
+                logger.info("SS revive for %s (%s)", chat_id, why)
+                return bool(await self._ss_toggle_independent(chat_id, True))
+            except Exception as exc:
+                logger.warning("SS revive failed for %s: %r", chat_id, exc)
+                st.ss_error = (str(exc)[:300] or type(exc).__name__)
+                return False
+
     async def _ss_join_shielded(self, chat_id: int) -> None:
         """Presentation join WITHOUT cancelling it mid-way.
 
@@ -1288,7 +1323,18 @@ class UserVC:
             if pres is not None:
                 actual = chat_id in pres
                 if actual == bool(on) and bool(st.ss_on) == bool(on) and not image_path:
-                    return True
+                    if not on:
+                        return True
+                    # ROOT FIX: "ON" dikhta tha par screen track mar chuka
+                    # hota tha -> .ss on kuch nahi karta tha. Ab ON pe hamesha
+                    # fresh renderer attach hota hai (presentation same rehti).
+                    try:
+                        if await self._ss_toggle_independent(chat_id, True):
+                            return True
+                    except Exception as exc:
+                        logger.warning("SS refresh failed, full restart: %r", exc)
+                    await self._ss_leave_hard(chat_id)
+                    st.ss_on = False
                 if not on and not actual and not st.ss_on:
                     return True
             # Rapid on/off native crash guard: toggles ke beech min gap.
