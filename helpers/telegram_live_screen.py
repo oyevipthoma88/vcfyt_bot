@@ -284,21 +284,20 @@ class Renderer:
         panel_x = int(W * 0.69)
         hz = int(H * 0.60)
         vx = panel_x // 2
-        for i in range(-12, 13):
-            gd.line([(vx + i * S(22), hz), (vx + i * S(170), H)], fill=NEON_V + (55,), width=1)
-        y, step = hz, S(6)
+        # sparser, wider grid lines: thin 1px lines smear under compression
+        for i in range(-6, 7):
+            gd.line([(vx + i * S(44), hz), (vx + i * S(340), H)], fill=NEON_V + (45,), width=2)
+        y, step = hz, S(14)
         while y < H:
-            a = int(25 + 70 * (y - hz) / max(1, H - hz))
-            gd.line([(0, y), (panel_x, y)], fill=NEON_M + (a,), width=1)
-            step = int(step * 1.35) + 1
+            a = int(20 + 50 * (y - hz) / max(1, H - hz))
+            gd.line([(0, y), (panel_x, y)], fill=NEON_M + (a,), width=2)
+            step = int(step * 1.45) + 2
             y += step
         bg.alpha_composite(grid)
-        # subtle scanlines
-        sl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        sd = ImageDraw.Draw(sl)
-        for yy in range(0, H, 3):
-            sd.line([(0, yy), (W, yy)], fill=(0, 0, 0, 38))
-        bg.alpha_composite(sl)
+        # BLUR FIX: full-frame 1px scanlines (every 3rd row) were pure
+        # high-frequency noise for the WebRTC encoder.  At screen-share
+        # bitrates it spent every bit on them, so Telegram showed the WHOLE
+        # screen blurred / smeared.  Removed — the frame now encodes sharp.
         bg = bg.convert("RGB")
         # vignette
         v = Image.new("L", (W // 8, H // 8), 0)
@@ -687,8 +686,12 @@ def main():
         # "revive" nahi hota.  Normal OFF pe ntgcalls pipe band karta hai ->
         # BrokenPipe -> exit.  Ye guard sirf leak ke liye hai: jaldi exit
         # karna (4 s) ntgcalls ke chalte reader ko EOF deta tha = crash.
+        # v66 CRASH FIX: an OFF now removes the screen track FIRST and only
+        # then deletes the state file, so nothing reads this pipe any more.
+        # Exiting after 3 s (was 20 s) stops 2-3 old renderers (~160 MB each)
+        # piling up on quick ON/OFF and getting the bot killed for RAM.
         if os.getppid() != parent or (seen_state and not os.path.exists(a.state)
-                                       and now - last_seen > 20.0):
+                                       and now - last_seen > 3.0):
             return
         if os.path.exists(a.state):
             seen_state, last_seen = True, now

@@ -1184,7 +1184,32 @@ class UserVC:
         lock = self.__dict__.get("_ss_locks", {}).get(chat_id)
         return bool(lock and lock.locked())
 
-    _SS_MIN_GAP = 4.0  # sec: ntgcalls ko presentation teardown ka poora time do
+    _SS_MIN_GAP = 6.0  # sec: ntgcalls ko presentation teardown ka poora time do
+
+    def _ss_kill_renderers(self, chat_id: int, keep_gen: int = None) -> None:
+        """v66: kill leftover screen renderers of this chat (each ~160 MB).
+        Quick ON/OFF used to leave 2-3 alive -> RAM limit -> bot killed."""
+        import signal
+        tag = f"ss_live_{self.owner_id}_{abs(chat_id)}_"
+        keep = f"{tag}{keep_gen}.json" if keep_gen is not None else None
+        try:
+            pids = [p for p in os.listdir("/proc") if p.isdigit()]
+        except OSError:
+            return
+        for pid in pids:
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    cmd = f.read().replace(b"\0", b" ").decode("utf-8", "ignore")
+            except OSError:
+                continue
+            if "telegram_live_screen.py" not in cmd or tag not in cmd:
+                continue
+            if keep and keep in cmd:
+                continue
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except OSError:
+                pass
     _SS_JOIN_TIMEOUT = 25.0  # sec: presentation join kabhi lock ko hamesha ke liye na pakde
 
     async def _ss_join_shielded(self, chat_id: int) -> None:
@@ -1237,6 +1262,7 @@ class UserVC:
     async def _ss_new_session(self, chat_id: int, st) -> None:
         """OFF -> ON: purana loop + uska state file pura khatam, naya generation."""
         await self._ss_stop_task(st)
+        self._ss_kill_renderers(chat_id)
         try:
             os.remove(self._ss_state_path(chat_id))
         except OSError:
@@ -1326,13 +1352,15 @@ class UserVC:
                 await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
                 await self._ss_join_shielded(chat_id)
             else:
-                # ROOT FIX (2nd OFF/ON crash): pehle presentation connection
-                # band karo, PHIR screen track hatao.  Ulta order me ntgcalls
-                # chalte presentation se track chheen leta tha aur agla
-                # init_presentation aadhe-band connection pe native crash
-                # karta tha (pura bot process mar jaata tha).
-                await self._ss_leave_hard(chat_id)
+                # v66 CRASH FIX (2+ ON/OFF = bot crash): same order as
+                # py-tgcalls' own play(): pehle screen track hatao (renderer
+                # pipe ntgcalls khud band karta hai), thoda ruko, PHIR
+                # presentation band karo.  Purana ulta order chalte reader ke
+                # neeche se connection hata deta tha -> native crash.
                 await binding.set_stream_sources(chat_id, StreamMode.CAPTURE, desc)
+                await asyncio.sleep(1.0)
+                await self._ss_leave_hard(chat_id)
+                self._ss_kill_renderers(chat_id)
         except BaseException as exc:
             st.ss_on = prev if not on else False
             if on:

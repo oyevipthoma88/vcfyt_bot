@@ -39,3 +39,8 @@ _install_playback_v64()
 # -1 dBFS ceiling: louder than v64 and less square/crackle.
 from .playback_v65 import install as _install_playback_v65
 _install_playback_v65()
+
+# v66 (last): BHARI + CLEAR + LOUD - bass body back (lowshelf 100 Hz),
+# no 10 kHz muffle, 2 clean push stages instead of 56 dB into a clipper.
+from .playback_v66 import install as _install_playback_v66
+_install_playback_v66()
