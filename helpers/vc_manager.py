@@ -518,6 +518,7 @@ class UserVC:
             self.calls._binding = _BindingRecorder(self.calls._binding)
         except Exception as exc:
             logger.warning("binding recorder skipped: %r", exc)
+        self._install_presentation_guard()
 
         @self.calls.on_update(call_filters.stream_end())
         async def _on_end(_, update: StreamEnded):
@@ -1219,7 +1220,7 @@ class UserVC:
                 pass
     _SS_JOIN_TIMEOUT = 25.0  # sec: presentation join kabhi lock ko hamesha ke liye na pakde
 
-    async def _ss_revive(self, chat_id: int, why: str = "") -> bool:
+    async def _ss_revive(self, chat_id: int, why: str = "", rejoin: bool = False) -> bool:
         """Screen track ko naye renderer ke saath dobara attach karo (audio
         untouched). Max 4 revive per minute taaki loop na bane."""
         st = self.chats.get(chat_id)
@@ -1240,12 +1241,119 @@ class UserVC:
             if st is None or not getattr(st, "ss_on", False):
                 return False
             try:
-                logger.info("SS revive for %s (%s)", chat_id, why)
+                logger.info("SS revive for %s (%s)%s", chat_id, why, " [rejoin]" if rejoin else "")
+                if rejoin:
+                    # Telegram pe presentation hai hi nahi, par pytgcalls
+                    # _presentations me chat hai -> join kuch nahi karta.
+                    # Pehle poora band, phir fresh join.
+                    await self._ss_leave_hard(chat_id)
                 return bool(await self._ss_toggle_independent(chat_id, True))
             except Exception as exc:
                 logger.warning("SS revive failed for %s: %r", chat_id, exc)
                 st.ss_error = (str(exc)[:300] or type(exc).__name__)
                 return False
+
+    # ------------------------------------------------------------------
+    # v67 ROOT FIX: "SS on, par sabko sirf BLURRED DP dikhta hai"
+    # ------------------------------------------------------------------
+    # ntgcalls (2.2.x) StreamManager::getState() har status update me
+    #     presentationPaused = isPaused() || muted
+    # bhejta hai.  Yaani jab bhi bot ka mic mute hota hai (ghost mode, live
+    # mic park, admin mute, vc_joiner) ya gaana pause hota hai, pytgcalls
+    # Telegram ko EditGroupCallParticipant(presentation_paused=True) bhej
+    # deta hai.  Telegram clients paused presentation ko BLURRED DP dikhate
+    # hain — renderer frames bhej raha hota hai par koi dekh nahi pata.
+    # Baad wala raw "muted=False" sirf mic icon theek karta hai,
+    # presentation_paused True hi reh jata tha.  Isliye:
+    #   1) status update me SS ON ho to presentation_paused hamesha False
+    #   2) ON ke baad explicit unpause
+    #   3) live loop Telegram ka asli state padhta hai: paused -> unpause,
+    #      presentation gayab -> hard rejoin (rate limited)
+    def _install_presentation_guard(self) -> None:
+        calls = getattr(self, "calls", None)
+        orig = getattr(calls, "_update_status", None)
+        if orig is None or getattr(orig, "_ss_guard", False):
+            return
+        mgr = self
+
+        async def _guarded_update_status(chat_id, state):
+            try:
+                st = mgr.chats.get(chat_id)
+                if st is not None and getattr(st, "ss_on", False) and \
+                        getattr(state, "presentation_paused", False):
+                    from types import SimpleNamespace
+                    state = SimpleNamespace(
+                        muted=getattr(state, "muted", None),
+                        video_paused=getattr(state, "video_paused", None),
+                        video_stopped=getattr(state, "video_stopped", None),
+                        presentation_paused=False,
+                    )
+            except Exception as exc:
+                logger.debug("presentation guard skipped: %r", exc)
+            return await orig(chat_id, state)
+
+        _guarded_update_status._ss_guard = True
+        try:
+            calls._update_status = _guarded_update_status
+        except Exception as exc:
+            logger.warning("presentation guard install failed: %r", exc)
+
+    async def _ss_unpause_presentation(self, chat_id: int, why: str = "",
+                                       force: bool = False) -> bool:
+        st = self.chats.get(chat_id)
+        if st is None or not getattr(st, "ss_on", False):
+            return False
+        now = time.monotonic()
+        if not force and now - float(getattr(st, "ss_unpause_at", 0.0) or 0.0) < 4.0:
+            return False
+        st.ss_unpause_at = now
+        try:
+            call_input = await self._call_input(chat_id)
+            if not call_input:
+                return False
+            peer = await self.client.resolve_peer(self.account_id)
+            await self.client.invoke(EditGroupCallParticipant(
+                call=call_input, participant=peer, presentation_paused=False))
+            logger.info("SS presentation unpaused in %s (%s)", chat_id, why)
+            return True
+        except Exception as exc:
+            logger.debug("SS unpause failed in %s: %r", chat_id, exc)
+            return False
+
+    async def _ss_unpause_later(self, chat_id: int) -> None:
+        # ntgcalls ka apna status update async aata hai; uske BAAD lagao.
+        for delay in (1.5, 3.0):
+            await asyncio.sleep(delay)
+            await self._ss_unpause_presentation(chat_id, "after SS on", force=True)
+
+    async def _ss_health_check(self, chat_id: int, parts: list) -> None:
+        st = self.chats.get(chat_id)
+        if st is None or not getattr(st, "ss_on", False) or self.ss_busy(chat_id):
+            return
+        me = next((p for p in parts or [] if p.get("uid") == self.account_id), None)
+        if me is None:
+            return
+        now = time.monotonic()
+        if me.get("presenting"):
+            st.ss_missing_since = None
+            if me.get("pres_paused"):
+                await self._ss_unpause_presentation(chat_id, "Telegram showed it paused")
+            return
+        # Telegram pe screen share hai hi nahi, bot ss_on=True maan raha hai.
+        if now - float(getattr(st, "ss_joined_at", 0.0) or 0.0) < 10.0:
+            return
+        since = getattr(st, "ss_missing_since", None) or now
+        st.ss_missing_since = since
+        if now - since < 6.0:
+            return
+        hist = [t for t in (getattr(st, "ss_rejoins", None) or []) if now - t < 300]
+        if len(hist) >= 2:
+            return  # 5 min me max 2 rejoin: kabhi loop nahi
+        hist.append(now)
+        st.ss_rejoins = hist
+        st.ss_missing_since = None
+        st.ss_joined_at = now
+        asyncio.ensure_future(self._ss_revive(chat_id, "presentation missing on Telegram", rejoin=True))
 
     async def _ss_join_shielded(self, chat_id: int) -> None:
         """Presentation join WITHOUT cancelling it mid-way.
@@ -1435,6 +1543,10 @@ class UserVC:
                 except Exception:
                     pass
                 raise RuntimeError(st.ss_error)
+        if on:
+            st.ss_joined_at = time.monotonic()
+            st.ss_missing_since = None
+            asyncio.ensure_future(self._ss_unpause_later(chat_id))
         if not on:
             task = getattr(st, "ss_task", None)
             if task and not task.done():
@@ -2033,6 +2145,9 @@ class UserVC:
                 "hand": bool(getattr(p, "raise_hand_rating", None)),
                 "volume": int((getattr(p, "volume", None) or 10000) / 100),
                 "is_me": uid == self.account_id,
+                # v67 SS: Telegram ka apna screen-share state (sach yahi hai)
+                "presenting": getattr(p, "presentation", None) is not None,
+                "pres_paused": bool(getattr(getattr(p, "presentation", None), "paused", False)),
             })
         return out
 
@@ -2233,6 +2348,10 @@ class UserVC:
             if time.time() - last_fetch > 1.5:
                 try:
                     parts = await self.vc_participants(chat_id)
+                    try:
+                        await self._ss_health_check(chat_id, parts)
+                    except Exception as exc:
+                        logger.debug("ss health check failed: %r", exc)
                     if me_id:
                         for p in parts:
                             p["is_me"] = p.get("uid") == me_id
