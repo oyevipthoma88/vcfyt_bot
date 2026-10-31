@@ -14,6 +14,7 @@ from config import Config
 from helpers.database import db
 from helpers.logger_channel import log_broadcast, log_command
 from helpers.vc_manager import session_manager
+from helpers.feature_flags import live_mic_on, refresh_flags, set_live_mic
 
 BANNED_USERS: set = set()
 
@@ -37,6 +38,8 @@ def panel_kb() -> K:
          B("🌱 Grow", callback_data="adm_grow", style="success")],
         [B("🎵 Add Audio", callback_data="adm_addaudio", style="primary"),
          B("💳 Payments", callback_data="adm_payment", style="primary")],
+        [B(("🎤 Live Mic: 🟢 ON (users)" if live_mic_on() else "🎤 Live Mic: ⚫ OFF (users)"),
+           callback_data="adm_livemic", style=("success" if live_mic_on() else "danger"))],
         [B("👥 Multi Spare (Free / Premium)", callback_data="adm_mspare", style="success")],
         [B("🎛 VC Joiner", callback_data="adm_vcjoin", style="success"),
          B("🎬 Set Video", callback_data="adm_setvideo", style="primary")],
@@ -46,6 +49,7 @@ def panel_kb() -> K:
     ])
 
 async def _panel_text() -> str:
+    await refresh_flags()
     users = await db.all_users()
     with_session = sum(1 for u in users if u.get("string_session"))
     from plugins.ui import card
@@ -53,7 +57,8 @@ async def _panel_text() -> str:
         f"👥 <b>Users</b>          <code>{len(users)}</code>\n"
         f"🔐 <b>Logged in</b>      <code>{with_session}</code>\n"
         f"⚙️ <b>Live engines</b>   <code>{len(session_manager.users)}</code>\n"
-        f"🎙 <b>Active VCs</b>     <code>{session_manager.active_chats()}</code>",
+        f"🎙 <b>Active VCs</b>     <code>{session_manager.active_chats()}</code>\n"
+        f"🎤 <b>Live Mic</b>       {'🟢 <b>ON</b> for users' if live_mic_on() else '⚫ <b>OFF</b> for users'}",
         "Neeche se control choose karo.")
 
 @Client.on_message(HAS_USER & dm_cmd("owner") & filters.private)
@@ -70,6 +75,15 @@ async def cb_admin(bot, cq):
 
     action = cq.data.split("_", 1)[1]
     back = K([[B("⬅ Back", callback_data="adm_back")]])
+    if action in ("livemic", "livemic_on", "livemic_off"):
+        cur = await refresh_flags()
+        new = (not cur) if action == "livemic" else (action == "livemic_on")
+        await set_live_mic(new)
+        await safe_answer(cq, "🎤 Live Mic ON — sab users ko dikhega" if new
+                          else "🎤 Live Mic OFF — users se chhupa diya", show_alert=False)
+        await edit_screen(cq.message, await _panel_text(), reply_markup=panel_kb())
+        return
+
     if action == "vcjoin":
         try:
             from plugins.vc_joiner import _menu, _text

@@ -59,6 +59,8 @@ async def cmd_start(bot: Client, msg: Message):
         except (ValueError, IndexError):
             pass
 
+    from helpers.feature_flags import refresh_flags
+    await refresh_flags()
     logged = await _is_logged_in(user.id)
     uvc = session_manager.users.get(user.id)
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
@@ -77,6 +79,8 @@ async def cmd_start(bot: Client, msg: Message):
 @Client.on_callback_query(filters.regex(r"^menu:home$"))
 async def cb_home(bot, cq):
     user = cq.from_user
+    from helpers.feature_flags import refresh_flags
+    await refresh_flags()
     logged = await _is_logged_in(user.id)
     uvc = session_manager.users.get(user.id)
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
@@ -89,6 +93,8 @@ async def cb_home(bot, cq):
 
 @Client.on_callback_query(filters.regex(r"^menu:tutorial$"))
 async def cb_tutorial_menu(bot, cq):
+    from helpers.feature_flags import refresh_flags
+    await refresh_flags()
     await edit_screen(cq.message, TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())
     await safe_answer(cq)
 

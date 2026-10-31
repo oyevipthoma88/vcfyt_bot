@@ -661,65 +661,81 @@ def main():
     except (AttributeError, OSError):
         pass
     out = sys.stdout.buffer
-    started = time.time()
-    frame, key, last, st = None, None, 0.0, {}
+    # ROOT BLUR FIX: Telegram shows the sharer's avatar BLURRED whenever the
+    # video track stops receiving frames.  Rendering used to happen inside the
+    # write loop, so every slow PIL frame (first bg build ~0.8 s, much more on
+    # a busy VPS with nice 15) starved the pipe -> stall -> blurred avatar.
+    # Now a background thread renders; this loop ALWAYS writes the latest
+    # finished frame at the exact fps, so the track never stalls.
+    import threading
+    shared = {"frame": rgb_to_i420(Image.new("RGB", (w, h), BG)),
+              "st": {}, "started": time.time(), "alive": True}
+    lock = threading.Lock()
+
+    def render_loop():
+        key = None
+        min_gap = 1.0 / 8
+        while shared["alive"]:
+            t = time.time()
+            with lock:
+                st = dict(shared["st"])
+                started = shared["started"]
+            k = (json.dumps({kk: vv for kk, vv in st.items() if kk != "_read_at"},
+                            sort_keys=True, default=str), int(t * 8))
+            if k != key:
+                try:
+                    st["_fps"] = fps
+                    f = rgb_to_i420(r.render(st, t, started))
+                    with lock:
+                        shared["frame"] = f
+                except Exception as exc:  # never kill the screen share on a bad frame
+                    print(f"telegram_live_screen render error: {exc!r}", file=sys.stderr)
+                key = k
+                cost = time.time() - t
+                # adaptive: slow box renders less often instead of stalling
+                min_gap = max(1.0 / 8, cost * 1.5)
+            sl = t + min_gap - time.time()
+            time.sleep(sl if sl > 0 else 0.005)
+
+    threading.Thread(target=render_loop, daemon=True).start()
+    last = 0.0
     t0 = time.time()
     n = 0
     parent = os.getppid()
     seen_state, last_seen = False, time.time()
-    while True:
-        now = time.time()
-        if now - last > 0.75:
-            new = _read_state(a.state)
-            if new:
-                new["_read_at"] = now
-                st = new
-            last = now
-            if st.get("started"):
-                started = float(st["started"])
-        # ORPHAN GUARD (SS on/off crash root fix): har toggle pe naya renderer
-        # spawn hota hai. Agar ntgcalls ne pipe band kiye bina chhod diya ya
-        # bot ne SS off karke state file hata di, to yeh process khud exit
-        # kare — warna 2-3 toggle me zombie renderers CPU/RAM kha ke bot ko
-        # crash/restart karwa dete the.
-        # v2: state file per SS session (generation) hai, isliye yeh kabhi
-        # "revive" nahi hota.  Normal OFF pe ntgcalls pipe band karta hai ->
-        # BrokenPipe -> exit.  Ye guard sirf leak ke liye hai: jaldi exit
-        # karna (4 s) ntgcalls ke chalte reader ko EOF deta tha = crash.
-        # v66 CRASH FIX: an OFF now removes the screen track FIRST and only
-        # then deletes the state file, so nothing reads this pipe any more.
-        # Exiting after 3 s (was 20 s) stops 2-3 old renderers (~160 MB each)
-        # piling up on quick ON/OFF and getting the bot killed for RAM.
-        if os.getppid() != parent or (seen_state and not os.path.exists(a.state)
-                                       and now - last_seen > 3.0):
-            return
-        if os.path.exists(a.state):
-            seen_state, last_seen = True, now
-        # ~8 renders/sec (frame ~10ms) : smooth neon animation, light on CPU.
-        k = (json.dumps({kk: vv for kk, vv in st.items() if kk != "_read_at"},
-                        sort_keys=True, default=str), int(now * 8))
-        if k != key:
+    try:
+        while True:
+            now = time.time()
+            if now - last > 0.75:
+                new = _read_state(a.state)
+                if new:
+                    new["_read_at"] = now
+                    with lock:
+                        shared["st"] = new
+                        if new.get("started"):
+                            shared["started"] = float(new["started"])
+                last = now
+            # ORPHAN GUARD: exit when parent dies or SS state file removed (>3 s).
+            if os.getppid() != parent or (seen_state and not os.path.exists(a.state)
+                                           and now - last_seen > 3.0):
+                return
+            if os.path.exists(a.state):
+                seen_state, last_seen = True, now
+            with lock:
+                frame = shared["frame"]
             try:
-                st["_fps"] = fps
-                frame = rgb_to_i420(r.render(st, now, started))
-            except Exception as exc:  # never kill the screen share on a bad frame
-                print(f"telegram_live_screen render error: {exc!r}", file=sys.stderr)
-                if frame is None:
-                    frame = rgb_to_i420(Image.new("RGB", (w, h), BG))
-            key = k
-        try:
-            out.write(frame)
-            out.flush()
-        except (BrokenPipeError, OSError):
-            return
-        n += 1
-        sl = t0 + n / fps - time.time()
-        if sl > 0:
-            time.sleep(sl)
-        elif sl < -1.0 / fps:
-            # Fell behind: never burst-catch-up (that stalls audio). Re-sync.
-            t0, n = time.time(), 0
-
+                out.write(frame)
+                out.flush()
+            except (BrokenPipeError, OSError):
+                return
+            n += 1
+            sl = t0 + n / fps - time.time()
+            if sl > 0:
+                time.sleep(sl)
+            elif sl < -1.0 / fps:
+                t0, n = time.time(), 0
+    finally:
+        shared["alive"] = False
 
 if __name__ == "__main__":
     main()

@@ -26,13 +26,18 @@ def tutorial_kb() -> K:
         [B("🗃️ Audio Library", callback_data="tut:library")],
         [B("🏷️ Tags", callback_data="tut:tags"),
          B("🔊 Live Voice Boost", callback_data="tut:boost")],
-        [B("🎤 Live Mic", callback_data="tut:livemic")],
         [B("🎛️ VC Control", callback_data="tut:vc"),
          B("👥 Multi-User", callback_data="tut:multi")],
         [B("❓ FAQ / Fixes", callback_data="tut:faq"),
          B("📜 All Commands", callback_data="tut:cmds")],
         [B("🏠 Home", callback_data="menu:home")],
     ]
+    try:
+        from helpers.feature_flags import live_mic_on
+        if live_mic_on():
+            rows.insert(5, [B("🎤 Live Mic", callback_data="tut:livemic")])
+    except Exception:
+        pass
     rows.extend(source_button())
     return K(rows)
 

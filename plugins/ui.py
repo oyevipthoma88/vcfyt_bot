@@ -234,46 +234,64 @@ def chip(on: bool) -> str:
     return "🟢 <b>ON</b>" if on else "⚫ <b>OFF</b>"
 
 
+def _live_mic_on() -> bool:
+    try:
+        from helpers.feature_flags import live_mic_on
+        return live_mic_on()
+    except Exception:
+        return True
+
 def home_text(name: str, logged_in: bool) -> str:
+    mic = _live_mic_on()
+    feats = "🔊 Ultra-loud audio  ·  " + ("🎤 Live mic  ·  " if mic else "") + "🔗 Sync play"
     if logged_in:
-        status = "🟢 <b>Connected</b> · ready to fight"
+        status = "🟢 <b>Connected</b>  ·  ready to fight"
+        last = ("🎤 <b>Live Mic</b> dabao ya audio pe reply → <code>.play</code>"
+                if mic else "Audio pe reply karke <code>.play</code> bhejo")
         steps = (
             "<b>⚡ Quick start</b>\n"
-            "<b>①</b> Group me <code>.setgc</code> <i>(sirf ek baar)</i>\n"
+            "<b>①</b> Group me <code>.setgc</code>  <i>(sirf ek baar)</i>\n"
             "<b>②</b> Voice chat start karo\n"
-            "<b>③</b> 🎤 <b>Live Mic</b> ya audio pe reply → <code>.play</code>"
+            f"<b>③</b> {last}"
         )
     else:
-        status = "🔴 <b>Not connected</b> · setup baaki hai"
+        status = "🔴 <b>Not connected</b>  ·  setup baaki hai"
         steps = (
             "<b>⚡ 2 minute setup</b>\n"
             "<b>①</b> 🔐 <b>Start Setup</b> dabao\n"
-            "<b>②</b> Phone number bhejo <i>(+91…)</i>\n"
+            "<b>②</b> Phone number bhejo  <i>(+91…)</i>\n"
             "<b>③</b> Telegram OTP bhejo — done ✅"
         )
     return (
         "🎧 <b>A P E X  ·  V C  F I G H T</b>\n"
         f"<code>{RULE}</code>\n"
-        f"<blockquote>👋 Welcome, <b>{name}</b>\n"
-        "🔊 Ultra-loud VC audio  ·  🎤 Live mic  ·  🔗 Sync</blockquote>\n"
-        f"<b>Status:</b> {status}\n\n"
-        f"{steps}\n\n"
+        f"<blockquote>👋 Hey <b>{name}</b>, welcome back!\n{feats}</blockquote>\n"
+        f"<b>Status</b>  {status}\n\n"
+        f"{steps}\n"
+        f"<code>{RULE}</code>\n"
         "<i>❓ Confusion? Neeche 📘 <b>Help</b> dabao.</i>"
     )
 
 def home_kb(is_owner: bool = False, logged_in: bool = False,
             active_chat_id: int = None) -> K:
+    mic = _live_mic_on()
     if not logged_in:
         rows = [
-            [B("🔐 Start Setup", callback_data="menu:login", style="success")],
+            [B("🔐 Start Setup  ·  2 min", callback_data="menu:login", style="success")],
             [B("🎬 Video Guide", callback_data="tut:video", style="primary"),
              B("📘 Help", callback_data="menu:tutorial", style="primary")],
         ]
     else:
         now = (f"vc:now:{active_chat_id}" if active_chat_id is not None else "vc:list:0")
+        player_label = "▶️ Now Playing" if active_chat_id is not None else "▶️ Player"
+        if mic or is_owner:
+            mic_label = "🎤 Live Mic" if mic else "🎤 Live Mic (users OFF)"
+            top = [B(mic_label, callback_data="mic:panel", style="success"),
+                   B(player_label, callback_data=now, style="success")]
+        else:
+            top = [B(player_label, callback_data=now, style="success")]
         rows = [
-            [B("🎤 Live Mic", callback_data="mic:panel", style="success"),
-             B("▶️ Player", callback_data=now, style="success")],
+            top,
             [B("🎚️ Sound", callback_data="menu:settings", style="primary"),
              B("🔗 Sync Play", callback_data="sync:menu", style="primary"),
              B("🎵 Library", callback_data="aud:menu", style="primary")],
@@ -388,8 +406,10 @@ def settings_kb(s: dict = None) -> K:
          B("💥 Boost +", callback_data="set:boost:1", style="primary")],
         [B("🔁 Echo", callback_data="set:echo:toggle", style="primary"),
          B("♻️ Reset", callback_data="set:reset", style="danger")],
-        [B("🎤 Live Mic", callback_data="mic:panel", style="primary"),
-         B("🏠 Home", callback_data="menu:home", style="primary")],
+        ([B("🎤 Live Mic", callback_data="mic:panel", style="primary"),
+          B("🏠 Home", callback_data="menu:home", style="primary")]
+         if _live_mic_on() else
+         [B("🏠 Home", callback_data="menu:home", style="primary")]),
     ])
 
 def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
