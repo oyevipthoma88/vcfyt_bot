@@ -34,3 +34,8 @@ _install_playback_v63()
 # only push higher. Fixes "normal audio music bot ke barabar".
 from .playback_v64 import install as _install_playback_v64
 _install_playback_v64()
+
+# v65 (last): STAGED MAX - 3 push stages with limiters between (~56 dB),
+# -1 dBFS ceiling: louder than v64 and less square/crackle.
+from .playback_v65 import install as _install_playback_v65
+_install_playback_v65()
