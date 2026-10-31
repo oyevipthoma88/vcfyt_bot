@@ -20,3 +20,7 @@ _install_playback_v60()
 from .playback_v61 import install as _install_playback_v61
 
 _install_playback_v61()
+
+# v62: ULTRA PRO MAX fight chain (multiband, Opus-safe ceiling)
+from .playback_v62 import install as _install_playback_v62
+_install_playback_v62()
