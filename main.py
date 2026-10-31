@@ -181,6 +181,13 @@ async def main():
     _install_loop_guard()
     validate_config()
     await db.connect()
+    try:  # v63: .playdb/.masterdb/.ceiling survive restarts/redeploys
+        from helpers.playback_v63 import load_saved_db_settings
+        _owner = Config.primary_owner()
+        if _owner:
+            load_saved_db_settings(await db.get_settings(_owner))
+    except Exception as exc:
+        logger.warning("Could not load saved dB settings: %r", exc)
 
     try:
         await init_vc_sync()

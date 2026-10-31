@@ -1025,7 +1025,7 @@ async def _apply_and_reply(msg: Message, label: str, **changes):
         f"{label}\n\n"
         f" Vol <code>{s['volume']}/3000</code> | Gain <code>{s['gain']}/500</code>\n"
         f" 📻 Play <code>{float(s.get('play_drive_db', 10.0)):+.1f} dB</code> | 🎙️ Master <code>{float(s.get('master_drive_db', 12.0)):+.1f} dB</code>\n"
-        f" 🛡️ Ceil <code>{float(s.get('play_ceiling_db', -3.0)):.1f} dB</code> | Bass <code>{s['bass']}</code> | Boost <code>{s['boost']}/10</code>\n"
+        f" 🛡️ Ceil <code>{float(s.get('play_ceiling_db', -0.3)):.1f} dB</code> | Bass <code>{s['bass']}</code> | Boost <code>{s['boost']}/10</code>\n"
         + (f" {applied} live VC par apply hua." if applied else
            " Saved — agli play/mic par lagega."),
         reply_markup=K([[B("🔹 Settings Panel", callback_data="menu:settings")]]),
@@ -2492,13 +2492,13 @@ async def cmd_ceiling(bot: Client, msg: Message):
     parts = cmd_text(msg).split()
     s = await db.get_settings(msg.from_user.id)
     if len(parts) < 2:
-        cur = float(s.get("play_ceiling_db", -3.0) or -3.0)
+        cur = float(s.get("play_ceiling_db", -0.3) or -0.3)
         await msg.reply_text(
             f"🛡️ <b>Limiter Ceiling:</b> <code>{cur:.1f} dBFS</code>\n\n"
-            "• <code>-3.0</code> = 🛡️ Opus Safe (No AGC duck, no crackle - Best)\n"
-            "• <code>-2.5</code> = ⚡ Punchy (Zyada punch, safe on most phones)\n"
-            "• <code>-1.5</code> = 🔥 Aggressive (Ultra loud, slight clipping)\n\n"
-            "Usage: <code>.ceiling -2.5</code> ya <code>.ceiling -3.0</code>",
+            "• <code>-0.3</code> = 🔥 MAX (Default - sabse tagdi aawaz)\n"
+            "• <code>-1.5</code> = ⚡ Loud (thoda kam crunch)\n"
+            "• <code>-3.0</code> = 🛡️ Soft (clean, lekin normal jaisa lagega)\n\n"
+            "Usage: <code>.ceiling -0.3</code> ya <code>.ceiling -1.5</code>",
             reply_markup=K([[B("🎚️ Sound Controls", callback_data="menu:settings")]])
         )
         return
@@ -2508,13 +2508,13 @@ async def cmd_ceiling(bot: Client, msg: Message):
     except ValueError:
         await msg.reply_text("❌ Sahi number dalein, jaise: <code>.ceiling -2.5</code>")
         return
-    val = round(max(-6.0, min(-0.5, val)), 1)
+    val = round(max(-6.0, min(-0.1, val)), 1)
     os.environ["PLAY_CEILING_DB"] = str(val)
     os.environ["MASTER_CEILING_DB"] = str(val)
     await _apply_and_reply(
         msg,
         f"🛡️ <b>Limiter Ceiling set: {val:.1f} dBFS</b>\n"
-        "<i>(Telegram anti-duck headroom updated)</i>",
+        "<i>(Output ceiling updated)</i>",
         play_ceiling_db=val
     )
 

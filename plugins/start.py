@@ -138,7 +138,7 @@ DEFAULT_SETTINGS = {
     "auto": 0,
     "play_drive_db": 10.0,
     "master_drive_db": 12.0,
-    "play_ceiling_db": -3.0,
+    "play_ceiling_db": -0.3,
 }
 
 _APPLY_TASKS: dict = {}
@@ -235,13 +235,13 @@ async def cb_settings_change(bot, cq):
         s["master_drive_db"] = round(max(0.0, min(24.0, cur + delta)), 1)
         os.environ["MASTER_DRIVE_DB"] = str(s["master_drive_db"])
     elif action == "ceiling":
-        cur = float(s.get("play_ceiling_db", -3.0) or -3.0)
-        if cur <= -2.8:
-            nxt = -2.5
-        elif cur <= -2.0:
+        cur = float(s.get("play_ceiling_db", -0.3) or -0.3)
+        if cur > -1.0:
             nxt = -1.5
-        else:
+        elif cur > -2.5:
             nxt = -3.0
+        else:
+            nxt = -0.3
         s["play_ceiling_db"] = nxt
         os.environ["PLAY_CEILING_DB"] = str(nxt)
         os.environ["MASTER_CEILING_DB"] = str(nxt)
@@ -254,17 +254,17 @@ async def cb_settings_change(bot, cq):
         s.update(DEFAULT_SETTINGS)
         os.environ["PLAY_DRIVE_DB"] = "10.0"
         os.environ["MASTER_DRIVE_DB"] = "12.0"
-        os.environ["PLAY_CEILING_DB"] = "-3.0"
-        os.environ["MASTER_CEILING_DB"] = "-3.0"
+        os.environ["PLAY_CEILING_DB"] = "-0.3"
+        os.environ["MASTER_CEILING_DB"] = "-0.3"
     elif action == "max":
         s.update(AUTO_PRESET, auto=1)
         s["play_drive_db"] = 16.0
         s["master_drive_db"] = 16.0
-        s["play_ceiling_db"] = -2.5
+        s["play_ceiling_db"] = -0.3
         os.environ["PLAY_DRIVE_DB"] = "16.0"
         os.environ["MASTER_DRIVE_DB"] = "16.0"
-        os.environ["PLAY_CEILING_DB"] = "-2.5"
-        os.environ["MASTER_CEILING_DB"] = "-2.5" 
+        os.environ["PLAY_CEILING_DB"] = "-0.3"
+        os.environ["MASTER_CEILING_DB"] = "-0.3" 
     elif action == "apply":
         await apply_settings_live(uid)
         return

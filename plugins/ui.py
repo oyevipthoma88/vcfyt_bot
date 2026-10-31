@@ -333,14 +333,14 @@ def settings_text(s: dict) -> str:
     boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
     play_db = float(_g(s, "play_drive_db", 10.0) or 10.0)
     master_db = float(_g(s, "master_drive_db", 12.0) or 12.0)
-    ceil_db = float(_g(s, "play_ceiling_db", -3.0) or -3.0)
+    ceil_db = float(_g(s, "play_ceiling_db", -0.3) or -0.3)
 
-    if ceil_db <= -2.8:
-        ceil_tag = "🛡️ Safe (-3.0 dB)"
-    elif ceil_db <= -2.0:
-        ceil_tag = "⚡ Punch (-2.5 dB)"
+    if ceil_db > -1.0:
+        ceil_tag = "🔥 MAX"
+    elif ceil_db > -2.5:
+        ceil_tag = "⚡ Loud"
     else:
-        ceil_tag = "🔥 Extreme (-1.5 dB)"
+        ceil_tag = "🛡️ Soft"
 
     body = (
         f"🔊 {meter('Volume', vol, 3000)}\n"
@@ -357,19 +357,19 @@ def settings_text(s: dict) -> str:
         "💡 <b>dB Controls Guide:</b>\n"
         "• <b>Play dB:</b> Normal recording/song play drive (heavy & loud punch).\n"
         "• <b>Master dB:</b> Live mic & VC bridge power (aawaz dabi lage to +2 badhao).\n"
-        "• <b>Ceiling:</b> Telegram anti-duck limiter (aawaz phatne se rokta hai).\n"
+        "• <b>Ceiling:</b> Output ki upar wali limit. -0.3 = MAX tagdi aawaz.\n"
         "🔥 <b>MAX LOUD:</b> 1 tap me sabse best fight settings."
     )
     return card("🎚️", "Sound controls", body, tip)
 
 def settings_kb(s: dict = None) -> K:
-    ceil_db = float(_g(s or {}, "play_ceiling_db", -3.0) or -3.0)
-    if ceil_db <= -2.8:
-        ceil_btn = "🛡️ Ceiling: -3.0dB (Safe)"
-    elif ceil_db <= -2.0:
-        ceil_btn = "⚡ Ceiling: -2.5dB (Punch)"
+    ceil_db = float(_g(s or {}, "play_ceiling_db", -0.3) or -0.3)
+    if ceil_db > -1.0:
+        ceil_btn = f"🔥 Ceiling: {ceil_db:.1f}dB (MAX)"
+    elif ceil_db > -2.5:
+        ceil_btn = f"⚡ Ceiling: {ceil_db:.1f}dB (Loud)"
     else:
-        ceil_btn = "🔥 Ceiling: -1.5dB (Max)"
+        ceil_btn = f"🛡️ Ceiling: {ceil_db:.1f}dB (Soft)"
 
     return K([
         [B("🔥 MAX LOUD (1 tap)", callback_data="set:max", style="success")],

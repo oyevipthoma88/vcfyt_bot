@@ -325,7 +325,7 @@ class Database:
                 clarity INTEGER DEFAULT 14,
                 play_drive_db REAL DEFAULT 10.0,
                 master_drive_db REAL DEFAULT 12.0,
-                play_ceiling_db REAL DEFAULT -3.0
+                play_ceiling_db REAL DEFAULT -0.3
             )
         """)
 
@@ -343,7 +343,7 @@ class Database:
             "ALTER TABLE settings ADD COLUMN clarity INTEGER DEFAULT 14",
             "ALTER TABLE settings ADD COLUMN play_drive_db REAL DEFAULT 10.0",
             "ALTER TABLE settings ADD COLUMN master_drive_db REAL DEFAULT 12.0",
-            "ALTER TABLE settings ADD COLUMN play_ceiling_db REAL DEFAULT -3.0",
+            "ALTER TABLE settings ADD COLUMN play_ceiling_db REAL DEFAULT -0.3",
         ):
             try:
                 c.execute(statement)
@@ -670,7 +670,7 @@ class Database:
             "pregain": 80, "turbo": 12, "clarity": 14,
             "play_drive_db": 10.0,
             "master_drive_db": 12.0,
-            "play_ceiling_db": -3.0,
+            "play_ceiling_db": -0.3,
         }
         async def _m():
             return await self._mongo.settings.find_one({"user_id": user_id})
@@ -682,6 +682,12 @@ class Database:
             for k in defaults:
                 if doc.get(k) is not None:
                     defaults[k] = doc[k]
+            # v63: old -3.0 dBFS default was the "normal volume" bug -> migrate
+            try:
+                if abs(float(defaults.get("play_ceiling_db") or -0.3) + 3.0) < 1e-6:
+                    defaults["play_ceiling_db"] = -0.3
+            except (TypeError, ValueError):
+                defaults["play_ceiling_db"] = -0.3
             if defaults.get("boost") == 9 and defaults.get("treble") == 62:
                 defaults["boost"] = Config.DEFAULT_BOOST
                 defaults["treble"] = Config.RELAY_DEFAULT_TREBLE
@@ -711,7 +717,7 @@ class Database:
                  int(current.get("clarity") or 14),
                  float(current.get("play_drive_db", 10.0) or 10.0),
                  float(current.get("master_drive_db", 12.0) or 12.0),
-                 float(current.get("play_ceiling_db", -3.0) or -3.0),
+                 float(current.get("play_ceiling_db", -0.3) or -0.3),
                  user_id),
             )
         await self._safe_write(_m, _s)
