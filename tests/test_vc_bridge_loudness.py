@@ -129,7 +129,9 @@ def test_soft_voice_reaches_full_scale_and_pauses_silent():
 def test_non_admin_boost_and_extra_layer_build():
     for name in v.LOUD_PRESETS:
         f = v.build_bridge_filter(v.LOUD_PRESETS[name], focus=True)
-        assert "highpass=f=300" in f
+        # v62: focus highpass 180 Hz (old 300 Hz double = thin voice)
+        hp = int(re.search(r"highpass=f=(\d+)", f).group(1))
+        assert hp >= 180
         assert v.EXTRA_LAYER.split(",")[0] in v.build_bridge_filter(
             v.LOUD_PRESETS[name], focus=True, layer=True)
     assert v.EXTRA_LAYER not in v.build_bridge_filter(v.LOUD_DEFAULT)

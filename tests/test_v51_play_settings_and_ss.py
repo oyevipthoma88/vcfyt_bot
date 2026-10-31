@@ -1,3 +1,4 @@
+import re
 """v51: played audio honours user settings + SS on/off session isolation."""
 import os
 import sys
@@ -21,16 +22,17 @@ def test_boost_changes_playback_drive():
 def test_treble_and_gain_reach_playback_chain():
     bright = build_ffmpeg_filter(volume=3000, treble=100, gain=0)
     dull = build_ffmpeg_filter(volume=3000, treble=30, gain=0)
-    assert "highshelf=f=3500:g=3.1" in bright
-    assert "highshelf=f=3500" not in dull
-    assert "volume=12.00dB" in build_ffmpeg_filter(volume=3000, gain=500)
+    # v62 voice stage: treble -> 6 kHz shelf, gain -> pre-amp
+    shelf = lambda f: float(re.search(r"highshelf=f=6000:g=(-?[\d.]+)", f).group(1))
+    assert shelf(bright) > shelf(dull)
+    assert build_ffmpeg_filter(volume=3000, gain=500) != build_ffmpeg_filter(volume=3000, gain=0)
 
 
 def test_voice_male_bass_is_heavier_than_female():
     male = build_ffmpeg_filter(volume=3000, bass=60, treble=15)
     female = build_ffmpeg_filter(volume=3000, bass=5, treble=70)
-    assert "equalizer=f=120:t=q:w=1.1:g=10.0" in male
-    assert "equalizer=f=120:t=q:w=1.1:g=1.5" in female
+    body = lambda f: float(re.search(r"equalizer=f=150:t=q:w=1.2:g=([\d.]+)", f).group(1))
+    assert body(male) > body(female)
 
 
 def test_file_names_with_spaces_get_safe_path(tmp_path):

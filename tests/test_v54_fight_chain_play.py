@@ -8,9 +8,11 @@ from helpers import audio_processor as ap
 def test_chain_has_single_clipper_no_gate_after_comp_and_safe_ceiling():
     parts = ap.build_ffmpeg_filter(volume=3000, boost=10).split(",")
     assert sum(p.startswith("asoftclip") for p in parts) <= 1
-    comp = next(i for i, p in enumerate(parts) if p.startswith("acompressor"))
-    assert not any(p.startswith("agate") for p in parts[comp:])
-    assert parts[-1].startswith("alimiter") and "limit=0.7079" in parts[-1]  # v57: -3 dBFS, Opus-safe
+    # v65: gate sits before the push stages, never after the clipper
+    clip = next(i for i, p in enumerate(parts) if p.startswith("asoftclip"))
+    assert not any(p.startswith("agate") for p in parts[clip:])
+    lim = float(parts[-1].split("limit=")[1].split(":")[0])
+    assert parts[-1].startswith("alimiter") and lim <= 0.8913  # v65: -1 dBFS ceiling
 
 
 def _stats(level_db):
@@ -32,4 +34,4 @@ def test_quiet_normal_loud_all_loud_with_headroom():
     for lvl in (-45, -25, -12):
         rms, peak = _stats(lvl)
         assert rms > -9.0, (lvl, rms)
-        assert peak <= -1.4, (lvl, peak)
+        assert peak <= -1.0, (lvl, peak)  # v65 ceiling

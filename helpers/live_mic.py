@@ -569,11 +569,24 @@ class LiveMicSession:
                 from pyrogram.raw.functions.phone import EditGroupCallParticipant
                 peer = await self.relay.client.resolve_peer(
                     self.relay.account_id)
-                await self.relay.client.invoke(
-                    EditGroupCallParticipant(
-                        call=call_input, participant=peer, muted=False,
+                try:
+                    # unmute + 200 % boost in one call (admin chats)
+                    await self.relay.client.invoke(
+                        EditGroupCallParticipant(
+                            call=call_input, participant=peer, muted=False,
+                            volume=20000,
+                        )
                     )
-                )
+                except Exception as exc:
+                    # non-admin: Telegram may reject the volume flag ->
+                    # still force the unmute on its own
+                    logger.debug("raw unmute+volume failed (%s), retrying "
+                                 "unmute only", exc)
+                    await self.relay.client.invoke(
+                        EditGroupCallParticipant(
+                            call=call_input, participant=peer, muted=False,
+                        )
+                    )
                 unmuted = True
                 logger.info("Live mic: force-unmuted via raw API in %s",
                            self.chat_id)

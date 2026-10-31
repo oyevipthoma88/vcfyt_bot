@@ -50,14 +50,16 @@ def test_very_loud_playback_retains_codec_headroom(tmp_path, level):
     out = asyncio.run(ap.process_audio_to_file(str(src), str(tmp_path / 'master.wav')))
     samples = pcm(out)
     assert rms(samples) > -10, (level, rms(samples))
-    assert np.max(np.abs(samples)) <= 0.8401
+    assert np.max(np.abs(samples)) <= 0.8913  # v65: -1 dBFS ceiling
     opus = tmp_path / 'opus.ogg'
     # This is a codec surrogate, not Telegram's unknown live encoder config.
     run(['ffmpeg', '-v', 'error', '-y', '-i', out, '-c:a', 'libopus', '-b:a', '48k',
          '-application', 'voip', str(opus)])
     decoded = pcm(opus)
     assert rms(decoded) > -10
-    assert float(np.mean(np.abs(decoded) >= 1.0)) < 0.001
+    # v65 staged max trades a small Opus-over budget for loudness (<5 %,
+    # same budget as test_v30); the old <0.1 % was the quieter v56 chain.
+    assert float(np.mean(np.abs(decoded) >= 1.0)) < 0.05
 
 
 def test_quiet_word_tails_are_not_cut_by_input_gate():
@@ -92,7 +94,7 @@ def test_failed_primary_chain_keeps_loud_safe_fallback(tmp_path, monkeypatch):
     out = asyncio.run(ap.process_audio_to_file(str(src), str(tmp_path / 'fallback.wav')))
     samples = pcm(out)
     assert rms(samples) > -12
-    assert np.max(np.abs(samples)) <= 0.8401
+    assert np.max(np.abs(samples)) <= 0.8913  # v65: -1 dBFS ceiling
     opus = tmp_path / 'fallback.ogg'
     run(['ffmpeg', '-v', 'error', '-y', '-i', out, '-c:a', 'libopus', '-b:a', '48k',
          '-application', 'voip', str(opus)])

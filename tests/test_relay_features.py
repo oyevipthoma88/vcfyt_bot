@@ -31,6 +31,12 @@ def _mean_volume(path: str) -> float:
 
 class RelayFeatureTests(unittest.TestCase):
     def test_multiple_owners(self):
+        # config is often imported by an earlier test file, before the
+        # OWNER_* env above is set -> apply it explicitly for this test
+        saved = (Config.OWNER_ID, Config.OWNER_IDS)
+        Config.OWNER_ID, Config.OWNER_IDS = 101, (101, 202, 303)
+        self.addCleanup(lambda: setattr(Config, "OWNER_ID", saved[0])
+                        or setattr(Config, "OWNER_IDS", saved[1]))
         self.assertEqual(Config.primary_owner(), 101)
         self.assertTrue(Config.is_owner(101))
         self.assertTrue(Config.is_owner(202))

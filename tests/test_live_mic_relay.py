@@ -343,7 +343,12 @@ async def main():
 
         # 5 --- settings change is applied without dropping the VC ---------
         await sock2.send_str('settings:{"bass": 40}')
-        reply = await sock2.receive()
+        # status pushes (warn:/info:) can arrive in between -> skip them
+        for _ in range(10):
+            reply = await asyncio.wait_for(sock2.receive(), 5)
+            if not (isinstance(reply.data, str) and reply.data.split(":", 1)[0]
+                    in ("warn", "info", "status", "notice")):
+                break
         check("settings applied", isinstance(reply.data, str)
               and reply.data.startswith("settings:"), str(reply.data)[:40])
         await stream_pcm(sock2, 0.6, phase=192000)

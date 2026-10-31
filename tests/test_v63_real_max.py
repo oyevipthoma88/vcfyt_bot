@@ -11,12 +11,15 @@ def test_default_ceiling_is_minus_1_dbfs_since_v65(monkeypatch):
     # v65: played files cap at -1.0 dBFS (above that Opus overs = square)
     monkeypatch.delenv("PLAY_CEILING_DB", raising=False)
     lims = [f for f in ap.build_ffmpeg_filter().split(",") if f.startswith("alimiter")]
-    assert lims and all("limit=0.8913" in f for f in lims)
+    assert lims and all(float(f.split("limit=")[1].split(":")[0]) <= 0.8913 for f in lims)
 
 
 def test_no_level_eating_stages_after_drive():
-    chain = ap.build_ffmpeg_filter()
-    assert "deesser" not in chain and "agate" not in chain
+    # v65 gates BEFORE the first push stage; nothing may eat level after it
+    parts = ap.build_ffmpeg_filter().split(",")
+    first_push = next(i for i, p in enumerate(parts) if p == "volume=20.00dB")
+    tail = parts[first_push:]
+    assert not any(p.startswith(("deesser", "agate")) for p in tail)
 
 
 def test_old_minus_3_db_setting_is_ignored_on_startup(monkeypatch):

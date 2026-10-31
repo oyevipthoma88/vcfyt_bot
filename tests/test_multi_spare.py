@@ -61,8 +61,12 @@ class MultiSpareTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await access_control.can_multi_spare(12345))
 
         # Owner allowed
-        Config.OWNER_IDS = [99999]
-        self.assertTrue(await access_control.can_multi_spare(99999))
+        saved_owners = Config.OWNER_IDS
+        Config.OWNER_IDS = [99999]   # restored below: leaked into other tests
+        try:
+            self.assertTrue(await access_control.can_multi_spare(99999))
+        finally:
+            Config.OWNER_IDS = saved_owners
 
         # Premium user allowed
         self._premium_users.add(12345)

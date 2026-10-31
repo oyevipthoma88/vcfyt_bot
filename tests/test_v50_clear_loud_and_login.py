@@ -39,7 +39,9 @@ def test_loud_clean_and_survives_opus(name):
              else build_live_mic_filter())
     lufs, tp, clip = _measure(chain)
     assert lufs > -13.0, f"{name}: {lufs} LUFS too quiet"
-    assert lufs < -7.0, f"{name}: {lufs} LUFS = square wave (Telegram AGC ducks it)"
+    # v62/v63 pushed live louder on purpose (ntgcalls sends with AGC off);
+    # "square wave" is now guarded by the true-peak + post-Opus clip checks.
+    assert lufs < -3.0, f"{name}: {lufs} LUFS = square wave"
     assert tp <= -0.8, f"{name}: true peak {tp}"
     assert clip < 0.005, f"{name}: {clip:.2%} samples clip after Opus"
 
