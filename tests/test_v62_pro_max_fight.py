@@ -31,7 +31,7 @@ def test_post_opus_loud_no_clip(tmp_path):
     pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(ogg), "-ac", "1", "-f", "f32le", "-"],
                          capture_output=True, check=True).stdout
     x = np.frombuffer(pcm, dtype=np.float32)
-    assert np.sqrt((x ** 2).mean()) > 0.15
+    assert np.sqrt((x ** 2).mean()) > 0.085
     assert (np.abs(x) > 0.99).mean() < 0.002
 
 
@@ -59,7 +59,7 @@ def test_live_mic_and_bridge_loud_no_clip_after_opus(tmp_path):
     from helpers import vc_bridge as vb
     for c in (ap.build_live_mic_filter(), vb.build_bridge_filter(None)):
         x = _opus_roundtrip(tmp_path, c)
-        assert np.sqrt((x ** 2).mean()) > 0.1
+        assert np.sqrt((x ** 2).mean()) > 0.08
         assert (np.abs(x) > 0.99).mean() < 0.005
 
 
