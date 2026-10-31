@@ -57,7 +57,7 @@ MCOMPAND = ("mcompand='"
 
 def playback_fight_stage(bass=None, boost=None, over=1.0) -> list:
     bo = ap.LEVEL_MAX if boost is None else ap.clamp(int(boost), ap.LEVEL_MIN, ap.LEVEL_MAX)
-    drive = ap._env_db("PLAY_DRIVE_DB", 4.0 + 0.6 * bo, high=20.0, low=0.0)   # boost 10 -> 10 dB
+    drive = ap._env_db("PLAY_DRIVE_DB", 4.0 + 0.6 * bo, high=24.0, low=0.0)   # boost 10 -> 10 dB
     out = ["acompressor=threshold=0.06:ratio=5:attack=5:release=120:"
            "makeup=3:knee=6:detection=rms"]
     if ap._has_filter("mcompand"):
@@ -77,7 +77,7 @@ def playback_fight_stage(bass=None, boost=None, over=1.0) -> list:
 
 
 def playback_ceiling(env: str = "PLAY_CEILING_DB", default: float = -3.0) -> list:
-    lim = 10 ** (ap._env_db(env, default, high=-1.0, low=-6.0) / 20.0)
+    lim = 10 ** (ap._env_db(env, default, high=-0.5, low=-6.0) / 20.0)
     return ["aresample=192000",
             f"alimiter=level_in=1:level_out=1:limit={lim:.4f}:attack=2:release=60:level=false",
             f"alimiter=level_in=1:level_out=1:limit={lim:.4f}:attack=0.1:release=40:level=false",
@@ -111,8 +111,8 @@ def install():
 # ---------------------------------------------------------------------------
 def pro_max_master(drive_db: float = None, push_db: float = None,
                    leveller: bool = True) -> list:
-    drive = ap._env_db("MASTER_DRIVE_DB", 12.0 if drive_db is None else min(drive_db, 16.0),
-                       high=20.0, low=0.0)
+    drive = ap._env_db("MASTER_DRIVE_DB", 12.0 if drive_db is None else drive_db,
+                       high=24.0, low=0.0)
     out = []
     if leveller:
         if ap._has_filter("speechnorm"):
@@ -133,7 +133,7 @@ def pro_max_master(drive_db: float = None, push_db: float = None,
     # lighter de-esser live: the strong one ate ~2 dB of the presence push
     fs = ["deesser=i=0.15:m=0.5:f=0.5:s=o" if x.startswith("deesser") else x for x in fs]
     out += fs
-    out += [x if x != "aresample=48000" else "aresample=osr=48000" for x in playback_ceiling("MASTER_CEILING_DB", -1.0)]
+    out += [x if x != "aresample=48000" else "aresample=osr=48000" for x in playback_ceiling("MASTER_CEILING_DB", float(ap._env_db("PLAY_CEILING_DB", -3.0)))]
     return out
 
 
