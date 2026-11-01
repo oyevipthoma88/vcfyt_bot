@@ -50,3 +50,8 @@ _install_playback_v66()
 # loudness == peak, "dabi" sound).  -7..-8 LUFS after Opus, real dynamics.
 from .playback_v68 import install as _install_playback_v68
 _install_playback_v68()
+
+# v69 (last): MAX TEZ + CLEAR - presence EQ + hotter push into a -0.35 dBFS
+# oversampled limiter: ~-5 LUFS after Opus (v68 was -7..-8), still no clipper.
+from .playback_v69 import install as _install_playback_v69
+_install_playback_v69()
