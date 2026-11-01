@@ -2086,6 +2086,83 @@ class UserVC:
             asyncio.create_task(log_live_boost(self.owner_id, chat_id, user_id, volume))
         return ok
 
+    async def read_participant_volume(self, chat_id: int, user_id: int):
+        """Telegram ka asli participant volume (1..20000).  None = padh nahi paaye."""
+        try:
+            for p in await self.vc_participants(chat_id):
+                if p.get("uid") == user_id:
+                    return int(p.get("volume", 100)) * 100
+        except Exception as exc:
+            logger.debug("read volume failed: %r", exc)
+        return None
+
+    async def _other_admin_setters(self, chat_id: int):
+        """Doosre logged-in accounts jo isi VC wale group me hain."""
+        try:
+            users = getattr(session_manager, "users", {}) or {}
+        except NameError:
+            return []
+        out = []
+        for other in list(users.values()):
+            if other is self or getattr(other, "account_id", None) == self.account_id:
+                continue
+            if getattr(other, "client", None) is None:
+                continue
+            out.append(other)
+        return out
+
+    async def ensure_play_volume(self, chat_id: int,
+                                 target: int = FYT_PARTICIPANT_VOLUME) -> bool:
+        """200 % participant volume lagao aur Telegram se confirm karo."""
+        st = self.state(chat_id)
+        uid = self.account_id
+        for delay in (0.0, 0.7, 1.5, 3.0):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                await self.set_participant_volume(chat_id, uid, target, quiet=True)
+            except Exception as exc:
+                logger.debug("self volume set failed: %r", exc)
+            vol = await self.read_participant_volume(chat_id, uid)
+            if vol is not None and vol >= target - 100:
+                st.boost_confirmed = True
+                logger.info("VC %s: participant volume CONFIRMED %d%%", chat_id, vol // 100)
+                self.guard_volume(chat_id, uid, target)
+                return True
+        # Khud admin nahi -> doosre logged-in admin accounts se lagwao.
+        for other in await self._other_admin_setters(chat_id):
+            try:
+                ok = await other.set_participant_volume(chat_id, uid, target, quiet=True)
+            except Exception:
+                ok = False
+            if not ok:
+                continue
+            await asyncio.sleep(0.6)
+            vol = await self.read_participant_volume(chat_id, uid)
+            if vol is not None and vol >= target - 100:
+                st.boost_confirmed = True
+                logger.info("VC %s: 200%% applied via account %s", chat_id,
+                            getattr(other, "account_id", "?"))
+
+                async def _restore(o=other):
+                    await o.set_participant_volume(chat_id, uid, target, quiet=True)
+                self.guard_volume(chat_id, uid, target, restore=_restore)
+                return True
+        st.boost_confirmed = False
+        vol = await self.read_participant_volume(chat_id, uid)
+        msg = (f"VC {chat_id}: 200% volume NAHI laga (abhi {(vol or 10000) // 100}%). "
+               "Playing account ko group me admin banao 'Manage Voice Chats' "
+               "permission ke saath — warna awaaz normal hi lagegi.")
+        logger.warning(msg)
+        warned = self.__dict__.setdefault("_vol200_warned", {})
+        if time.monotonic() - warned.get(chat_id, -1e9) > 600:
+            warned[chat_id] = time.monotonic()
+            try:
+                await log_error("vc_volume_200", RuntimeError(msg))
+            except Exception:
+                pass
+        return False
+
     # ------------------------------------------------------------------
     # INSTANT PLAYBACK + FAKE SCREEN SHARE SOURCES
     # ------------------------------------------------------------------
@@ -2465,17 +2542,20 @@ class UserVC:
         st.current_file = path
         st.source_name = source_name
         
-        # FIX: Proper task reference to avoid GC
+        # ROOT FIX (v70) "code me tez, VC me normal":
+        # Bot ka stream pehle se digital MAX par hai (~-4 LUFS, -0.35 dBFS peak;
+        # ntgcalls me AGC/NS band hai, isliye wahi level VC tak jaata hai).
+        # Isse upar ki loudness SIRF Telegram participant volume 200 % se aati
+        # hai — aur wo tabhi lagta hai jab volume set karne wala account VC
+        # admin ho (Manage Voice Chats).  Pehle ye request chup-chaap fail hoti
+        # thi aur log phir bhi "Volume forced to 200%" bolta tha, isliye 69
+        # versions ka DSP tuning VC me kabhi louder nahi suna.  Ab:
+        #   1) set karo, 2) Telegram se wapas padh ke CONFIRM karo,
+        #   3) khud se na lage to is VC me baithe doosre logged-in (admin)
+        #      accounts se set karwao, 4) fail ho to saaf warning do.
         async def _force_volume():
-            for delay in (0.0, 0.5, 1.5, 3.0, 5.0):
-                if delay: await asyncio.sleep(delay)
-                try:
-                    await self.set_participant_volume(
-                        chat_id, self.account_id, FYT_PARTICIPANT_VOLUME, quiet=True)
-                    logger.info("Volume forced to 200%% (20000)")
-                except Exception as e:
-                    logger.debug("Force volume failed: %r", e)
-                    
+            await self.ensure_play_volume(chat_id)
+
         task = asyncio.create_task(_force_volume())
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
