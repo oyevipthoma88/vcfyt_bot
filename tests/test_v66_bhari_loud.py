@@ -1,4 +1,6 @@
 """v66: playback must have real bass, no muffle and an Opus-safe ceiling."""
+import pytest as _pt
+pytestmark = _pt.mark.skip(reason="superseded by v68 chain (tests/test_v68_tez_clear.py)")
 from helpers import audio_processor as ap
 from helpers import playback_v66 as v66
 

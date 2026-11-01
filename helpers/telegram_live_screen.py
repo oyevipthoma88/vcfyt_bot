@@ -655,9 +655,14 @@ def main():
         st["_read_at"] = now
         r.render(st, now, float(st.get("started") or now - 754)).save(a.png)
         return
-    # SMOOTH SS ON/OFF: lowest CPU priority so the audio pipe always wins.
+    # v68 BLUR ROOT FIX: the WHOLE process used to run at nice 15, so on a
+    # busy VPS (FFmpeg audio at 192 kHz) the frame WRITER got starved too ->
+    # Telegram received no frames for seconds -> everyone saw the sharer's
+    # blurred DP.  Now only the RENDER thread is low priority (set inside
+    # render_loop); the tiny writer loop keeps a mild nice 5 so it always
+    # delivers a frame on time while audio still wins over rendering.
     try:
-        os.nice(15)
+        os.nice(5)
     except (AttributeError, OSError):
         pass
     out = sys.stdout.buffer
@@ -673,6 +678,10 @@ def main():
     lock = threading.Lock()
 
     def render_loop():
+        try:  # Linux: per-thread priority -> only drawing is deprioritised
+            os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 19)
+        except (AttributeError, OSError):
+            pass
         key = None
         min_gap = 1.0 / 8
         while shared["alive"]:

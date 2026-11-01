@@ -44,3 +44,9 @@ _install_playback_v65()
 # no 10 kHz muffle, 2 clean push stages instead of 56 dB into a clipper.
 from .playback_v66 import install as _install_playback_v66
 _install_playback_v66()
+
+# v68 (last): TEZ + CLEAR - one push into an oversampled -1 dBTP limiter
+# instead of ~47 dB through 3 limiters + clipper (that made a square wave:
+# loudness == peak, "dabi" sound).  -7..-8 LUFS after Opus, real dynamics.
+from .playback_v68 import install as _install_playback_v68
+_install_playback_v68()
