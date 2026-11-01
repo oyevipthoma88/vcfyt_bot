@@ -55,3 +55,9 @@ _install_playback_v68()
 # oversampled limiter: ~-5 LUFS after Opus (v68 was -7..-8), still no clipper.
 from .playback_v69 import install as _install_playback_v69
 _install_playback_v69()
+
+# v71 (last): ANTI-DUCK - 150 Hz low-cut, voice bite EQ, dense comp + soft
+# clip, mono-coherent, -1 dBFS ceiling: opponent ke boosted mic ke upar bhi
+# aawaz dabti nahi.
+from .playback_v71 import install as _install_playback_v71
+_install_playback_v71()
