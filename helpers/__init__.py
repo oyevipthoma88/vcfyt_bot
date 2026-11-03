@@ -72,3 +72,8 @@ _install_playback_v73()
 # instead of 150 Hz, speechnorm lifts the softest sounds.
 from .playback_v74 import install as _install_playback_v74
 _install_playback_v74()
+
+# v75 (last): AUR TEZ - +6 dB extra drive into the final clipper and
+# FFmpeg virtualbass on top of v74 (env PLAY_EXTRA_DRIVE_DB=0..12).
+from .playback_v75 import install as _install_playback_v75
+_install_playback_v75()
