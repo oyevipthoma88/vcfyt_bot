@@ -30,3 +30,15 @@ def test_full_gain_pushes_1_5db():
 def test_ceiling_still_full_scale():
     lims = [x for x in ap.build_ffmpeg_filter(volume=3000, boost=10).split(",") if x.startswith("alimiter")]
     assert "limit=1.0000" in lims[-1]
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _old_bass_chain():
+    """These tests cover the v73-v75 chain, which v77 keeps as `.loudmode bass`."""
+    from helpers import playback_v77 as _v77
+    _v77.set_mode("bass")
+    yield
+    _v77.set_mode("phone")

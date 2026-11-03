@@ -26,3 +26,15 @@ def test_live_mic_drive_never_below_18db(monkeypatch):
 def test_push_at_max_boost_is_24db(monkeypatch):
     monkeypatch.setenv("PLAY_PUSH_DB", "18")
     assert v73.push_db(ap.LEVEL_MAX) == 24.0
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _old_bass_chain():
+    """These tests cover the v73-v75 chain, which v77 keeps as `.loudmode bass`."""
+    from helpers import playback_v77 as _v77
+    _v77.set_mode("bass")
+    yield
+    _v77.set_mode("phone")

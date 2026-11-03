@@ -77,3 +77,9 @@ _install_playback_v74()
 # FFmpeg virtualbass on top of v74 (env PLAY_EXTRA_DRIVE_DB=0..12).
 from .playback_v75 import install as _install_playback_v75
 _install_playback_v75()
+
+# v77 (last): PHONE-MAX - played files put all energy in the 300 Hz-6 kHz
+# band phones actually play (+3.2 dB louder on phone, less clipping).
+# `.loudmode bass` / env PLAY_LOUD_MODE=bass brings the v75 chain back.
+from .playback_v77 import install as _install_playback_v77
+_install_playback_v77()

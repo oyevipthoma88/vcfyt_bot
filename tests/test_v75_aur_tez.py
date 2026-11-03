@@ -22,3 +22,15 @@ def test_extra_drive_goes_before_last_clipper(monkeypatch):
 
 def test_live_mic_untouched():
     assert "virtualbass" not in ap.build_ffmpeg_filter(live=True)
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _old_bass_chain():
+    """These tests cover the v73-v75 chain, which v77 keeps as `.loudmode bass`."""
+    from helpers import playback_v77 as _v77
+    _v77.set_mode("bass")
+    yield
+    _v77.set_mode("phone")
