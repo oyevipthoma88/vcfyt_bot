@@ -8,9 +8,11 @@ class V71AntiDuck(unittest.TestCase):
     def setUp(self):
         v71.install()
 
+    @unittest.skip("superseded by v74: bass body + psychoacoustic bass")
     def test_bass_cut_at_150hz(self):
         self.assertIn("highpass=f=150:p=2", ap.build_ffmpeg_filter())
 
+    @unittest.skip("superseded by v74: bass body + psychoacoustic bass")
     def test_no_bass_boost_in_fight_chain(self):
         self.assertNotIn("lowshelf", ap.build_ffmpeg_filter())
 

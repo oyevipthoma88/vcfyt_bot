@@ -66,3 +66,9 @@ _install_playback_v71()
 # +18..24 dB push into two oversampled soft clippers: max RMS density.
 from .playback_v73 import install as _install_playback_v73
 _install_playback_v73()
+
+# v74 (last): DAMDAR BASS + chhoti awaaz lift - bass/treble/gain settings
+# work again, psychoacoustic bass harmonics (phone pe bhi bass), 40 Hz cut
+# instead of 150 Hz, speechnorm lifts the softest sounds.
+from .playback_v74 import install as _install_playback_v74
+_install_playback_v74()
