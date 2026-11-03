@@ -23,6 +23,7 @@ from . import audio_processor as ap
 CEILING_DB = 0.0
 PUSH_MIN_DB = 18.0
 PUSH_MAX_DB = 24.0
+LIVE_DRIVE_FLOOR_DB = 18.0
 
 
 def _lim(db: float) -> str:
@@ -31,13 +32,23 @@ def _lim(db: float) -> str:
 
 
 def ceiling_db() -> float:
-    return ap._env_db("PLAY_CEILING_DB", CEILING_DB, high=0.0, low=-3.0)
+    # ROOT FIX (v73.1): PLAY_CEILING_DB env was STALE everywhere -
+    # .env.example / app.json shipped -1.5, database.save_settings and the
+    # /start "playdb" button rewrite os.environ["PLAY_CEILING_DB"] to the
+    # saved per-user value (-0.3 default, "0" became -0.3 via `or -0.3`, old
+    # users -1.5/-3).  So the 0 dBFS ceiling never reached the VC.  Played
+    # audio is now ALWAYS full scale; only PLAY_ALLOW_QUIET=1 honours env.
+    import os
+    if os.environ.get("PLAY_ALLOW_QUIET", "0") == "1":
+        return ap._env_db("PLAY_CEILING_DB", CEILING_DB, high=0.0, low=-3.0)
+    return CEILING_DB
 
 
 def push_db(boost=None) -> float:
     bo = ap.LEVEL_MAX if boost is None else ap.clamp(int(boost), ap.LEVEL_MIN, ap.LEVEL_MAX)
     base = PUSH_MIN_DB + (PUSH_MAX_DB - PUSH_MIN_DB) * bo / float(ap.LEVEL_MAX)
-    return round(ap._env_db("PLAY_PUSH_DB", base, high=30.0, low=0.0), 2)
+    # stale env (PLAY_PUSH_DB=18 in .env.example) may only push HIGHER
+    return round(max(base, ap._env_db("PLAY_PUSH_DB", base, high=30.0, low=0.0)), 2)
 
 
 def playback_voice_stage(bass=None, treble=None, gain=None, input_gain_db=0.0) -> list:
@@ -89,3 +100,29 @@ def install():
     ap.playback_voice_stage = playback_voice_stage
     ap.playback_fight_stage = playback_fight_stage
     ap.playback_ceiling = playback_ceiling
+    # v73.1: live mic + VC bridge master (playback_v62.pro_max_master) was
+    # still capped at -1 dBFS by v65 -> mic fights ~5 LU under the played
+    # files.  Same 0.00 dBFS full-scale ceiling for every source now.
+    from . import playback_v62 as v62
+    v62.playback_ceiling = playback_ceiling
+    # Live mic drive floor: saved .masterdb (12 dB default) could only make
+    # the mic quieter than the songs.  Now >= LIVE_DRIVE_FLOOR_DB (18 dB,
+    # ~-5.5 LUFS on speech); a higher saved/env value still wins.
+    orig = v62.pro_max_master
+
+    def louder_master(drive_db=None, push_db=None, leveller=True):
+        import os
+        old = os.environ.get("MASTER_DRIVE_DB")
+        cur = ap._env_db("MASTER_DRIVE_DB", 12.0 if drive_db is None else drive_db,
+                         high=24.0, low=0.0)
+        os.environ["MASTER_DRIVE_DB"] = str(max(LIVE_DRIVE_FLOOR_DB, cur))
+        try:
+            return orig(drive_db=drive_db, push_db=push_db, leveller=leveller)
+        finally:
+            if old is None:
+                os.environ.pop("MASTER_DRIVE_DB", None)
+            else:
+                os.environ["MASTER_DRIVE_DB"] = old
+
+    v62.pro_max_master = louder_master
+    ap.clear_loud_master = louder_master
