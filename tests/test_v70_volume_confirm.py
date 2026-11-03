@@ -17,6 +17,10 @@ def _fake(self_vol_after_set, account_id=1):
     o.state = lambda cid: o._st
     o.guard_volume = lambda *a, **k: None
 
+    async def in_vc(cid, timeout=20.0):
+        return True
+    o._wait_in_vc = in_vc
+
     async def setv(cid, uid, vol, quiet=False):
         o.__dict__["_vol"] = self_vol_after_set
         return True

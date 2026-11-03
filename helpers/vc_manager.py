@@ -519,6 +519,7 @@ class UserVC:
         except Exception as exc:
             logger.warning("binding recorder skipped: %r", exc)
         self._install_presentation_guard()
+        self._install_presentation_conn_guard()
 
         @self.calls.on_update(call_filters.stream_end())
         async def _on_end(_, update: StreamEnded):
@@ -1218,7 +1219,7 @@ class UserVC:
                 os.kill(int(pid), signal.SIGTERM)
             except OSError:
                 pass
-    _SS_JOIN_TIMEOUT = 25.0  # sec: presentation join kabhi lock ko hamesha ke liye na pakde
+    _SS_JOIN_TIMEOUT = 75.0  # sec: 3 clean retries (v72), lock kabhi hamesha ke liye na pakde
 
     async def _ss_revive(self, chat_id: int, why: str = "", rejoin: bool = False) -> bool:
         """Screen track ko naye renderer ke saath dobara attach karo (audio
@@ -1240,6 +1241,9 @@ class UserVC:
             st = self.chats.get(chat_id)
             if st is None or not getattr(st, "ss_on", False):
                 return False
+            if why == "presentation dropped" and \
+                    chat_id in (getattr(self.calls, "_presentations", None) or ()):
+                return True  # a newer join already brought it back
             try:
                 logger.info("SS revive for %s (%s)%s", chat_id, why, " [rejoin]" if rejoin else "")
                 if rejoin:
@@ -1363,7 +1367,7 @@ class UserVC:
         ``_presentations`` me entry nahi aati thi -> cleanup ``leave`` kuch
         nahi karta tha (chat set me nahi) -> agle ON pe dusra
         init_presentation same call pe = ntgcalls native crash."""
-        job = asyncio.ensure_future(self.calls._join_presentation(chat_id, True))
+        job = asyncio.ensure_future(self._ss_join_robust(chat_id))
         try:
             await asyncio.wait_for(asyncio.shield(job), timeout=self._SS_JOIN_TIMEOUT)
         except asyncio.TimeoutError:
@@ -1373,6 +1377,119 @@ class UserVC:
             except BaseException:
                 pass
             raise
+
+    async def _ss_join_robust(self, chat_id: int) -> None:
+        """v72 SS ROOT FIX ("SS on nahi ho raha").
+
+        py-tgcalls 2.3.3 ``_join_presentation`` retries a failed join by
+        calling ``init_presentation`` AGAIN without closing the half-open
+        presentation connection.  ntgcalls then throws
+        ``ConnectionError("Screen sharing already initialized")`` - so ONE
+        slow/failed ICE handshake killed every retry and SS never came on.
+        It also silently did nothing in STREAM (listener) mode and the bot
+        showed a wrong "video allowed karein" reason.
+
+        Here every retry first tears the half-open presentation down
+        (native + Telegram), waits, then joins fresh."""
+        from ntgcalls import ConnectionMode
+        calls = self.calls
+        binding = calls._binding
+        pres = calls._presentations
+        if chat_id in pres:
+            return
+        mode = await binding.get_connection_mode(chat_id)
+        if mode != ConnectionMode.RTC:
+            raise RuntimeError(
+                "Ye ID VC me sirf listener (stream mode) me hai - screen share ke "
+                "liye ID ko VC me bolne ki permission chahiye (unmute allowed / admin).")
+        last_exc = None
+        joining = self.__dict__.setdefault("_ss_joining", set())
+        joining.add(chat_id)
+        try:
+            await self._ss_join_attempts(chat_id, calls, binding, pres)
+        finally:
+            joining.discard(chat_id)
+
+    async def _ss_join_attempts(self, chat_id, calls, binding, pres) -> None:
+        last_exc = None
+        for attempt in range(3):
+            fut = calls.loop.create_future()
+            calls._wait_connect[chat_id] = fut
+            try:
+                payload = await binding.init_presentation(chat_id)
+                params = await calls._app.join_presentation(chat_id, payload)
+                await binding.connect(chat_id, params, True)
+                await asyncio.wait_for(asyncio.shield(fut), timeout=15)
+                pres.add(chat_id)
+                if attempt:
+                    logger.info("SS presentation joined in %s on retry %d", chat_id, attempt)
+                return
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:
+                last_exc = exc
+                logger.warning("SS presentation join %d/3 failed in %s: %r",
+                               attempt + 1, chat_id, exc)
+            finally:
+                f = calls._wait_connect.pop(chat_id, None)
+                if f is not None:
+                    if not f.done():
+                        f.cancel()
+                    elif not f.cancelled():
+                        f.exception()  # retrieved -> no "never retrieved" spam
+            # half-open presentation MUST be closed before the next init
+            try:
+                await asyncio.wait_for(binding.stop_presentation(chat_id), timeout=10)
+            except BaseException:
+                pass
+            try:
+                await asyncio.wait_for(calls._app.leave_presentation(chat_id), timeout=10)
+            except BaseException:
+                pass
+            pres.discard(chat_id)
+            await asyncio.sleep(1.5 * (attempt + 1))
+        if isinstance(last_exc, asyncio.TimeoutError):
+            raise RuntimeError("Screen share connect timeout - Telegram video server ne "
+                               "jawab nahi diya (3 baar try kiya).")
+        raise last_exc if isinstance(last_exc, Exception) else RuntimeError("SS join failed")
+
+    def _install_presentation_conn_guard(self) -> None:
+        """v72: py-tgcalls 2.3.3 ignores ``NetworkInfo.kind``.  When ONLY the
+        screen-share (presentation) connection dropped / closed, it wiped the
+        WHOLE call cache (``_clear_cache``) as if the bot had left the VC ->
+        next SS ON / volume / play calls broke.  Presentation events now only
+        drop the presentation; the health check revives it."""
+        calls = getattr(self, "calls", None)
+        orig = getattr(calls, "_handle_connection_changed", None)
+        if orig is None or getattr(orig, "_ss_conn_guard", False):
+            return
+        mgr = self
+
+        async def _guarded(chat_id, net_state):
+            try:
+                from ntgcalls import ConnectionKind, ConnectionState
+                kind = getattr(net_state, "kind", None)
+                state = getattr(net_state, "state", None)
+                if kind == ConnectionKind.PRESENTATION and \
+                        chat_id not in calls._wait_connect and \
+                        chat_id not in mgr.__dict__.get("_ss_joining", ()) and \
+                        state not in (ConnectionState.CONNECTING, ConnectionState.CONNECTED):
+                    calls._presentations.discard(chat_id)
+                    logger.warning("SS presentation connection %s in %s (call kept)", state, chat_id)
+                    st = mgr.chats.get(chat_id)
+                    if st is not None and getattr(st, "ss_on", False):
+                        asyncio.ensure_future(mgr._ss_revive(chat_id, "presentation dropped",
+                                                             rejoin=True))
+                    return None
+            except Exception as exc:
+                logger.debug("presentation conn guard skipped: %r", exc)
+            return await orig(chat_id, net_state)
+
+        _guarded._ss_conn_guard = True
+        try:
+            calls._handle_connection_changed = _guarded
+        except Exception as exc:
+            logger.warning("presentation conn guard install failed: %r", exc)
 
     async def _ss_leave_hard(self, chat_id: int) -> None:
         """Presentation ko native + Telegram dono side se band karo, chahe
@@ -2111,12 +2228,38 @@ class UserVC:
             out.append(other)
         return out
 
+    async def _wait_in_vc(self, chat_id: int, timeout: float = 20.0) -> bool:
+        """True once Telegram lists THIS account as a participant of the VC."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if any(p.get("uid") == self.account_id
+                       for p in await self.vc_participants(chat_id)):
+                    return True
+            except Exception as exc:
+                logger.debug("wait in vc: %r", exc)
+            await asyncio.sleep(0.8)
+        return False
+
     async def ensure_play_volume(self, chat_id: int,
                                  target: int = FYT_PARTICIPANT_VOLUME) -> bool:
-        """200 % participant volume lagao aur Telegram se confirm karo."""
+        """200 % participant volume lagao aur Telegram se confirm karo.
+
+        v72 ROOT FIX ("aawaz bohot kam"): ye task ``calls.play()`` se PEHLE
+        start hota tha aur sirf ~5 s try karta tha.  Pehli join me ID abhi VC
+        me hoti hi nahi thi (PARTICIPANT_JOIN_MISSING) -> 4 try fail -> guard
+        kabhi install nahi hota -> Telegram har (re)join pe volume 100 % kar
+        deta hai -> poora gaana 100 % pe = opponents (200 %) se ~6 dB dheema.
+        Ab: guard PEHLE lagta hai, ID ke VC me dikhne tak wait (20 s), phir
+        set + confirm; guard poore play ke dauraan 200 % wapas lagata hai.
+        """
         st = self.state(chat_id)
         uid = self.account_id
-        for delay in (0.0, 0.7, 1.5, 3.0):
+        st.boost_confirmed = False
+        # Guard first: every participant update that shows < 200 % restores it.
+        self.guard_volume(chat_id, uid, target)
+        await self._wait_in_vc(chat_id)
+        for delay in (0.0, 0.8, 1.5, 3.0, 5.0):
             if delay:
                 await asyncio.sleep(delay)
             try:
@@ -2161,6 +2304,20 @@ class UserVC:
                 await log_error("vc_volume_200", RuntimeError(msg))
             except Exception:
                 pass
+            # v72: user ko seedha batao (pehle sirf log channel me jaata tha,
+            # isliye "aawaz kam" ka asli kaaran kabhi dikhta hi nahi tha).
+            try:
+                bot = get_bot()
+                if bot is not None and self.owner_id:
+                    await bot.send_message(
+                        self.owner_id,
+                        "⚠️ <b>Aawaz 200% nahi lagi</b> (abhi "
+                        f"{(vol or 10000) // 100}%).\n"
+                        "Jo ID VC me play kar rahi hai use group me <b>admin</b> banao "
+                        "<b>Manage Voice Chats</b> permission ke saath. Bina iske Telegram "
+                        "sabko 100% pe hi sunata hai — opponents ke 200% se ~2x dheemi.")
+            except Exception as exc:
+                logger.debug("owner volume warning failed: %r", exc)
         return False
 
     # ------------------------------------------------------------------
