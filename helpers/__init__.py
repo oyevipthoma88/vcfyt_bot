@@ -61,3 +61,8 @@ _install_playback_v69()
 # aawaz dabti nahi.
 from .playback_v71 import install as _install_playback_v71
 _install_playback_v71()
+
+# v73 (last): FULL SCALE - 0.00 dBFS ceiling (v71 was hard-locked at -1 dBFS),
+# +18..24 dB push into two oversampled soft clippers: max RMS density.
+from .playback_v73 import install as _install_playback_v73
+_install_playback_v73()
