@@ -688,8 +688,12 @@ class UserVC:
                     try:
                         _uid = getattr(peer, "user_id", None)
                         if _uid is not None and not getattr(participant, "left", False):
-                            self._on_volume_seen(chat_id, _uid,
-                                                 getattr(participant, "volume", None))
+                            # v76: a volume NOT set by an admin is only the
+                            # setter's own local slider - listeners hear 100 %.
+                            _v = getattr(participant, "volume", None)
+                            if not getattr(participant, "volume_by_admin", False):
+                                _v = None
+                            self._on_volume_seen(chat_id, _uid, _v)
                     except Exception:
                         pass
                     try:
@@ -2203,15 +2207,50 @@ class UserVC:
             asyncio.create_task(log_live_boost(self.owner_id, chat_id, user_id, volume))
         return ok
 
-    async def read_participant_volume(self, chat_id: int, user_id: int):
-        """Telegram ka asli participant volume (1..20000).  None = padh nahi paaye."""
+    async def read_participant_volume(self, chat_id: int, user_id: int,
+                                      require_admin: bool = True):
+        """Telegram ka asli participant volume (1..20000).  None = padh nahi paaye.
+
+        v76 ROOT FIX ("setting sab full, phir bhi aawaz kam"): non-admin ID
+        jab khud pe 200 % lagati hai, Telegram use sirf USI ID ka local
+        slider bana deta hai (volume_by_admin=False).  Hum wahi 20000 padh ke
+        "CONFIRMED 200%" maan lete the - jabki baaki sab 100 % pe sun rahe the,
+        admin fallback aur warning kabhi chalte hi nahi the.  Ab sirf
+        admin-set volume hi count hota hai."""
         try:
             for p in await self.vc_participants(chat_id):
                 if p.get("uid") == user_id:
+                    if require_admin and not p.get("by_admin", False):
+                        return 10000
                     return int(p.get("volume", 100)) * 100
         except Exception as exc:
             logger.debug("read volume failed: %r", exc)
         return None
+
+    async def _auto_promote_voice_admin(self, chat_id: int, uid: int) -> bool:
+        """Try to give the playing ID 'Manage Voice Chats' admin right, first
+        via the bot (if it is admin with add-admins right), then via other
+        logged-in IDs.  Only that right is granted.  True = promoted."""
+        try:
+            from pyrogram.types import ChatPrivileges
+        except Exception:
+            return False
+        priv = ChatPrivileges(can_manage_video_chats=True, can_manage_chat=True)
+        promoters = []
+        bot = get_bot()
+        if bot is not None:
+            promoters.append(bot)
+        for other in await self._other_admin_setters(chat_id):
+            promoters.append(other.client)
+        for c in promoters:
+            try:
+                await c.promote_chat_member(chat_id, uid, privileges=priv)
+                logger.info("VC %s: playing ID %s auto-promoted (manage voice chats)",
+                            chat_id, uid)
+                return True
+            except Exception as exc:
+                logger.debug("auto promote via %r failed: %r", c, exc)
+        return False
 
     async def _other_admin_setters(self, chat_id: int):
         """Doosre logged-in accounts jo isi VC wale group me hain."""
@@ -2291,6 +2330,22 @@ class UserVC:
                     await o.set_participant_volume(chat_id, uid, target, quiet=True)
                 self.guard_volume(chat_id, uid, target, restore=_restore)
                 return True
+        # v76: koi admin setter nahi mila -> bot / doosri IDs se playing ID
+        # ko "Manage Voice Chats" admin banwao, phir khud 200 % lagao.
+        _promote = getattr(self, "_auto_promote_voice_admin", None)
+        if _promote is not None and await _promote(chat_id, uid):
+            for delay in (1.0, 2.0, 4.0):
+                await asyncio.sleep(delay)
+                try:
+                    await self.set_participant_volume(chat_id, uid, target, quiet=True)
+                except Exception:
+                    pass
+                vol = await self.read_participant_volume(chat_id, uid)
+                if vol is not None and vol >= target - 100:
+                    st.boost_confirmed = True
+                    logger.info("VC %s: 200%% CONFIRMED after auto-promote", chat_id)
+                    self.guard_volume(chat_id, uid, target)
+                    return True
         st.boost_confirmed = False
         vol = await self.read_participant_volume(chat_id, uid)
         msg = (f"VC {chat_id}: 200% volume NAHI laga (abhi {(vol or 10000) // 100}%). "
@@ -2378,6 +2433,8 @@ class UserVC:
                 "speaking": (not ghost_mute) and (not muted) and (now - last) < 2.5,
                 "hand": bool(getattr(p, "raise_hand_rating", None)),
                 "volume": int((getattr(p, "volume", None) or 10000) / 100),
+                # v76: only an admin-set volume is heard by everyone
+                "by_admin": bool(getattr(p, "volume_by_admin", False)),
                 "is_me": uid == self.account_id,
                 # v67 SS: Telegram ka apna screen-share state (sach yahi hai)
                 "presenting": getattr(p, "presentation", None) is not None,
