@@ -209,6 +209,31 @@ async def cb_settings_change(bot, cq):
     if action == "noop":
         return
 
+    if action == "tez":
+        from plugins.loud_max import do_maxloud
+        lines = await do_maxloud(uid)
+        s = await db.get_settings(uid)
+        try:
+            await edit_screen(cq.message, settings_text(s) + "\n\n" + "\n".join(lines),
+                              reply_markup=settings_kb(s))
+        except Exception:
+            pass
+        return
+
+    if action == "lmode":
+        from helpers import playback_v77 as _v77
+        try:
+            mode = _v77.set_mode(rest[0] if rest else "")
+        except ValueError:
+            return
+        await db.set_app_value("play_loud_mode", mode)
+        await apply_settings_live(uid)
+        try:
+            await edit_screen(cq.message, settings_text(s), reply_markup=settings_kb(s))
+        except Exception:
+            pass
+        return
+
     if action in ("vol", "relay"):
 
         s["relay_volume"] = clamp(

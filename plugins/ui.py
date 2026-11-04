@@ -344,68 +344,48 @@ def login_kb() -> K:
 
 CANCEL_KB = K([[B("✖️ Cancel", callback_data="login:cancel", style="danger")]])
 
+def _loud_mode() -> str:
+    try:
+        from helpers import playback_v77 as _v77
+        return _v77.get_mode()
+    except Exception:
+        return "loudest"
+
+LOUD_MODE_INFO = {
+    "loudest": ("📢", "Loudest", "sabse tez — phone speaker pe fight ke liye"),
+    "phone": ("📱", "Phone", "tez + zyada saaf shabd"),
+    "bass": ("🎧", "Bass", "heavy bass — headphones ke liye"),
+}
+
 def settings_text(s: dict) -> str:
-    vol = int(_g(s, "relay_volume", Config.RELAY_DEFAULT_VOLUME) or 0)
-    gain = int(_g(s, "gain", Config.RELAY_DEFAULT_GAIN) or 0)
-    bass = int(_g(s, "bass", Config.DEFAULT_BASS) or 0)
-    boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
-    play_db = float(_g(s, "play_drive_db", 10.0) or 10.0)
-    master_db = float(_g(s, "master_drive_db", 12.0) or 12.0)
-    ceil_db = float(_g(s, "play_ceiling_db", -0.3) or -0.3)
-
-    if ceil_db > -1.0:
-        ceil_tag = "🔥 MAX"
-    elif ceil_db > -2.5:
-        ceil_tag = "⚡ Loud"
-    else:
-        ceil_tag = "🛡️ Soft"
-
+    mode = _loud_mode()
+    ico, name, desc = LOUD_MODE_INFO.get(mode, LOUD_MODE_INFO["loudest"])
     body = (
-        f"🔊 {meter('Volume', vol, 3000)}\n"
-        f"📈 {meter('Gain', gain, 500)}\n"
-        f"📻 <code>{'Play dB':<9}</code> <b>{play_db:+.1f} dB</b> (Audio/Tag drive)\n"
-        f"🎙️ <code>{'Master dB':<9}</code> <b>{master_db:+.1f} dB</b> (Mic/Bridge power)\n"
-        f"🛡️ <code>{'Ceiling':<9}</code> <b>{ceil_db:.1f} dB</b> ({ceil_tag})\n"
-        f"🎵 {meter('Bass', bass, 100)}\n"
-        f"💥 {meter('Boost', boost, 10)}\n"
-        f"🔁 <code>{'Echo':<9}</code> {chip(_g(s, 'echo', 0))}"
+        f"{ico} <code>{'Mode':<7}</code> <b>{name}</b> · {desc}\n"
+        f"🔁 <code>{'Echo':<7}</code> {chip(_g(s, 'echo', 0))}"
     )
-
     tip = (
-        "💡 <b>dB Controls Guide:</b>\n"
-        "• <b>Play dB:</b> Normal recording/song play drive (heavy & loud punch).\n"
-        "• <b>Master dB:</b> Live mic & VC bridge power (aawaz dabi lage to +2 badhao).\n"
-        "• <b>Ceiling:</b> Output ki upar wali limit. -0.3 = MAX tagdi aawaz.\n"
-        "🔥 <b>MAX LOUD:</b> 1 tap me sabse best fight settings."
+        "⚡ <b>TEZ:</b> 1 tap — Loudest mode + saari settings max + sab IDs ko 200%.\n"
+        "📢 <b>Loudest</b> fight ke liye · 📱 <b>Phone</b> saaf shabd · "
+        "🎧 <b>Bass</b> headphones.\n"
+        "💡 Badlav chalu audio par turant lagta hai."
     )
-    return card("🎚️", "Sound controls", body, tip)
+    return card("🎚️", "Audio controls", body, tip)
 
 def settings_kb(s: dict = None) -> K:
-    ceil_db = float(_g(s or {}, "play_ceiling_db", -0.3) or -0.3)
-    if ceil_db > -1.0:
-        ceil_btn = f"🔥 Ceiling: {ceil_db:.1f}dB (MAX)"
-    elif ceil_db > -2.5:
-        ceil_btn = f"⚡ Ceiling: {ceil_db:.1f}dB (Loud)"
-    else:
-        ceil_btn = f"🛡️ Ceiling: {ceil_db:.1f}dB (Soft)"
+    mode = _loud_mode()
+
+    def mbtn(m):
+        ico, name, _ = LOUD_MODE_INFO[m]
+        on = m == mode
+        return B(f"{'✅ ' if on else ico + ' '}{name}", callback_data=f"set:lmode:{m}",
+                 style="success" if on else "primary")
 
     return K([
-        [B("🔥 MAX LOUD (1 tap)", callback_data="set:max", style="success")],
-        [B("📻 Play dB −", callback_data="set:playdb:-2", style="primary"),
-         B("📻 Play dB +", callback_data="set:playdb:2", style="primary")],
-        [B("🎙️ Master dB −", callback_data="set:masterdb:-2", style="primary"),
-         B("🎙️ Master dB +", callback_data="set:masterdb:2", style="primary")],
-        [B(ceil_btn, callback_data="set:ceiling:cycle", style="primary")],
-        [B("🔉 Vol −", callback_data="set:relay:-250", style="primary"),
-         B("🔊 Vol +", callback_data="set:relay:250", style="primary")],
-        [B("📉 Gain −", callback_data="set:gain:-50", style="primary"),
-         B("📈 Gain +", callback_data="set:gain:50", style="primary")],
-        [B("🎵 Bass −", callback_data="set:bass:-5", style="primary"),
-         B("🎵 Bass +", callback_data="set:bass:5", style="primary")],
-        [B("💥 Boost −", callback_data="set:boost:-1", style="primary"),
-         B("💥 Boost +", callback_data="set:boost:1", style="primary")],
-        [B("🔁 Echo", callback_data="set:echo:toggle", style="primary"),
-         B("♻️ Reset", callback_data="set:reset", style="danger")],
+        [B("⚡ TEZ — sab MAX (1 tap)", callback_data="set:tez", style="success")],
+        [mbtn("loudest"), mbtn("phone"), mbtn("bass")],
+        [B(f"🔁 Echo: {'ON' if _g(s or {}, 'echo', 0) else 'OFF'}",
+           callback_data="set:echo:toggle", style="primary")],
         ([B("🎤 Live Mic", callback_data="mic:panel", style="primary"),
           B("🏠 Home", callback_data="menu:home", style="primary")]
          if _live_mic_on() else

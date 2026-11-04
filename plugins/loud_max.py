@@ -47,7 +47,11 @@ async def cmd_loudmode(bot: Client, msg: Message):
 @Client.on_message(HAS_USER & cmd_prefix(r"(maxloud|tez|loudmax)\b", flags=re.IGNORECASE)
                    & (filters.group | filters.private))
 async def cmd_maxloud(bot: Client, msg: Message):
-    uid = msg.from_user.id
+    await msg.reply_text("\n".join(await do_maxloud(msg.from_user.id)))
+
+
+async def do_maxloud(uid: int) -> list:
+    """.tez / panel ⚡ TEZ button — dono yahi chalate hai."""
     v77.set_mode("loudest")
     await db.set_app_value("play_loud_mode", "loudest")
     await db.save_settings(uid, **MAX_PLAY)
@@ -62,8 +66,7 @@ async def cmd_maxloud(bot: Client, msg: Message):
     if not cid:
         lines.append("• Abhi koi VC me play nahi ho raha — play karke dobara <code>.tez</code> bhejo "
                      "taaki sab IDs ko 200% mile.")
-        await msg.reply_text("\n".join(lines))
-        return
+        return lines
 
     from plugins.sync_play import collect_engines
     engines = await collect_engines(uid, True)
@@ -90,4 +93,4 @@ async def cmd_maxloud(bot: Client, msg: Message):
                      "100% se upar nahi jaane deta. Ek ID ko admin banao.")
     if len(engines) > 1:
         lines.append(f"💡 <code>.syncplay</code> se saari {len(engines)} IDs ek saath bajengi = aur ghana/tez.")
-    await msg.reply_text("\n".join(lines))
+    return lines

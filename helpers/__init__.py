@@ -83,3 +83,8 @@ _install_playback_v75()
 # `.loudmode bass` / env PLAY_LOUD_MODE=bass brings the v75 chain back.
 from .playback_v77 import install as _install_playback_v77
 _install_playback_v77()
+
+# v79 (last): BRIDGE PHONE-FIGHT - VC bridge voice was ~8 dB quieter than
+# played audio (v62 mcompand squashed 0 dB -> -8 dB). Phone-band fight chain.
+from .playback_v79 import install as _install_playback_v79
+_install_playback_v79()
