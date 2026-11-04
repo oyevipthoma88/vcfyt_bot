@@ -18,14 +18,17 @@ Measured: phone band -10.1 -> -6.9 LUFS (+3.2 dB, ~1.45x louder on a
 phone speaker), clipping 16 % -> 9.6 % (clearer words).
 
 Mode "bass" = old v75 chain (heavy bass for headphones).
-Env PLAY_LOUD_MODE=phone|bass sets the default; `.loudmode` changes it live.
+v78 "loudest" mode (new default): 330 Hz-4.3 kHz only, 3-band squash
+(mcompand), +9 dB presence, harmonic exciter, harder double tanh drive.
+Measured on music after Opus: phone band -2.7 -> -1.6 LUFS (+1.1 dB).
+Env PLAY_LOUD_MODE=loudest|phone|bass sets the default; `.loudmode` changes it live.
 """
 import math
 import os
 
 from . import audio_processor as ap
 
-MODES = ("phone", "bass")
+MODES = ("loudest", "phone", "bass")
 _mode = None
 _orig_build = None
 
@@ -33,8 +36,8 @@ _orig_build = None
 def get_mode() -> str:
     global _mode
     if _mode is None:
-        m = os.environ.get("PLAY_LOUD_MODE", "phone").strip().lower()
-        _mode = m if m in MODES else "phone"
+        m = os.environ.get("PLAY_LOUD_MODE", "loudest").strip().lower()
+        _mode = m if m in MODES else "loudest"
     return _mode
 
 
@@ -91,10 +94,49 @@ def phone_chain(volume=None, echo=None, echo_level=None, boost=None,
     return ",".join(f)
 
 
+def loudest_chain(volume=None, echo=None, echo_level=None, boost=None,
+                  treble=None, input_gain_db=0.0, extra_filters=""):
+    f = ["aresample=48000", "pan=mono|c0=0.5*c0+0.5*c1"]
+    f += ["highpass=f=330:p=2"] * 4
+    f += ["lowpass=f=4300:p=2"] * 2
+    if input_gain_db and input_gain_db > 0.05:
+        f.append(f"volume={ap._db(input_gain_db)}dB")
+    if ap._has_filter("speechnorm"):
+        f.append("speechnorm=e=50:r=0.001:l=1:p=0.95")
+    else:
+        f.append("dynaudnorm=f=50:g=3:p=0.95:m=100")
+    # 3-band squash: every band pushed to the ceiling separately
+    f.append("mcompand=args='0.002\\,0.08 6 -60/-20\\,-30/-6\\,0/-1 1000 | 0.002\\,0.06 6 -60/-18\\,-30/-4\\,0/-1 2400 | 0.001\\,0.04 6 -60/-16\\,-30/-3\\,0/-1 22000'")
+    t = ap.clamp(100 if treble is None else int(treble), 0, 100)
+    f += ["equalizer=f=1000:t=q:w=1:g=3",
+          f"equalizer=f=2700:t=q:w=0.9:g={5 + 4 * t / 100:.1f}"]
+    if ap._has_filter("aexciter"):
+        f.append("aexciter=amount=3:drive=6:blend=0:freq=2000:ceil=9999")
+    el = max(0, min(ap.LEVEL_MAX, int(echo_level or 0)))
+    if echo and el:
+        f.append(f"aecho=0.8:0.85:{40 + el * 15}:{0.12 + el * 0.04:.2f}")
+    bo = ap.LEVEL_MAX if boost is None else ap.clamp(int(boost), ap.LEVEL_MIN, ap.LEVEL_MAX)
+    drive = ap._env_db("PLAY_LOUDEST_DRIVE_DB", 18.0 + bo, high=36.0, low=0.0)
+    clip = ("asoftclip=type=tanh:oversample=4" if ap._has_filter("asoftclip") else
+            "alimiter=level_in=1:level_out=1:limit=0.9:attack=0.1:release=5:level=false")
+    f += [f"volume={ap._db(drive)}dB", clip, "lowpass=f=4500", "volume=6dB", clip,
+          "pan=stereo|c0=c0|c1=c0",
+          "alimiter=level_in=1:level_out=1:limit=0.97:attack=0.1:release=20:level=false"]
+    v = 1000 if volume is None else max(0, int(volume))
+    if os.environ.get("PLAY_ALLOW_QUIET", "0") != "1":
+        v = max(v, ap.VOLUME_CLEAN_MAX)
+    if v == 0:
+        f.append("volume=0")
+    elif v < ap.VOLUME_CLEAN_MAX:
+        f.append(f"volume={20 * math.log10(v / ap.VOLUME_CLEAN_MAX):.2f}dB")
+    return ",".join(f)
+
+
 def build_ffmpeg_filter(*args, **kwargs) -> str:
-    if kwargs.get("live") or args or get_mode() != "phone":
+    if kwargs.get("live") or args or get_mode() == "bass":
         return _orig_build(*args, **kwargs)
-    return phone_chain(volume=kwargs.get("volume"), echo=kwargs.get("echo"),
+    chain = loudest_chain if get_mode() == "loudest" else phone_chain
+    return chain(volume=kwargs.get("volume"), echo=kwargs.get("echo"),
                        echo_level=kwargs.get("echo_level"), boost=kwargs.get("boost"),
                        treble=kwargs.get("treble"),
                        input_gain_db=kwargs.get("input_gain_db") or 0.0,
