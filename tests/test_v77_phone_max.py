@@ -3,10 +3,20 @@ from helpers import audio_processor as ap
 from helpers import playback_v77 as v77
 
 
-def test_default_mode_is_phone(monkeypatch):
+def test_default_mode_is_loudest(monkeypatch):
     monkeypatch.delenv("PLAY_LOUD_MODE", raising=False)
     v77._mode = None
-    assert v77.get_mode() == "phone"
+    assert v77.get_mode() == "loudest"
+
+
+def test_loudest_chain_is_phone_band_only():
+    v77.set_mode("loudest")
+    try:
+        c = ap.build_ffmpeg_filter(volume=1000, boost=10)
+        assert c.count("highpass=f=330:p=2") == 4
+        assert "mcompand" in c and "virtualbass" not in c
+    finally:
+        v77.set_mode("phone")
 
 
 def test_phone_chain_cuts_sub_bass_and_no_virtualbass():
