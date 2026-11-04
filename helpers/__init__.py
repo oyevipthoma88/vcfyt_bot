@@ -88,3 +88,8 @@ _install_playback_v77()
 # played audio (v62 mcompand squashed 0 dB -> -8 dB). Phone-band fight chain.
 from .playback_v79 import install as _install_playback_v79
 _install_playback_v79()
+
+# v80 (last): BRIDGE ULTRA - RNNoise speech denoise first, 330 Hz-4.3 kHz
+# phone band, 3-band squash + exciter + 2-stage drive (bridge only).
+from .playback_v80 import install as _install_playback_v80
+_install_playback_v80()

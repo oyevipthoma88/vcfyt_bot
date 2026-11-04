@@ -44,6 +44,7 @@ def test_bridge_voice_is_at_least_2db_louder_than_v62(monkeypatch):
     raw = _voice(-32)
     new = _phone_lufs_after_opus(raw)
     monkeypatch.setenv("BRIDGE_PHONE_FIGHT", "0")
+    monkeypatch.setenv("BRIDGE_ULTRA", "0")
     old = _phone_lufs_after_opus(raw)
     assert new >= old + 2.0, (new, old)
     assert new >= -7.5, new
@@ -58,3 +59,14 @@ def test_audio_panel_only_tez_modes_and_echo():
     for gone in ("set:relay:-250", "set:gain:50", "set:bass:5", "set:boost:1",
                  "set:playdb:2", "set:masterdb:2", "set:ceiling:cycle", "set:reset"):
         assert gone not in datas
+
+
+def test_v80_bridge_uses_speech_denoiser_first_and_phone_band():
+    from helpers import audio_processor as ap
+    from helpers import playback_v80 as v80
+    chain = vb.build_bridge_filter(vb.LOUD_DEFAULT)
+    if ap._has_filter("arnndn"):
+        assert os.path.isfile(v80.RNN_MODEL)
+        assert "arnndn=m=" in chain
+        assert chain.index("arnndn") < chain.index("highpass")
+    assert "highpass=f=330" in chain and "lowpass=f=4300" in chain
