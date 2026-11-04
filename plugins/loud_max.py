@@ -29,13 +29,14 @@ async def cmd_loudmode(bot: Client, msg: Message):
     if len(parts) < 2:
         await msg.reply_text(
             f"🔊 <b>Loud mode:</b> <code>{v77.get_mode()}</code>\n\n"
-            "<code>.loudmode phone</code> — phone speaker pe sabse tez + saaf (default)\n"
+            "<code>.loudmode loudest</code> — sabse tez, phone speaker ke liye (default)\n"
+            "<code>.loudmode phone</code> — tez + thoda zyada saaf\n"
             "<code>.loudmode bass</code> — heavy bass (headphones ke liye)")
         return
     try:
         mode = v77.set_mode(parts[1])
     except ValueError:
-        await msg.reply_text("❌ Sirf <code>phone</code> ya <code>bass</code>.")
+        await msg.reply_text("❌ Sirf <code>loudest</code>, <code>phone</code> ya <code>bass</code>.")
         return
     await db.set_app_value("play_loud_mode", mode)
     from plugins.start import apply_settings_live
@@ -47,8 +48,8 @@ async def cmd_loudmode(bot: Client, msg: Message):
                    & (filters.group | filters.private))
 async def cmd_maxloud(bot: Client, msg: Message):
     uid = msg.from_user.id
-    v77.set_mode("phone")
-    await db.set_app_value("play_loud_mode", "phone")
+    v77.set_mode("loudest")
+    await db.set_app_value("play_loud_mode", "loudest")
     await db.save_settings(uid, **MAX_PLAY)
     from plugins.start import apply_settings_live
     await apply_settings_live(uid)
@@ -57,7 +58,7 @@ async def cmd_maxloud(bot: Client, msg: Message):
     cid = None
     if uvc:
         cid = next((c for c, st in uvc.chats.items() if st.is_playing or st.mic_enabled), None)
-    lines = ["⚡ <b>MAX LOUD ON</b>", "• Phone-max awaaz + saari settings max"]
+    lines = ["⚡ <b>MAX LOUD ON</b>", "• LOUDEST awaaz + saari settings max"]
     if not cid:
         lines.append("• Abhi koi VC me play nahi ho raha — play karke dobara <code>.tez</code> bhejo "
                      "taaki sab IDs ko 200% mile.")
