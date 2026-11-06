@@ -93,3 +93,7 @@ _install_playback_v79()
 # phone band, 3-band squash + exciter + 2-stage drive (bridge only).
 from .playback_v80 import install as _install_playback_v80
 _install_playback_v80()
+
+# v79: LIVE-LOUDEST live mic chain (phone band, hard levelling, tanh drive).
+from .live_mic_v79 import install as _install_live_mic_v79
+_install_live_mic_v79()

@@ -3,6 +3,7 @@
   .maxloud / .tez      -> phone-max mode + all play settings max + har logged-in
                           ID (main + spares) ko VC me 200% + admin try
   .loudmode            -> current mode dikhao
+  .micmode loudest|clean -> live mic ka chain
   .loudmode phone|bass -> phone = phone speaker pe sabse tez + clear (default)
                           bass  = purana heavy-bass chain (headphones)
 """
@@ -13,6 +14,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 from helpers import playback_v77 as v77
+from helpers import live_mic_v79 as v79
 from helpers.database import db
 from helpers.vc_manager import session_manager
 from plugins.ui import HAS_USER, cmd_prefix, cmd_text
@@ -54,6 +56,9 @@ async def do_maxloud(uid: int) -> list:
     """.tez / panel ⚡ TEZ button — dono yahi chalate hai."""
     v77.set_mode("loudest")
     await db.set_app_value("play_loud_mode", "loudest")
+    v79.set_mode("loudest")
+    await db.set_app_value("live_mic_loud_mode", "loudest")
+    await v79.restart_live_sessions()
     await db.save_settings(uid, **MAX_PLAY)
     from plugins.start import apply_settings_live
     await apply_settings_live(uid)
@@ -62,7 +67,7 @@ async def do_maxloud(uid: int) -> list:
     cid = None
     if uvc:
         cid = next((c for c, st in uvc.chats.items() if st.is_playing or st.mic_enabled), None)
-    lines = ["⚡ <b>MAX LOUD ON</b>", "• LOUDEST awaaz + saari settings max"]
+    lines = ["⚡ <b>MAX LOUD ON</b>", "• LOUDEST awaaz (file + live mic) + saari settings max"]
     if not cid:
         lines.append("• Abhi koi VC me play nahi ho raha — play karke dobara <code>.tez</code> bhejo "
                      "taaki sab IDs ko 200% mile.")
@@ -94,3 +99,23 @@ async def do_maxloud(uid: int) -> list:
     if len(engines) > 1:
         lines.append(f"💡 <code>.syncplay</code> se saari {len(engines)} IDs ek saath bajengi = aur ghana/tez.")
     return lines
+
+
+@Client.on_message(HAS_USER & cmd_prefix(r"micmode\b", flags=re.IGNORECASE)
+                   & (filters.group | filters.private))
+async def cmd_micmode(bot: Client, msg: Message):
+    parts = cmd_text(msg).split()
+    if len(parts) < 2:
+        await msg.reply_text(
+            f"🎙 <b>Live mic mode:</b> <code>{v79.get_mode()}</code>\n\n"
+            "<code>.micmode loudest</code> — live mic sabse tez, phone ke liye (default)\n"
+            "<code>.micmode clean</code> — purana saaf chain (agar awaaz phate)")
+        return
+    try:
+        mode = v79.set_mode(parts[1])
+    except ValueError:
+        await msg.reply_text("❌ Sirf <code>loudest</code> ya <code>clean</code>.")
+        return
+    await db.set_app_value("live_mic_loud_mode", mode)
+    n = await v79.restart_live_sessions()
+    await msg.reply_text(f"✅ Live mic mode: <b>{mode}</b>" + (f" ({n} chalu mic update)" if n else ""))
