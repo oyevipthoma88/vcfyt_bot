@@ -18,6 +18,9 @@ HELP = {
     "play": ([], ".play  |  .play <tag>  |  .play <tag> <chat_id>  |  .play <chat_id>",
              "Audio/video ko reply karke VC me chalata hai. Group me chat ID ki zarurat nahi.",
              "Audio reply karke: .play\n.play intro -1001234567890"),
+    "tez": (["maxloud", "loudmax"], ".tez", "1 tap me sab MAX: Loudest mode + saari settings max + har logged-in ID ko 200% (admin ho to).", ".tez"),
+    "loudmode": ([], ".loudmode  |  .loudmode loudest|phone|bass", "Play audio ka sound mode badlo. loudest = sabse tez, phone = saaf, bass = headphones.", ".loudmode phone"),
+    "micmode": ([], ".micmode  |  .micmode loudest|clean", "Live mic ka sound mode. Awaaz phate to clean.", ".micmode clean"),
     "padd": ([], ".padd <tag>  (ya audio reply karke .padd)", "Track ko queue me add karta hai.", ".padd intro"),
     "playforce": (["fplay"], ".playforce <tag>", "Queue hata kar turant ye track chalata hai.", ".fplay intro"),
     "pause": ([], ".pause", "Chal raha audio rok deta hai.", ".pause"),
@@ -107,10 +110,11 @@ def help_text(word: str) -> str:
         return ""
     aliases, usage, desc, example = HELP[key]
     alias_line = ("\n<b>Aliases:</b> " + ", ".join(f"<code>.{a}</code>" for a in aliases)) if aliases else ""
-    return (f"ℹ️ <b>.{key}</b>\n\n{desc}{alias_line}\n\n"
-            f"<b>Kaise use karein:</b>\n<code>{usage}</code>\n\n"
-            f"<b>Example:</b>\n<code>{example}</code>\n\n"
-            "<i>Dot (.), slash (/) aur ! teeno chalte hain.</i>")
+    from plugins.ui import card
+    body = (f"<blockquote>{desc}</blockquote>{alias_line}\n\n"
+            f"🛠 <b>Kaise use karein</b>\n<code>{usage}</code>\n\n"
+            f"✨ <b>Example</b>\n<pre>{example}</pre>")
+    return card("ℹ️", f".{key}", body, "Dot (.), slash (/) aur ! teeno chalte hain.")
 
 
 def _suggest(word: str) -> str:
