@@ -475,3 +475,40 @@ def status_text(user_id: int, data: dict, uvc, s: dict, premium: dict = None) ->
         f"└ <b>Boost:</b> {_g(s, 'boost')}/10 · <b>Echo:</b> "
         f"{'On' if _g(s, 'echo') else 'Off'} {_g(s, 'echo_level')}/10\n\n"
         f"{prem}")
+
+
+# ─── v81 Now Playing card ──────────────────────────────────────
+def now_playing_text(st, status: str = "playing", chat_title: str = "",
+                     account: str = "", queue_pos: int = 0) -> str:
+    """Ek hi sundar card — .play, .playforce aur 🔄 Refresh teeno yahi dikhate hai."""
+    name = getattr(st, "source_name", "") or "Audio"
+    paused = bool(getattr(st, "is_paused", False))
+    head = {"queued": ("📥", "Queued"), "force": ("⚡", "Force playing")}.get(
+        status, ("⏸", "Paused") if paused else ("🎧", "Now playing"))
+    mode = _loud_mode()
+    ico, mname, mdesc = LOUD_MODE_INFO.get(mode, LOUD_MODE_INFO["loudest"])
+    state = ("⏸ <b>Paused</b>" if paused else "🔴 <b>LIVE</b> · VC me baj raha hai")
+    if status == "queued":
+        state = f"📥 <b>Queue #{queue_pos}</b> · line me hai"
+    flags = []
+    if getattr(st, "loop", False):
+        flags.append("🔁 Loop")
+    if getattr(st, "hand_raise", False) or getattr(st, "mic_blink", False):
+        flags.append("🧑 Human")
+    if getattr(st, "ss_on", False):
+        flags.append("🖥 Screen")
+    if getattr(st, "echo", False):
+        flags.append("🌊 Echo")
+    body = f"🎵 <b>{name}</b>\n{state}\n"
+    if chat_title:
+        body += f"💬 <code>{'Group':<7}</code> <b>{chat_title}</b>\n"
+    if account:
+        body += f"👤 <code>{'ID':<7}</code> <b>{account}</b>\n"
+    body += (f"\n{ico} <code>{'Mode':<7}</code> <b>{mname}</b> · {mdesc}\n"
+             f"🔊 {meter('Volume', getattr(st, 'relay_volume', 0) or 0, 3000)}\n"
+             f"💥 {meter('Boost', getattr(st, 'boost', 0), 10)}")
+    if flags:
+        body += "\n" + "  ·  ".join(flags)
+    return card(head[0], head[1], body,
+                "⚡ <b>TEZ</b> = 1 tap me sab MAX + sab IDs 200%. "
+                "200% sabko tabhi sunta hai jab playing ID group admin ho.")
