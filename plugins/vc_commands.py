@@ -7,6 +7,7 @@ import re
 from pyrogram import Client, filters
 from pyrogram.errors import (SessionPasswordNeeded, PhoneCodeInvalid,
                              PhoneCodeExpired, PasswordHashInvalid)
+from plugins.ui import now_playing_text
 from plugins.ui import card, meter, HAS_USER, cmd_text, B, edit_screen, safe_answer, mic_text, mic_kb, cmd_prefix
 from pyrogram.types import InlineKeyboardMarkup as K
 from pyrogram.types import Message
@@ -148,26 +149,34 @@ def _save_gc():
 
 
 def now_playing_kb(cid: int, st=None) -> K:
-    # Only the essentials: play controls + one "Human Mode" switch.
+    # v81: sabse zaroori upar — controls, phir TEZ, phir extras.
     paused = bool(st and st.is_paused)
     human = bool(st and (st.hand_raise or st.mic_blink))
     ss = bool(st and getattr(st, "ss_on", False))
     loop = bool(st and st.loop)
     def onoff(v):
         return "success" if v else "danger"
+    try:
+        from plugins.ui import _loud_mode, LOUD_MODE_INFO
+        ico, mname, _ = LOUD_MODE_INFO.get(_loud_mode(), LOUD_MODE_INFO["loudest"])
+    except Exception:
+        ico, mname = "📢", "Loudest"
     return K([
-        [B("👻 Ghost Mic", callback_data=f"gm:play:{cid}", style="primary")],
         [B("▶ Resume" if paused else "⏸ Pause",
            callback_data=f"vc:{'resume' if paused else 'pause'}:{cid}",
            style="success" if paused else "primary"),
          B("⏭ Skip", callback_data=f"vc:skip:{cid}", style="primary"),
          B("⏹ Stop", callback_data=f"vc:stop:{cid}", style="danger")],
-        [B(f"🔁 Loop: {'ON' if loop else 'OFF'}", callback_data=f"vc:loop:{cid}", style=onoff(loop)),
-         B(f"🖥 Live Screen: {'ON' if ss else 'OFF'}", callback_data=f"vc:ss:{cid}", style=onoff(ss))],
-        [B("💬 VC Chat + Reactions", callback_data=f"vct:panel:{cid}", style="success")],
-        [B(f"🧑 Human Mode: {'ON' if human else 'OFF'}", callback_data=f"vc:human:{cid}", style=onoff(human))],
-        [B("🎚️ Audio Controls", callback_data="menu:settings", style="primary"),
-         B("🔄 Refresh", callback_data=f"vc:now:{cid}", style="primary")],
+        [B("⚡ TEZ — sab MAX", callback_data=f"vc:tez:{cid}", style="success"),
+         B(f"{ico} Mode: {mname}", callback_data=f"vc:lmode:{cid}", style="primary")],
+        [B(f"🔁 Loop {'ON' if loop else 'OFF'}", callback_data=f"vc:loop:{cid}", style=onoff(loop)),
+         B(f"🧑 Human {'ON' if human else 'OFF'}", callback_data=f"vc:human:{cid}", style=onoff(human)),
+         B(f"🖥 Screen {'ON' if ss else 'OFF'}", callback_data=f"vc:ss:{cid}", style=onoff(ss))],
+        [B("👻 Ghost Mic", callback_data=f"gm:play:{cid}", style="primary"),
+         B("💬 Chat + React", callback_data=f"vct:panel:{cid}", style="primary")],
+        [B("🎚️ Sound", callback_data="menu:settings", style="primary"),
+         B("🔄 Refresh", callback_data=f"vc:now:{cid}", style="primary"),
+         B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
 
 async def _cb_engine(uid: int):
@@ -545,15 +554,10 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         )
         return
 
+    _q = len(uvc.chats[cid].queue) if (status == 'queued' and uvc.chats.get(cid)) else 0
     await stat.edit_text(
-        f"{' <b>Queued!</b>' if status == 'queued' else '▶ <b>Playing!</b>'}\n\n"
-        f" <b>Source:</b> {name}\n"
-        f" <b>Chat:</b> {title}\n"
-        + (f" <b>Queue position:</b> {len(uvc.chats[cid].queue) if uvc.chats.get(cid) else 0}\n" if status == 'queued' else '')
-        + f" <b>Account:</b> {uvc.account_name}\n"
-        f" <b>Volume:</b> {st.relay_volume}/3000 |  <b>Bass:</b> +{st.bass} dB\n"
-        f" <b>Boost:</b> {st.boost}/10 |  <b>Echo:</b> "
-        f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
+        now_playing_text(uvc.chats.get(cid) or st, "queued" if status == "queued" else "playing",
+                         title, getattr(uvc, "account_name", ""), _q),
         reply_markup=now_playing_kb(cid, uvc.chats.get(cid)),
     )
 
@@ -605,12 +609,7 @@ async def cmd_playforce(bot: Client, msg: Message):
         return
     await _archive_played_audio(bot, source_file_id, name)
     await stat.edit_text(
-        f" <b>Force playing!</b>\n\n"
-        f" <b>Source:</b> {name}\n"
-        f" <b>Chat:</b> {title}\n"
-        f" <b>Volume:</b> {st.relay_volume}/3000 |  <b>Bass:</b> +{st.bass} dB\n"
-        f" <b>Boost:</b> {st.boost}/10 |  <b>Echo:</b> "
-        f"{'On' if st.echo else 'Off'} {st.echo_level}/10",
+        now_playing_text(uvc.chats.get(cid) or st, "force", title, getattr(uvc, "account_name", "")),
         reply_markup=now_playing_kb(cid, uvc.chats.get(cid)),
     )
 
@@ -1184,15 +1183,40 @@ async def cb_vc(bot, cq):
             await _show_idle(cq)
             return
         await edit_screen(cq.message,
-            card("🎧", "Now playing",
-                 f"🎵 <b>{st.source_name}</b>\n"
-                 f"{'⏸ <b>Paused</b>' if st.is_paused else '▶️ <b>Playing</b>'}\n\n"
-                 f"🔊 {meter('Volume', st.relay_volume, 3000)}\n"
-                 f"💥 {meter('Boost', st.boost, 10)}",
-                 "Human Mode = hand raise + mic blink, taaki account asli insaan jaisa lage."),
+            now_playing_text(st, "playing", getattr(st, "chat_title", "") or "",
+                             getattr(uvc, "account_name", "")),
             reply_markup=now_playing_kb(cid, st),
         )
         await safe_answer(cq, "Now Playing updated")
+    elif action in ("tez", "lmode"):
+        st = uvc.chats.get(cid)
+        if action == "tez":
+            await safe_answer(cq, "⚡ TEZ lag raha hai…")
+            from plugins.loud_max import do_maxloud
+            try:
+                lines = await do_maxloud(cq.from_user.id)
+            except Exception as e:
+                lines = [f"⚠️ {e}"]
+        else:
+            from helpers import playback_v77 as _v77
+            order = ["loudest", "phone", "bass"]
+            cur = _v77.get_mode()
+            nxt = order[(order.index(cur) + 1) % 3] if cur in order else "loudest"
+            _v77.set_mode(nxt)
+            await db.set_app_value("play_loud_mode", nxt)
+            from plugins.start import apply_settings_live
+            await apply_settings_live(cq.from_user.id)
+            await safe_answer(cq, f"Mode: {nxt}")
+            lines = []
+        if st and st.is_playing:
+            txt = now_playing_text(st, "playing", getattr(st, "chat_title", "") or "",
+                                   getattr(uvc, "account_name", ""))
+            if lines:
+                txt += "\n\n<blockquote expandable>" + "\n".join(lines) + "</blockquote>"
+            try:
+                await edit_screen(cq.message, txt, reply_markup=now_playing_kb(cid, st))
+            except Exception:
+                pass
     elif action == "reset":
         await safe_answer(cq, "✅ Reset apply ho raha hai…")
         from plugins.start import DEFAULT_SETTINGS, apply_settings_live
