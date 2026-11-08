@@ -1480,17 +1480,20 @@ async def cb_mic(bot: Client, cq):
             await edit_screen(cq.message, text, reply_markup=kb)
             await safe_answer(cq, "Pehle Spare ID login karein")
             return
-        # Button se seedha bridge start (pehle sirf help text dikhta tha).
-        from plugins.vc_bridge import run_bridge, _CbMsg
-        await safe_answer(cq, "Mic ON ho raha hai…")
-        await run_bridge(_CbMsg(cq), ["mic", "on"])
+        # v81: Web Browser Mic link (VC Bridge hata diya).
+        from plugins.vc_bridge import _CbMsg
+        from plugins.web_mic import run_web_mic
+        await safe_answer(cq, "Mic link aa raha hai…")
+        await run_web_mic(_CbMsg(cq), "on")
         return
 
     if action == "off":
-        from helpers.live_mic import reset_mic_state
+        from helpers.live_mic import reset_mic_state, stop_session
         from plugins.vc_bridge import open_panel_cb
         from helpers import vc_bridge
-        ok = await vc_bridge.stop_bridge(uid)
+        ok = await stop_session(uid)
+        await db.set_app_value(f"live_mic_token_{uid}", "")
+        ok = (await vc_bridge.stop_bridge(uid)) or ok
         try:
             await reset_mic_state(uvc, uid)
         except Exception:
@@ -2176,7 +2179,7 @@ async def cmd_target(bot: Client, msg: Message):
 
 @Client.on_message(HAS_USER & cmd_prefix(r"mic\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_mic(bot: Client, msg: Message):
-    """Live Mic = VC Bridge (browser mic page aur direct live hata diye)."""
+    """Live Mic = Web Browser Mic (v81, VC Bridge hata diya)."""
     parts = cmd_text(msg).split()
     action = parts[1].lower() if len(parts) > 1 else "help"
 
@@ -2202,16 +2205,18 @@ async def cmd_mic(bot: Client, msg: Message):
         await mic_notify(msg, text)
         return
 
-    from plugins.vc_bridge import run_bridge
     alias = {"start": "on", "stop": "off", "exit": "leave", "out": "leave",
              "vcleave": "leave", "devices": "help", "list": "help",
              "source": "src", "power": "loud", "boost": "loud"}
     action = alias.get(action, action)
     alias.update({"panel": "loud", "control": "loud", "ctrl": "loud"})
     action = alias.get(action, action)
-    if action not in {"on", "off", "leave", "status", "src", "help", "loud"}:
-        action = "help"
-    await run_bridge(msg, ["bridge", action, *parts[2:]])
+    if action in {"src", "loud"}:
+        from plugins.vc_bridge import run_bridge
+        await run_bridge(msg, ["bridge", action, *parts[2:]])
+        return
+    from plugins.web_mic import run_web_mic
+    await run_web_mic(msg, action if action in {"on", "off", "leave", "status"} else "help", parts[2:])
 
 
 @Client.on_message(HAS_USER & cmd_prefix(r"(setgc|unsetgc|gc)\b", flags=re.IGNORECASE) & (filters.group | filters.private))

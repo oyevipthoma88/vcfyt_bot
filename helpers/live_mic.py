@@ -1965,6 +1965,7 @@ function connectSocket(myAttempt){
 }
 
 const USE_AEC = new URLSearchParams(location.search).get("aec") === "1";
+const FIGHT = new URLSearchParams(location.search).get("boost") !== "clean";
 // SILENT-MIC DETECTOR: Android gives the browser pure silence while another
 // app (Telegram in the VC, a call) holds the microphone.  Warn the user
 // instead of streaming silence for the whole fight.
@@ -2099,17 +2100,23 @@ async function toggleMic() {
         // Now: rumble cut -> +6 dB -> transparent peak limiter.  Nothing
         // ever reaches the int16 clip; all loudness is made server-side.
         try {
-            const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
-            // v30 ROOT FIX "fight me awaaz dab jaati hai": x12 pre-gain +
-            // compressor + limiter here squeezed the other fighter's
-            // speaker bleed up to almost the same level as YOUR voice, so
-            // the server could no longer tell them apart.  Clean +6 dB only;
-            // the server's own-voice gate + loudness chain do the rest.
-            const pre = audioCtx.createGain(); pre.gain.value = 2.0;
+            // v81 FIGHT pre-chain (?boost=clean = old +6 dB only).
+            // rumble cut 150 Hz -> body cut 300 Hz -> presence +6 dB @2.7 kHz
+            // -> 12 dB pre-amp -> 6:1 comp (dheemi awaaz upar) -> brick-wall
+            // limiter at -1 dBFS.  Phone ka AGC/NS/AEC OFF hai, isliye full
+            // raw mic yahi se tez + saaf hoke server tak jata hai.
+            const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=FIGHT?150:80; hp.Q.value=0.707;
+            const mud = audioCtx.createBiquadFilter(); mud.type='peaking'; mud.frequency.value=300; mud.Q.value=1; mud.gain.value=FIGHT?-3:0;
+            const pres = audioCtx.createBiquadFilter(); pres.type='peaking'; pres.frequency.value=2700; pres.Q.value=1; pres.gain.value=FIGHT?6:0;
+            const pre = audioCtx.createGain(); pre.gain.value = FIGHT?4.0:2.0;
+            const comp = audioCtx.createDynamicsCompressor();
+            comp.threshold.value=FIGHT?-22:0; comp.knee.value=6; comp.ratio.value=FIGHT?6:1;
+            comp.attack.value=0.003; comp.release.value=0.12;
             const lim = audioCtx.createDynamicsCompressor();
             lim.threshold.value=-1; lim.knee.value=0; lim.ratio.value=20;
             lim.attack.value=0.001; lim.release.value=0.05;
-            source.connect(hp); hp.connect(pre); pre.connect(lim);
+            source.connect(hp); hp.connect(mud); mud.connect(pres); pres.connect(pre);
+            pre.connect(comp); comp.connect(lim);
             nPre = pre; nComp = lim;
             source = lim;
         } catch(e){ nComp=nPre=null; }
