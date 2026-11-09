@@ -106,3 +106,41 @@ async def run_web_mic(msg, action: str, args=()):
                      "🎧 <b>Earphone lagao</b> = sabse tez + saaf.\n\n"
                      f"<i>Link private hai, kisi ko mat bhejna.</i>\n<code>{_html.escape(url)}</code>",
                      reply_markup=kb, disable_web_page_preview=True)
+
+
+async def web_mic_panel(uid: int):
+    """v82: ek saaf Live Mic control panel (web browser mic)."""
+    from helpers import live_mic
+    s = live_mic.get_session(uid)
+    live = live_mic.has_live_socket(uid)
+    tgt = await db.get_app_value(f"mic_chat_{uid}")
+    try:
+        from helpers import live_mic_v79 as v79
+        mm = v79.get_mode()
+    except Exception:
+        mm = "loudest"
+    state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
+        "🟡 Link khula, mic band" if s else "⚪ OFF")
+    text = ("🎤 <b>LIVE MIC — Web Browser</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"Status : {state}\n"
+            f"🎯 Group : <code>{tgt or 'set nahi'}</code>\n"
+            f"🔊 Server mode : <b>{str(mm).upper()}</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🎧 Earphone + mic 3–5 cm = sabse tez\n"
+            "📊 Page par MIC LEVEL green rakho")
+    rows = []
+    if s or live:
+        rows.append([B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
+                     B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
+    else:
+        rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
+    rows.append([B("⚡ Mic LOUDEST", callback_data="mic:wmode:loudest",
+                   style="success" if mm == "loudest" else "primary"),
+                 B("✨ Mic CLEAN", callback_data="mic:wmode:clean",
+                   style="success" if mm == "clean" else "primary")])
+    rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
+                 B("❓ Help", callback_data="mic:whelp", style="primary")])
+    rows.append([B("🌉 Old VC Bridge", callback_data="mic:bridge", style="primary"),
+                 B("🏠 Home", callback_data="menu:home", style="primary")])
+    return text, K(rows)

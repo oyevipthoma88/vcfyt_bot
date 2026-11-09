@@ -1365,11 +1365,41 @@ async def cb_mic(bot: Client, cq):
         await safe_answer(cq)
         return
 
-    if action == "panel":
-        # Ek hi Live Mic screen: VC Bridge control panel (sab buttons).
+    if action == "bridge":
         from plugins.vc_bridge import open_panel_cb
         await open_panel_cb(cq)
         await safe_answer(cq)
+        return
+
+    if action in {"panel", "won", "wleave", "whelp", "wmode"}:
+        # v82: Live Mic = Web Browser mic panel.
+        from plugins.web_mic import web_mic_panel, run_web_mic, HELP
+        class _M:  # callback ko message jaisa banao
+            pass
+        m = _M(); m.from_user = cq.from_user; m.chat = cq.message.chat; m._client = bot; m.id = cq.message.id; m.text = ""; m.command = []
+        m.reply_text = cq.message.reply_text; m.reply = cq.message.reply_text
+        if action == "whelp":
+            await edit_screen(cq.message, HELP, reply_markup=K([[B("⬅ Back", callback_data="mic:panel")]]))
+            await safe_answer(cq)
+            return
+        if action == "won":
+            await run_web_mic(m, "on")
+            await safe_answer(cq, "Link bhej diya 👇")
+        elif action == "wleave":
+            await run_web_mic(m, "leave")
+            await safe_answer(cq, "Mic OFF + VC se bahar")
+        elif action == "wmode" and rest and rest[0] in {"loudest", "clean"}:
+            try:
+                from helpers import live_mic_v79 as v79
+                v79.set_mode(rest[0])
+                await v79.restart_live_sessions()
+            except Exception:
+                pass
+            await safe_answer(cq, f"Mic mode: {rest[0].upper()}")
+        else:
+            await safe_answer(cq)
+        text, kb = await web_mic_panel(uid)
+        await edit_screen(cq.message, text, reply_markup=kb)
         return
 
     if action == "chat":

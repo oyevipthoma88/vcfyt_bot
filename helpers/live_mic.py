@@ -1590,6 +1590,16 @@ body.busy .orb svg{fill:#1c1204}
 .status.connecting{background:rgba(255,176,32,.1);color:#fcd34d;border:1px solid rgba(255,176,32,.6)}
 .eq{display:flex;gap:4px;align-items:flex-end;height:34px;margin-top:16px}
 .eq i{display:block;width:6px;border-radius:3px;background:linear-gradient(#a3e635,#22e57a);height:4px;transition:height .08s}
+.panel{width:100%;margin-top:18px;padding:14px;border-radius:18px;border:1px solid var(--line);background:rgba(255,255,255,.035)}
+.panel h3{font-family:'Orbitron',sans-serif;font-size:.72rem;letter-spacing:2px;color:var(--muted);margin-bottom:10px}
+.vu{position:relative;height:16px;border-radius:9px;background:rgba(255,255,255,.06);overflow:hidden}
+.vu i{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#22e57a 0%,#22e57a 60%,#ffb020 80%,#ff3d5a 100%);background-size:460px 100%;transition:width .06s}
+.vurow{display:flex;justify-content:space-between;margin-top:6px;font-weight:700;font-size:.95rem}
+#vuHint.q{color:var(--amber)}#vuHint.g{color:#4ade80}#vuHint.c{color:#fb7185}
+.chips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.chip{padding:11px 6px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;font:700 .95rem 'Rajdhani',sans-serif;cursor:pointer}
+.chip.act{border-color:var(--acc);background:rgba(34,229,122,.14);color:#4ade80;box-shadow:0 0 16px rgba(34,229,122,.25)}
+.chip small{display:block;font-weight:500;color:var(--muted);font-size:.75rem}
 .feat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;margin-top:22px}
 .f{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:16px;padding:12px 6px;text-align:center;backdrop-filter:blur(10px)}
 .f b{display:block;font-family:'Orbitron',sans-serif;font-size:.78rem;letter-spacing:1px;margin-top:6px}
@@ -1647,6 +1657,18 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
 <button id="retryBtn" class="btn" style="display:none" onclick="retryMic()">Permission dene ke baad — Dobara try karein</button>
 <div id="permHelp" class="help"></div>
 
+<div class="panel">
+  <h3>MIC LEVEL</h3>
+  <div class="vu"><i id="vuBar"></i></div>
+  <div class="vurow"><span id="vuDb">-- dB</span><span id="vuHint">Mic band hai</span></div>
+  <h3 style="margin-top:14px">AWAAZ MODE</h3>
+  <div class="chips">
+    <button class="chip" id="mFight" onclick="setMode('boost','')">&#9889; FIGHT<small>Sabse tez</small></button>
+    <button class="chip" id="mClean" onclick="setMode('boost','clean')">&#10024; CLEAN<small>Phate to</small></button>
+    <button class="chip" id="mEar" onclick="setMode('aec','')">&#127911; Earphone<small>Max loud</small></button>
+    <button class="chip" id="mSpk" onclick="setMode('aec','1')">&#128266; Speaker<small>Echo band</small></button>
+  </div>
+</div>
 <div class="feat">
   <div class="f"><div class="ic">&#128266;</div><b>MAX</b><small>Extreme loud</small></div>
   <div class="f"><div class="ic">&#10022;</div><b>HD</b><small>Crystal clear</small></div>
@@ -1662,7 +1684,7 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
   2. Telegram me <b>.mic on</b> bhejein aur link kholein.<br>
   3. Beech wala <b>mic button</b> dabayein aur permission <b>Allow</b> karein.<br>
   4. Telegram app ka apna mic <b>mute</b> rakhein — awaaz isi page se jaati hai.<br>
-  5. Awaaz kam lage to neeche <b>VOLUME BOOST</b> / <b>FATNA</b> slider badhayein.<br>
+  5. <b>MIC LEVEL</b> green-yellow rahe to best. Red = phat rahi, <b>CLEAN</b> dabao. Dheemi = mic paas lao.<br>
   6. Mic na chale to <b>Chrome me kholein</b> dabayein.<br>
   7. Rokne ke liye mic button dobara dabayein ya <b>.mic off</b> bhejein.
   </p>
@@ -1965,6 +1987,21 @@ function connectSocket(myAttempt){
 }
 
 const USE_AEC = new URLSearchParams(location.search).get("aec") === "1";
+function setMode(k,v){const u=new URL(location.href);if(v)u.searchParams.set(k,v);else u.searchParams.delete(k);
+ if(u.href===location.href)return; if(isOn&&!confirm('Mode badalne ke liye page reload hoga. Phir mic dobara dabana.'))return; location.href=u.href;}
+function paintModes(){const q=new URLSearchParams(location.search);const c=q.get('boost')==='clean',a=q.get('aec')==='1';
+ const t=(id,on)=>{const e=document.getElementById(id);if(e)e.classList.toggle('act',on);};
+ t('mFight',!c);t('mClean',c);t('mEar',!a);t('mSpk',a);}
+let vuPeak=0;
+function vuUpdate(td){let pk=0,ss=0;for(let i=0;i<td.length;i++){const x=Math.abs(td[i]-128)/128;if(x>pk)pk=x;ss+=x*x;}
+ const rms=Math.sqrt(ss/td.length),db=rms>0?20*Math.log10(rms):-90;vuPeak=Math.max(pk,vuPeak*0.92);
+ const w=Math.max(0,Math.min(100,(db+50)*2));const b=document.getElementById('vuBar');if(b)b.style.width=w+'%';
+ const d=document.getElementById('vuDb');if(d)d.textContent=(db<-89?'--':db.toFixed(0))+' dB';
+ const h=document.getElementById('vuHint');if(!h)return;
+ if(vuPeak>0.985){h.textContent='CLIP — thoda door / CLEAN';h.className='c';}
+ else if(db<-32){h.textContent='Dheemi — mic paas lao';h.className='q';}
+ else{h.textContent='PERFECT — full tez';h.className='g';}}
+document.addEventListener('DOMContentLoaded',paintModes);setTimeout(paintModes,0);
 const FIGHT = new URLSearchParams(location.search).get("boost") !== "clean";
 // SILENT-MIC DETECTOR: Android gives the browser pure silence while another
 // app (Telegram in the VC, a call) holds the microphone.  Warn the user
@@ -2170,9 +2207,11 @@ async function toggleMic() {
     analyser.fftSize = 256;
     source.connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
+    const tdata = new Uint8Array(analyser.fftSize);
     function updateMeter() {
         if (!isOn || !analyser) return;
         analyser.getByteFrequencyData(data);
+        try{ analyser.getByteTimeDomainData(tdata); vuUpdate(tdata);}catch(e){}
         let sum = 0;
         for (let i = 0; i < data.length; i++) sum += data[i];
         const lvl = Math.min(1, (sum / data.length) / 70);
