@@ -1537,184 +1537,246 @@ LIVE_MIC_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#04050b">
-<title>Apex VC Fyt Bot - Live Mic</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07080c">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Live Mic - Apex VC Fyt</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-:root{--bg:#04050b;--line:rgba(255,255,255,.08);--muted:#8b90a3;--acc:#22e57a;--acc2:#38bdf8;--hot:#ff3d5a;--amber:#ffb020;--lvl:0}
-html,body{height:100%}
-body{font-family:'Rajdhani',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);
-color:#fff;min-height:100vh;overflow-x:hidden;position:relative}
-/* animated backdrop */
-.bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
-.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;animation:float 14s ease-in-out infinite}
-.b1{width:420px;height:420px;background:#0ea5e9;top:-140px;left:-120px}
-.b2{width:380px;height:380px;background:#16a34a;bottom:-120px;right:-120px;animation-delay:-5s}
-.b3{width:260px;height:260px;background:#db2777;top:40%;left:60%;opacity:.3;animation-delay:-9s}
-@keyframes float{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(40px,30px) scale(1.12)}}
-.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
-linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:34px 34px;
-mask-image:radial-gradient(circle at 50% 40%,#000 20%,transparent 75%);-webkit-mask-image:radial-gradient(circle at 50% 40%,#000 20%,transparent 75%)}
-.star{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;opacity:0;animation:twinkle 4s infinite}
-@keyframes twinkle{0%,100%{opacity:0}50%{opacity:.8}}
-.wrap{position:relative;z-index:1;max-width:460px;margin:0 auto;padding:22px 16px 40px;display:flex;flex-direction:column;align-items:center;min-height:100vh}
-header{text-align:center}
-.badge{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;letter-spacing:2px;text-transform:uppercase;
-padding:5px 12px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted)}
-.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
-body.live .badge{color:#ff8fa0;border-color:rgba(255,61,90,.5);background:rgba(255,61,90,.08)}
-body.live .badge .dot{background:var(--hot);box-shadow:0 0 10px var(--hot);animation:blink 1s infinite}
-@keyframes blink{50%{opacity:.25}}
-h1{font-family:'Orbitron',sans-serif;font-size:1.7rem;font-weight:900;letter-spacing:3px;margin-top:12px;
-background:linear-gradient(90deg,#38bdf8,#22e57a,#d9f99d,#38bdf8);background-size:300% 100%;
--webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;
-text-transform:uppercase;animation:shine 6s linear infinite}
-@keyframes shine{to{background-position:300% 0}}
-.subtitle{color:var(--muted);font-size:.9rem;margin-top:4px;letter-spacing:1px}
-/* mic orb */
-.stage{position:relative;width:290px;height:290px;margin:26px 0 8px;display:grid;place-items:center}
-.mic-blur-bg{position:absolute;inset:15px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,.26) 0%,rgba(34,229,122,.18) 40%,rgba(14,165,233,.08) 65%,transparent 80%);filter:blur(38px);-webkit-filter:blur(38px);pointer-events:none;transition:all .5s cubic-bezier(.4,0,.2,1);transform:scale(calc(1 + var(--lvl)*.28));z-index:0}
-body.live .mic-blur-bg{background:radial-gradient(circle,rgba(34,229,122,.48) 0%,rgba(56,189,248,.26) 45%,rgba(34,229,122,.14) 70%,transparent 85%);filter:blur(48px);-webkit-filter:blur(48px);transform:scale(calc(1.22 + var(--lvl)*.55))}
-.orb-glow{position:absolute;inset:-8px;border-radius:50%;background:transparent;filter:blur(12px);-webkit-filter:blur(12px);pointer-events:none;transition:background .35s ease}
-body.live .orb-glow{background:radial-gradient(circle,rgba(34,229,122,.5),rgba(56,189,248,.3) 60%,transparent)}
-.ambient-mic-blur{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,.22) 0%,rgba(34,229,122,.15) 35%,rgba(219,39,119,.08) 65%,transparent 80%);filter:blur(64px);-webkit-filter:blur(64px);pointer-events:none;animation:ambientPulse 7s ease-in-out infinite alternate}
-@keyframes ambientPulse{0%{opacity:.6;transform:translate(-50%,-50%) scale(.95)}100%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}}
-.ring{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(56,189,248,.25)}
-.ring.r2{inset:22px;border-color:rgba(34,229,122,.22)}
-.ring.r3{inset:44px;border-style:dashed;border-color:rgba(255,255,255,.12);animation:spin 18s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.pulse{position:absolute;inset:60px;border-radius:50%;border:2px solid var(--acc);opacity:0}
-body.live .pulse{animation:pulse 2.2s ease-out infinite}
-body.live .pulse.p2{animation-delay:.7s}body.live .pulse.p3{animation-delay:1.4s}
-@keyframes pulse{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.1);opacity:0}}
+:root{
+ --bg:#07080c;--card:rgba(255,255,255,.035);--card2:rgba(255,255,255,.07);
+ --line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.15);
+ --text:#f4f5f8;--muted:#8d92a6;--dim:#50556a;
+ --acc:#c6ff3d;--acc-ink:#0c1400;--acc-soft:rgba(198,255,61,.12);
+ --live:#ff3b4f;--live-soft:rgba(255,59,79,.13);
+ --amber:#ffb627;--amber-soft:rgba(255,182,39,.13);--cyan:#3de0ff;
+ --display:'Unbounded',system-ui,sans-serif;
+ --body:'Manrope',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+ --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+ --lvl:0}
+html,body{min-height:100%}
+body{font-family:var(--body);background:var(--bg);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+/* backdrop */
+.bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+ background:radial-gradient(120% 60% at 50% -12%,#171c2a 0%,transparent 62%),radial-gradient(90% 50% at 50% 112%,#121c06 0%,transparent 62%),var(--bg)}
+.grid{position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.075) 1px,transparent 1.2px);background-size:22px 22px;
+ mask-image:radial-gradient(ellipse at 50% 28%,#000 8%,transparent 68%);-webkit-mask-image:radial-gradient(ellipse at 50% 28%,#000 8%,transparent 68%)}
+.ambient-mic-blur{position:absolute;top:30%;left:50%;width:560px;height:560px;border-radius:50%;transform:translate(-50%,-50%);
+ background:radial-gradient(circle,rgba(198,255,61,.11),rgba(61,224,255,.06) 42%,transparent 70%);
+ filter:blur(60px);-webkit-filter:blur(60px);animation:amb 8s ease-in-out infinite alternate;transition:background .6s}
+body.live .ambient-mic-blur{background:radial-gradient(circle,rgba(255,59,79,.2),rgba(198,255,61,.09) 46%,transparent 72%)}
+@keyframes amb{from{opacity:.6;transform:translate(-50%,-50%) scale(.9)}to{opacity:1;transform:translate(-50%,-50%) scale(1.08)}}
+.star{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:0;animation:tw 5s infinite}
+@keyframes tw{50%{opacity:.5}}
+.wrap{position:relative;z-index:1;max-width:440px;margin:0 auto;display:flex;flex-direction:column;gap:14px;min-height:100vh;
+ padding:calc(14px + env(safe-area-inset-top)) 16px calc(26px + env(safe-area-inset-bottom))}
+/* top bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{flex:none;width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:var(--acc);color:var(--acc-ink);
+ box-shadow:0 0 0 1px rgba(255,255,255,.12),0 8px 24px rgba(198,255,61,.22)}
+.logo svg{width:18px;height:18px;fill:currentColor}
+.brand b{display:block;font:800 .8rem var(--display);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.brand small{display:block;color:var(--muted);font-size:.72rem;font-weight:600;letter-spacing:.04em}
+.badge{flex:none;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:99px;border:1px solid var(--line2);
+ background:var(--card);font:700 .66rem/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);transition:all .3s}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+body.busy .badge{color:var(--amber);border-color:rgba(255,182,39,.45);background:var(--amber-soft)}
+body.busy .badge .dot{background:var(--amber);animation:blink .8s infinite}
+body.live .badge{color:#fff;border-color:var(--live);background:var(--live);box-shadow:0 0 22px rgba(255,59,79,.45)}
+body.live .badge .dot{background:#fff;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
+.tgbar{display:none;align-items:center;gap:10px;padding:12px 12px 12px 14px;border-radius:16px;background:var(--amber-soft);
+ border:1px solid rgba(255,182,39,.45);color:var(--amber);font-size:.84rem;font-weight:700;line-height:1.35}
+.tgbar.show{display:flex}.tgbar span{flex:1}
+.tgbar button{flex:none;border:0;border-radius:11px;padding:9px 12px;background:var(--amber);color:#1a1000;font-weight:800;font-size:.8rem;cursor:pointer}
+/* stage */
+.hero{position:relative;border-radius:30px;border:1px solid var(--line);padding:16px 14px 16px;display:flex;flex-direction:column;align-items:center;overflow:hidden;
+ background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012))}
+.hero-top{width:100%;display:flex;justify-content:space-between;align-items:center;font:700 .68rem var(--mono);letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+.timer{font:700 .8rem var(--mono);letter-spacing:.18em;color:var(--dim);transition:color .3s}
+body.live .timer{color:var(--live)}
+.stage{position:relative;width:min(300px,76vw);aspect-ratio:1/1;display:grid;place-items:center;margin:4px 0 2px}
+.mic-blur-bg{position:absolute;inset:20%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(198,255,61,.22),transparent 70%);
+ filter:blur(30px);-webkit-filter:blur(30px);transform:scale(calc(1 + var(--lvl)*.55));transition:transform .12s,background .5s}
+body.live .mic-blur-bg{background:radial-gradient(circle,rgba(255,59,79,.5),rgba(198,255,61,.1) 60%,transparent 76%)}
 canvas#viz{position:absolute;inset:0;width:100%;height:100%}
-.orb{position:relative;width:150px;height:150px;border-radius:50%;border:none;cursor:pointer;display:grid;place-items:center;
-background:radial-gradient(circle at 35% 30%,#3b4256,#141824 70%);box-shadow:0 0 0 6px rgba(255,255,255,.04),0 20px 60px rgba(0,0,0,.6),inset 0 2px 8px rgba(255,255,255,.12);
-transition:transform .15s,box-shadow .3s,background .3s;transform:scale(calc(1 + var(--lvl)*.12))}
-.orb:active{transform:scale(.94)}
-.orb svg{width:62px;height:62px;fill:#c7cbd6;transition:fill .3s}
-body.live .orb{background:radial-gradient(circle at 35% 30%,#4ade80,#0e9f55 70%);
-box-shadow:0 0 0 6px rgba(34,229,122,.18),0 0 calc(40px + var(--lvl)*80px) rgba(34,229,122,.7),inset 0 2px 8px rgba(255,255,255,.3)}
-body.live .orb svg{fill:#03140a}
-body.busy .orb{background:radial-gradient(circle at 35% 30%,#fcd34d,#d97706 70%);animation:breathe 1.2s ease-in-out infinite}
-body.busy .orb svg{fill:#1c1204}
-@keyframes breathe{50%{box-shadow:0 0 0 6px rgba(255,176,32,.2),0 0 60px rgba(255,176,32,.6)}}
-.tap{font-family:'Orbitron',sans-serif;font-size:.8rem;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-top:2px}
-.status{margin-top:16px;padding:11px 18px;border-radius:14px;font-size:1rem;font-weight:700;text-align:center;letter-spacing:.5px;width:100%}
-.status.off{background:rgba(255,255,255,.03);color:var(--muted);border:1px solid var(--line)}
-.status.on{background:rgba(34,229,122,.1);color:#4ade80;border:1px solid rgba(34,229,122,.6);box-shadow:0 0 24px rgba(34,229,122,.25)}
-.status.err{background:rgba(255,61,90,.1);color:#fb7185;border:1px solid rgba(255,61,90,.6)}
-.status.connecting{background:rgba(255,176,32,.1);color:#fcd34d;border:1px solid rgba(255,176,32,.6)}
-.eq{display:flex;gap:4px;align-items:flex-end;height:34px;margin-top:16px}
-.eq i{display:block;width:6px;border-radius:3px;background:linear-gradient(#a3e635,#22e57a);height:4px;transition:height .08s}
-.panel{width:100%;margin-top:18px;padding:14px;border-radius:18px;border:1px solid var(--line);background:rgba(255,255,255,.035)}
-.panel h3{font-family:'Orbitron',sans-serif;font-size:.72rem;letter-spacing:2px;color:var(--muted);margin-bottom:10px}
-.vu{position:relative;height:16px;border-radius:9px;background:rgba(255,255,255,.06);overflow:hidden}
-.vu i{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#22e57a 0%,#22e57a 60%,#ffb020 80%,#ff3d5a 100%);background-size:460px 100%;transition:width .06s}
-.vurow{display:flex;justify-content:space-between;margin-top:6px;font-weight:700;font-size:.95rem}
-#vuHint.q{color:var(--amber)}#vuHint.g{color:#4ade80}#vuHint.c{color:#fb7185}
-.chips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-.chip{padding:11px 6px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff;font:700 .95rem 'Rajdhani',sans-serif;cursor:pointer}
-.chip.act{border-color:var(--acc);background:rgba(34,229,122,.14);color:#4ade80;box-shadow:0 0 16px rgba(34,229,122,.25)}
-.chip small{display:block;font-weight:500;color:var(--muted);font-size:.75rem}
-.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;margin-top:22px}
-.f{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:16px;padding:12px 6px;text-align:center;backdrop-filter:blur(10px)}
-.f b{display:block;font-family:'Orbitron',sans-serif;font-size:.78rem;letter-spacing:1px;margin-top:6px}
-.f small{color:var(--muted);font-size:.72rem}
-.f .ic{font-size:1.4rem}
-.btn{width:100%;padding:14px;border-radius:14px;font-size:.95rem;font-weight:700;cursor:pointer;margin-top:12px;
-background:rgba(255,255,255,.04);color:#dfe3ea;border:1px solid var(--line);font-family:'Rajdhani',sans-serif}
+.ring{position:absolute;inset:3%;border-radius:50%;
+ background:repeating-conic-gradient(rgba(255,255,255,.22) 0 .9deg,transparent .9deg 7.5deg);
+ mask:radial-gradient(closest-side,transparent 93%,#000 94%,#000 99%,transparent 100%);
+ -webkit-mask:radial-gradient(closest-side,transparent 93%,#000 94%,#000 99%,transparent 100%)}
+.ring.r2{inset:21%;background:none;border:1px dashed rgba(255,255,255,.1);mask:none;-webkit-mask:none;animation:spin 36s linear infinite}
+.ring.r3{inset:12%;background:none;border:1px solid rgba(255,255,255,.05);mask:none;-webkit-mask:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pulse{position:absolute;inset:28%;border-radius:50%;border:2px solid var(--live);opacity:0;pointer-events:none}
+body.live .pulse{animation:pulse 2.4s ease-out infinite}
+body.live .pulse.p2{animation-delay:.8s}body.live .pulse.p3{animation-delay:1.6s}
+@keyframes pulse{0%{transform:scale(1);opacity:.65}100%{transform:scale(1.85);opacity:0}}
+.orb{position:relative;width:44%;aspect-ratio:1/1;border-radius:50%;border:none;cursor:pointer;display:grid;place-items:center;color:var(--text);
+ background:radial-gradient(circle at 50% 28%,#2c3140,#12151d 72%);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -12px 26px rgba(0,0,0,.55),0 0 0 9px rgba(255,255,255,.035),0 26px 60px rgba(0,0,0,.7);
+ transition:transform .15s,background .35s,box-shadow .35s;transform:scale(calc(1 + var(--lvl)*.08))}
+.orb:active{transform:scale(.93)}
+.orb:focus-visible{outline:2px solid var(--acc);outline-offset:6px}
+.orb-glow{position:absolute;inset:-12px;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .4s;
+ background:conic-gradient(from 0deg,transparent 0 55%,rgba(198,255,61,.75) 80%,transparent 100%);
+ mask:radial-gradient(closest-side,transparent 86%,#000 88%,#000 100%);-webkit-mask:radial-gradient(closest-side,transparent 86%,#000 88%,#000 100%)}
+body:not(.live):not(.busy) .orb-glow{opacity:1;animation:spin 3.2s linear infinite}
+body.live .orb-glow{opacity:1;background:radial-gradient(closest-side,transparent 80%,rgba(255,255,255,.55));animation:none}
+.orb svg{position:relative;width:36%;height:36%;fill:currentColor}
+body.live .orb{background:radial-gradient(circle at 50% 28%,#ff7381,#d8122a 72%);color:#fff;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 0 0 9px rgba(255,59,79,.16),0 0 calc(30px + var(--lvl)*90px) rgba(255,59,79,.62)}
+body.busy .orb{background:radial-gradient(circle at 50% 28%,#ffd677,#e08700 72%);color:#1a1000;animation:breathe 1.2s ease-in-out infinite}
+@keyframes breathe{50%{box-shadow:0 0 0 12px rgba(255,182,39,.16),0 0 60px rgba(255,182,39,.5)}}
+.tap{font:800 .7rem var(--display);letter-spacing:.26em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+body.live .tap{color:#ff8b97}
+.status{margin-top:14px;width:100%;padding:12px 14px;border-radius:16px;font-weight:700;font-size:.93rem;text-align:center;line-height:1.4;transition:all .25s}
+.status.off{background:var(--card);color:var(--muted);border:1px solid var(--line)}
+.status.on{background:var(--acc-soft);color:var(--acc);border:1px solid rgba(198,255,61,.42)}
+.status.err{background:var(--live-soft);color:#ff8d99;border:1px solid rgba(255,59,79,.5)}
+.status.connecting{background:var(--amber-soft);color:var(--amber);border:1px solid rgba(255,182,39,.45)}
+.save{font-size:.78rem;font-weight:700;color:var(--acc);min-height:14px;text-align:center;margin-top:6px}
+/* cards */
+.card{border-radius:22px;border:1px solid var(--line);background:var(--card);padding:16px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.card-h h3{font:800 .64rem var(--display);letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.card-h .val{font:700 1.15rem var(--mono);color:var(--acc)}
+.vu{position:relative;height:20px;border-radius:7px;background:rgba(255,255,255,.05);overflow:hidden}
+.vu i{position:absolute;left:0;top:0;bottom:0;width:0;transition:width .06s;
+ background:linear-gradient(90deg,var(--acc) 0%,var(--acc) 62%,var(--amber) 80%,var(--live) 100%);background-size:min(406px,calc(100vw - 66px)) 100%}
+.vu::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 8px,rgba(7,8,12,.9) 8px 11px)}
+.vurow{display:flex;justify-content:space-between;gap:10px;margin-top:9px;font:700 .8rem var(--mono)}
+#vuDb{color:var(--text)}#vuHint{color:var(--muted);text-align:right}
+#vuHint.q{color:var(--amber)}#vuHint.g{color:var(--acc)}#vuHint.c{color:var(--live)}
+.eq{display:flex;gap:3px;align-items:flex-end;height:30px;margin-top:12px}
+.eq i{flex:1;display:block;border-radius:2px;height:4px;background:linear-gradient(var(--cyan),var(--acc));opacity:.85;transition:height .08s}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:99px;outline:none;margin:6px 0 2px;
+ background:linear-gradient(90deg,var(--acc) 0 var(--fill,43%),rgba(255,255,255,.09) var(--fill,43%) 100%)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:#fff;cursor:pointer;
+ box-shadow:0 0 0 5px rgba(198,255,61,.22),0 4px 12px rgba(0,0,0,.6)}
+input[type=range]::-moz-range-thumb{width:28px;height:28px;border:none;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 0 5px rgba(198,255,61,.22)}
+.ticks{display:flex;justify-content:space-between;margin-top:8px;font:600 .66rem var(--mono);color:var(--dim)}
+.note{margin-top:12px;font-size:.8rem;line-height:1.55;color:var(--muted)}
+.note b{color:var(--text)}.note .g{color:var(--acc)}.note .r{color:var(--live)}
+.seg-label{font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 8px}
+.seg-label+.seg{margin-bottom:14px}.seg:last-child{margin-bottom:0}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:5px;border-radius:17px;background:rgba(0,0,0,.38);border:1px solid var(--line)}
+.chip{border:0;border-radius:13px;padding:11px 6px;background:transparent;color:var(--muted);font-weight:800;font-size:.92rem;cursor:pointer;
+ display:flex;flex-direction:column;align-items:center;gap:2px;transition:background .2s,color .2s,box-shadow .2s}
+.chip small{font-weight:600;font-size:.7rem;color:var(--dim)}
+.chip.act{background:var(--card2);color:var(--text);box-shadow:inset 0 0 0 1px var(--line2),0 6px 16px rgba(0,0,0,.35)}
+.chip.act small{color:var(--acc)}
+.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.f{border-radius:16px;border:1px solid var(--line);background:var(--card);padding:12px 6px;text-align:center}
+.f b{display:block;font:700 .9rem var(--mono);color:var(--text)}
+.f small{display:block;margin-top:2px;color:var(--muted);font-size:.68rem;font-weight:600}
+.btn{width:100%;padding:14px;border-radius:16px;border:1px solid var(--line2);background:var(--card);color:var(--text);font-weight:800;font-size:.9rem;cursor:pointer;
+ display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .12s}
 .btn:active{transform:scale(.97)}
-.help{display:none;background:#1b1206;border:1px solid #b45309;color:#fcd34d;border-radius:14px;padding:12px;margin-top:12px;
-font-size:.86rem;line-height:1.65;text-align:left;width:100%}
+.btn.warn{margin-top:12px;background:var(--amber);border-color:transparent;color:#1a1000}
+.help{display:none;width:100%;margin-top:12px;padding:13px 14px;border-radius:16px;background:rgba(255,182,39,.07);border:1px solid rgba(255,182,39,.4);
+ color:#ffd98a;font-size:.84rem;line-height:1.65;text-align:left}
 .help.show{display:block}.help b{color:#fff}.help ol{margin:6px 0 0 18px}.help li{margin:3px 0}
-details{width:100%;margin-top:14px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
-summary{cursor:pointer;font-weight:700;letter-spacing:1px;color:#dfe3ea}
-details p{color:var(--muted);font-size:.88rem;line-height:1.7;margin-top:8px}details p b{color:#fff}
-.save{font-size:.8rem;color:var(--acc);min-height:16px;margin-top:8px;text-align:center}
-.ctl{width:100%;margin-top:16px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:16px;padding:14px;backdrop-filter:blur(10px)}
-.ctl .row{display:flex;justify-content:space-between;align-items:center;font-size:.86rem;letter-spacing:1px;color:#dfe3ea;margin-top:10px}
-.ctl .row:first-child{margin-top:0}
-.ctl .row b{font-family:'Orbitron',sans-serif;color:var(--acc);font-size:.86rem}
-.ctl input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:99px;margin-top:8px;
-background:linear-gradient(90deg,var(--acc2),var(--acc));outline:none}
-.ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;
-box-shadow:0 2px 8px rgba(0,0,0,.6);cursor:pointer}
-.ctl input[type=range]::-moz-range-thumb{width:22px;height:22px;border:none;border-radius:50%;background:#fff;cursor:pointer}
-.ctl small{display:block;color:var(--muted);font-size:.74rem;margin-top:10px;line-height:1.5}
-footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-spacing:2px;text-transform:uppercase}
+.help code{font-family:var(--mono);font-size:.8rem;color:#fff}
+details{border-radius:20px;border:1px solid var(--line);background:var(--card);padding:14px 16px}
+summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:.92rem}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font:700 1.1rem var(--mono);color:var(--muted);transition:transform .2s}
+details[open] summary::after{transform:rotate(45deg)}
+.steps{list-style:none;counter-reset:s;margin-top:12px;display:flex;flex-direction:column;gap:10px}
+.steps li{counter-increment:s;display:flex;gap:10px;font-size:.86rem;line-height:1.5;color:var(--muted)}
+.steps li::before{content:counter(s);flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--card2);color:var(--acc);font:700 .72rem var(--mono)}
+.steps b{color:var(--text)}
+footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:700 .64rem var(--mono);letter-spacing:.2em;text-transform:uppercase}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<div class="bg"><div class="grid"></div><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="ambient-mic-blur"></div><div id="stars"></div></div>
-<div class="wrap">
-<header>
+<div class="bg"><div class="grid"></div><div class="ambient-mic-blur"></div><div id="stars"></div></div>
+<main class="wrap">
+<header class="top">
+  <div class="brand">
+    <div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></div>
+    <div><b>Apex VC Fyt</b><small>Live Mic Studio</small></div>
+  </div>
   <span class="badge"><span class="dot"></span><span id="badgeTxt">Offline</span></span>
-  <h1>Apex VC Fyt</h1>
-  <p class="subtitle">Live Mic &bull; Extreme Loud &bull; Crystal Clear</p>
 </header>
 
-<div class="stage">
-  <div class="mic-blur-bg"></div>
-  <canvas id="viz" width="580" height="580"></canvas>
-  <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
-  <div class="pulse"></div><div class="pulse p2"></div><div class="pulse p3"></div>
-  <button id="toggleBtn" class="orb" onclick="toggleMic()" aria-label="Mic ON / OFF">
-    <div class="orb-glow"></div>
-    <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
-  </button>
-</div>
-<div class="tap" id="tapTxt">Tap to go live</div>
-<div class="eq" id="eq"></div>
-<div id="status" class="status off">Mic OFF</div>
-<div class="save" id="saveNote"></div>
+<div id="tgBar" class="tgbar"><span>Telegram ka browser mic block karta hai. Chrome me kholein.</span><button onclick="openInChrome()">Chrome</button></div>
 
+<section class="hero">
+  <div class="hero-top"><span>VC Relay</span><span class="timer" id="liveTimer">00:00</span></div>
+  <div class="stage">
+    <div class="mic-blur-bg"></div>
+    <canvas id="viz" width="580" height="580"></canvas>
+    <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
+    <div class="pulse"></div><div class="pulse p2"></div><div class="pulse p3"></div>
+    <button id="toggleBtn" class="orb" onclick="toggleMic()" aria-label="Mic ON / OFF">
+      <div class="orb-glow"></div>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+    </button>
+  </div>
+  <div class="tap" id="tapTxt">Tap to go live</div>
+  <div id="status" class="status off" role="status" aria-live="polite">Mic OFF</div>
+  <div class="save" id="saveNote"></div>
+  <button id="retryBtn" class="btn warn" style="display:none" onclick="retryMic()">Permission dene ke baad - Dobara try karein</button>
+  <div id="permHelp" class="help"></div>
+</section>
 
-
-<button id="retryBtn" class="btn" style="display:none" onclick="retryMic()">Permission dene ke baad — Dobara try karein</button>
-<div id="permHelp" class="help"></div>
-
-<div class="panel">
-  <h3>MIC LEVEL</h3>
+<section class="card">
+  <div class="card-h"><h3>Mic Level</h3><span id="vuDb" class="val">-- dB</span></div>
   <div class="vu"><i id="vuBar"></i></div>
-  <div class="vurow"><span id="vuDb">-- dB</span><span id="vuHint">Mic band hai</span></div>
-  <h3 style="margin-top:14px">MIC BOOST <b id="boostVal" style="float:right;color:var(--acc)">200%</b></h3>
-  <div class="ctl" style="margin-top:0;padding:10px 12px"><input type="range" id="boostR" min="0.5" max="4" step="0.25" value="2" oninput="setBoost(this.value)" aria-label="Mic boost">
-  <small>Level <b style="color:#4ade80">GREEN</b> rakho. RED / CLIP = boost kam. Dheemi = boost zyada. Mic ON rehte hi turant lagta hai.</small></div>
-  <h3 style="margin-top:14px">AWAAZ MODE</h3>
-  <div class="chips">
+  <div class="vurow"><span>-50</span><span id="vuHint">Mic band hai</span></div>
+  <div class="eq" id="eq"></div>
+</section>
+
+<section class="card">
+  <div class="card-h"><h3>Mic Boost</h3><b id="boostVal" class="val">200%</b></div>
+  <input type="range" id="boostR" min="0.5" max="4" step="0.25" value="2" oninput="setBoost(this.value)" aria-label="Mic boost">
+  <div class="ticks"><span>50%</span><span>100%</span><span>200%</span><span>300%</span><span>400%</span></div>
+  <p class="note">Level <b class="g">GREEN</b> rakho. <b class="r">RED / CLIP</b> = boost kam. Dheemi = boost zyada. Mic ON rehte hi turant lagta hai.</p>
+</section>
+
+<section class="card">
+  <div class="card-h"><h3>Awaaz Mode</h3></div>
+  <p class="seg-label">Sound</p>
+  <div class="seg">
     <button class="chip" id="mFight" onclick="setMode('boost','')">&#9889; FIGHT<small>Sabse tez</small></button>
     <button class="chip" id="mClean" onclick="setMode('boost','clean')">&#10024; CLEAN<small>Phate to</small></button>
+  </div>
+  <p class="seg-label">Output</p>
+  <div class="seg">
     <button class="chip" id="mEar" onclick="setMode('aec','')">&#127911; Earphone<small>Max loud</small></button>
     <button class="chip" id="mSpk" onclick="setMode('aec','1')">&#128266; Speaker<small>Echo band</small></button>
   </div>
-</div>
+</section>
+
 <div class="feat">
-  <div class="f"><div class="ic">&#128266;</div><b>MAX</b><small>Extreme loud</small></div>
-  <div class="f"><div class="ic">&#10022;</div><b>HD</b><small>Crystal clear</small></div>
-  <div class="f"><div class="ic">&#128263;</div><b>ZERO</b><small>No khar-khar</small></div>
+  <div class="f"><b>48k</b><small>Native rate</small></div>
+  <div class="f"><b>20ms</b><small>Low latency</small></div>
+  <div class="f"><b>MAX</b><small>Ultra loud</small></div>
 </div>
 
 <button id="chromeBtn" class="btn" onclick="openInChrome()">Chrome me kholein (link copy ho jayega)</button>
 
 <details>
   <summary>Kaise use karein</summary>
-  <p>
-  1. Group me pehle <b>Voice Chat start</b> karein.<br>
-  2. Telegram me <b>.mic on</b> bhejein aur link kholein.<br>
-  3. Beech wala <b>mic button</b> dabayein aur permission <b>Allow</b> karein.<br>
-  4. Telegram app ka apna mic <b>mute</b> rakhein — awaaz isi page se jaati hai.<br>
-  5. <b>MIC LEVEL</b> green-yellow rahe to best. Red = phat rahi, <b>CLEAN</b> dabao. Dheemi = mic paas lao.<br>
-  6. Mic na chale to <b>Chrome me kholein</b> dabayein.<br>
-  7. Rokne ke liye mic button dobara dabayein ya <b>.mic off</b> bhejein.
-  </p>
+  <ol class="steps">
+    <li><span>Group me pehle <b>Voice Chat start</b> karein.</span></li>
+    <li><span>Telegram me <b>.mic on</b> bhejein aur link <b>Chrome</b> me kholein.</span></li>
+    <li><span>Beech wala <b>mic button</b> dabayein aur permission <b>Allow</b> karein.</span></li>
+    <li><span>Telegram app ka apna mic <b>mute</b> rakhein - awaaz isi page se jaati hai.</span></li>
+    <li><span><b>MIC LEVEL</b> green rahe to best. Red = phat rahi, <b>CLEAN</b> dabao.</span></li>
+    <li><span>Rokne ke liye mic button dobara dabayein ya <b>.mic off</b> bhejein.</span></li>
+  </ol>
 </details>
-<footer>Apex VC Fyt Bot &bull; Live</footer>
-</div>
+<footer>Private link &bull; Share mat karna</footer>
+</main>
 
 <script>
 let ws=null, audioCtx=null, mediaStream=null, source=null, workletNode=null,
@@ -1743,13 +1805,14 @@ function syncCtl(st){}
 function micBoost(){let v=2.0;try{const x=parseFloat(localStorage.getItem('vcfyt_boost'));if(x>=0.5&&x<=4)v=x;}catch(e){}return v;}
 function setBoost(v){v=Math.max(0.5,Math.min(4,parseFloat(v)||2));try{localStorage.setItem('vcfyt_boost',String(v));}catch(e){}
   const b=document.getElementById('boostVal');if(b)b.textContent=Math.round(v*100)+'%';
+  const rr=document.getElementById('boostR');if(rr)rr.style.setProperty('--fill',((v-0.5)/3.5*100).toFixed(1)+'%');
   if(nPre&&audioCtx){try{nPre.gain.setTargetAtTime(v,audioCtx.currentTime,0.05);}catch(e){nPre.gain.value=v;}}}
 function initBoost(){const r=document.getElementById('boostR');if(r){r.value=micBoost();setBoost(r.value);}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initBoost);else initBoost();
 function sendCtl(){}
 
 // decoration: stars + eq bars
-(function(){const s=document.getElementById('stars');for(let i=0;i<40;i++){const d=document.createElement('i');d.className='star';
+(function(){const s=document.getElementById('stars');for(let i=0;i<28;i++){const d=document.createElement('i');d.className='star';
 d.style.left=Math.random()*100+'%';d.style.top=Math.random()*100+'%';d.style.animationDelay=(Math.random()*4)+'s';s.appendChild(d);}
 const eq=document.getElementById('eq');for(let i=0;i<24;i++)eq.appendChild(document.createElement('i'));})();
 const eqBars=[...document.querySelectorAll('#eq i')];
@@ -1760,15 +1823,22 @@ function drawViz(data){
   for(let i=0;i<n;i++){
     const v=data?data[i%data.length]/255:0;const a=i/n*Math.PI*2;const len=6+v*110;
     const x1=cx+Math.cos(a)*r0,y1=cy+Math.sin(a)*r0,x2=cx+Math.cos(a)*(r0+len),y2=cy+Math.sin(a)*(r0+len);
-    const g=vctx.createLinearGradient(x1,y1,x2,y2);g.addColorStop(0,'#22e57a');g.addColorStop(1,v>.7?'#ff3d5a':'#38bdf8');
-    vctx.strokeStyle=g;vctx.lineWidth=6;vctx.lineCap='round';vctx.beginPath();vctx.moveTo(x1,y1);vctx.lineTo(x2,y2);vctx.stroke();
+    const g=vctx.createLinearGradient(x1,y1,x2,y2);g.addColorStop(0,'rgba(198,255,61,.95)');g.addColorStop(1,v>.7?'#ff3b4f':'#3de0ff');
+    vctx.strokeStyle=g;vctx.lineWidth=5;vctx.lineCap='round';vctx.beginPath();vctx.moveTo(x1,y1);vctx.lineTo(x2,y2);vctx.stroke();
   }
 }
 drawViz(null);
 
+let liveSince=0, liveTick=null;
+function paintTimer(){const el=document.getElementById('liveTimer');if(!el)return;
+  const s=liveSince?Math.floor((Date.now()-liveSince)/1000):0;
+  el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function stopTimer(){liveSince=0;if(liveTick){clearInterval(liveTick);liveTick=null;}paintTimer();}
 function setStatus(t,c){statusEl.textContent=t;statusEl.className='status '+c;
   document.body.classList.toggle('live',c==='on');document.body.classList.toggle('busy',c==='connecting');
-  badgeEl.textContent=c==='on'?'Live':(c==='connecting'?'Connecting':'Offline');}
+  badgeEl.textContent=c==='on'?'On Air':(c==='connecting'?'Connecting':'Offline');
+  if(c==='on'&&!liveSince){liveSince=Date.now();clearInterval(liveTick);liveTick=setInterval(paintTimer,1000);paintTimer();
+    try{if(navigator.vibrate)navigator.vibrate(18);}catch(e){}}}
 
 function closeSocket(sendStop){
   if(window._wsPingInterval){clearInterval(window._wsPingInterval);window._wsPingInterval=null;}
@@ -1797,12 +1867,13 @@ function resetAudioState(message='Mic OFF', cls='off', sendStop=true){
   if(audioCtx){try{audioCtx.close();}catch(e){} audioCtx=null;}
   isOn=false; firstFrameSeen=false; pending=[]; retries=0;
   document.documentElement.style.setProperty('--lvl',0); eqBars.forEach(b=>b.style.height='4px'); drawViz(null);
-  setStatus(message,cls); tapEl.textContent='Tap to go live'; btnEl.disabled=false;
+  stopTimer(); setStatus(message,cls); tapEl.textContent='Tap to go live'; btnEl.disabled=false;
 }
 const helpEl=document.getElementById('permHelp');
 const retryEl=document.getElementById('retryBtn');
 const IS_ANDROID=/Android/i.test(navigator.userAgent);
 const IN_TELEGRAM=/Telegram/i.test(navigator.userAgent)||!!window.TelegramWebview||!!window.TelegramWebviewProxy;
+if(IN_TELEGRAM){const tb=document.getElementById('tgBar');if(tb)tb.classList.add('show');}
 
 function showHelp(html){helpEl.innerHTML=html;helpEl.classList.add('show');retryEl.style.display='block';}
 function hideHelp(){helpEl.classList.remove('show');helpEl.innerHTML='';retryEl.style.display='none';}
@@ -1845,6 +1916,14 @@ function micErrorText(e){
 }
 
 function retryMic(){hideHelp();toggleMic();}
+function friendlyErr(code){
+  const c=String(code||'');
+  if(c.indexOf('not_logged_in')===0) return 'Bot me aapka login nahi hai - Telegram me /login karein, phir .mic on';
+  if(c.indexOf('token_missing')===0||c.indexOf('token_invalid')===0) return 'Link adhoora hai - Telegram me fresh .mic on karein';
+  if(c.indexOf('token_expired')===0) return 'Link purana ho gaya - Telegram me fresh .mic on karein';
+  if(c.indexOf('already_active')===0) return 'Mic doosre tab me chal raha hai - wo tab band karein';
+  return c;
+}
 
 function openInChrome(){
   const url=location.href;
@@ -1990,7 +2069,7 @@ function connectSocket(myAttempt){
             setStatus(ev.data.slice(3), 'on');
         } else if (ev.data.startsWith('error:')) {
             socket._fatal = true;
-            resetAudioState(ev.data.slice(6), 'err');
+            resetAudioState(friendlyErr(ev.data.slice(6)), 'err');
         }
     };
 
@@ -2306,104 +2385,35 @@ function stopMic() {
 </html>"""
 
 
-# Public base URL learned from real incoming requests.  Heroku app domains now
-# carry a random suffix, so the guessed "<app>.herokuapp.com" URL is often wrong
-# ("There's nothing here, yet." / "No such app").  As soon as anyone opens the
-# app on its real domain, we remember it and use it for every future mic link.
-_detected_base_url: str = ""
+# v85: public mic URL now lives in helpers/mic_url.py — every candidate is
+# verified against THIS bot before a link is sent (root fix for Heroku
+# "There's nothing here, yet.").  These wrappers keep the old API.
+from helpers import mic_url as _mic_url
 
-
-BASE_URL_DB_KEY = "live_mic_base_url"
-
-
-async def _persist_base_url(base: str) -> None:
-    try:
-        from helpers.database import db
-        await db.set_app_value(BASE_URL_DB_KEY, base)
-    except Exception as exc:
-        logger.debug("base url persist failed: %s", exc)
+BASE_URL_DB_KEY = _mic_url.DB_LAST_GOOD
 
 
 def _remember_base_url(request: web.Request) -> None:
-    global _detected_base_url
-    host = (request.headers.get("X-Forwarded-Host")
-            or request.headers.get("Host") or "").split(",")[0].strip()
-    if not host or host.startswith(("localhost", "127.0.0.1", "0.0.0.0")):
-        return
-    proto = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip() or "https"
-    base = f"{proto}://{host}".rstrip("/")
-    if base != _detected_base_url:
-        _detected_base_url = base
-        logger.info("Live mic public base URL detected: %s", base)
-        # Dyno restarts wipe the in-memory value and Heroku domains carry a
-        # random suffix, so remember the real host across restarts — otherwise
-        # `.mic on` cannot build a link until someone opens the page again.
-        try:
-            asyncio.get_running_loop().create_task(_persist_base_url(base))
-        except RuntimeError:
-            pass
+    _mic_url.remember_request(request)
 
 
 async def load_base_url() -> str:
-    """Restore the last known public URL at startup (called from main)."""
-    global _detected_base_url
-    if _detected_base_url:
-        return _detected_base_url
-    try:
-        from helpers.database import db
-        stored = (await db.get_app_value(BASE_URL_DB_KEY) or "").strip()
-    except Exception:
-        stored = ""
-    from config import Config
-    # An explicit env override always wins over a stale stored host.
-    override = (Config._LIVE_MIC_OVERRIDE or "").strip()
-    if override:
-        return ""
-    if stored.startswith("http"):
-        _detected_base_url = stored.rstrip("/")
-        logger.info("Live mic public base URL restored: %s", _detected_base_url)
-        return _detected_base_url
-
-    # Last resort: the "<app>.herokuapp.com" guess.  Modern Heroku domains have
-    # a random suffix, so that guess usually opens "There's nothing here, yet."
-    # Verify it once; a dead URL is worse than no link at all.
-    guess = (Config.LIVE_MIC_BASE_URL or "").strip().rstrip("/")
-    if guess and await _url_is_ours(guess):
-        _detected_base_url = guess
-        await _persist_base_url(guess)
-        logger.info("Live mic public base URL verified: %s", guess)
-    elif guess:
-        logger.warning(
-            "Guessed live mic URL %s is not reachable — set LIVE_MIC_BASE_URL "
-            "to the app's real https URL.", guess)
-    return _detected_base_url
+    """Find + verify the public URL at startup (called from main)."""
+    return await _mic_url.resolve()
 
 
 async def _url_is_ours(base: str) -> bool:
-    """True when <base>/health is served by this bot."""
-    try:
-        import aiohttp
-        timeout = aiohttp.ClientTimeout(total=8)
-        async with aiohttp.ClientSession(timeout=timeout) as http:
-            async with http.get(f"{base}/health") as resp:
-                if resp.status != 200:
-                    return False
-                text = await resp.text()
-                return "vcfyt" in text.lower()
-    except Exception as exc:
-        logger.debug("base url probe failed for %s: %s", base, exc)
-        return False
+    return (await _mic_url.probe(_mic_url.normalize(base))) == _mic_url.OK
 
 
 def public_base_url() -> str:
-    """Base URL used to build live mic links (detected host wins)."""
-    from config import Config
-    return _detected_base_url or Config.LIVE_MIC_BASE_URL or ""
+    """Last verified base URL ('' until one is verified)."""
+    return _mic_url.cached()
 
 
-async def resolve_base_url() -> str:
-    """Same as public_base_url(), but also consults the stored host."""
-    return public_base_url() or await load_base_url() or ""
+async def resolve_base_url(force: bool = False) -> str:
+    """Verified base URL that really opens this bot's mic page."""
+    return await _mic_url.resolve(force=force)
 
 
 async def clear_stale_session(user_id: int) -> bool:
@@ -2436,7 +2446,10 @@ async def reset_mic_state(uvc, user_id: int) -> None:
 
 async def _handle_index(request: web.Request) -> web.Response:
     _remember_base_url(request)
-    return web.Response(text=LIVE_MIC_HTML, content_type="text/html")
+    return web.Response(text=LIVE_MIC_HTML, content_type="text/html",
+                        headers={"Cache-Control": "no-store",
+                                 "Referrer-Policy": "no-referrer",
+                                 "Permissions-Policy": "microphone=(self)"})
 
 
 async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
@@ -2599,7 +2612,8 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
 
 async def _handle_health(request: web.Request) -> web.Response:
     _remember_base_url(request)
-    return web.Response(text="vcfyt bot is running\n", content_type="text/plain")
+    return web.Response(text=_mic_url.health_text(), content_type="text/plain",
+                        headers={"Cache-Control": "no-store"})
 
 
 def create_app() -> web.Application:

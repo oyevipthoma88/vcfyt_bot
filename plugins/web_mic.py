@@ -19,7 +19,8 @@ HELP = (
     "2. <code>.mic on</code> — private link milega\n"
     "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
     "• <code>.mic off</code> — band  •  <code>.mic leave</code> — band + VC se bahar\n"
-    "• <code>.mic status</code>  •  <code>.micmode loudest|clean</code>\n\n"
+    "• <code>.mic status</code>  •  <code>.micmode loudest|clean</code>\n"
+    "• <code>.mic url https://your-app.herokuapp.com</code> — (owner) mic link ka address set karo\n\n"
     "<b>Sabse tez + saaf awaaz ke liye:</b>\n"
     "• Page par <b>MIC BOOST</b> slider — MIC LEVEL green rakho\n"
     "• <b>Earphone/headset</b> lagao — VC ki awaaz mic me wapas nahi aati, boost full lagta hai\n"
@@ -28,6 +29,61 @@ HELP = (
     "• Kisi ID ko group admin banao → 200% sabke liye\n"
     "<i>Echo aaye (speaker par) to link ke end me <code>&aec=1</code> jodo. "
     "Phati lage to page par ✨ CLEAN dabao ya MIC BOOST kam karo.</i>")
+
+
+def _url_line(base: str) -> str:
+    if base:
+        return f"✅ <code>{_html.escape(base)}</code>"
+    return "❌ address verify nahi hua — <code>.mic url</code> bhejo"
+
+
+def _no_url_text() -> str:
+    from helpers import mic_url
+    tried = mic_url.explain_failure()
+    return ("❌ <b>Mic page ka sahi address nahi mila</b>\n"
+            "Isliye link nahi bheja (warna Heroku \"There's nothing here, yet\" khulta).\n\n"
+            + (f"<b>Check kiye:</b>\n{tried}\n\n" if tried else "")
+            + "<b>Fix (sirf 1 baar):</b>\n"
+            "1. Heroku Dashboard → apni app → <b>Open app</b> dabao.\n"
+            "2. Jo address khule (jaise <code>https://my-app-1a2b3c4d5e6f.herokuapp.com</code>) copy karo.\n"
+            "3. Bot DM me bhejo: <code>.mic url https://my-app-1a2b3c4d5e6f.herokuapp.com</code>\n\n"
+            "<i>Ya Heroku Config Vars me <code>LIVE_MIC_BASE_URL</code> sahi karo / hata do. "
+            "Auto-detect ke liye: <code>heroku labs:enable runtime-dyno-metadata -a APP</code></i>")
+
+
+async def _set_url(msg, uid, args):
+    from config import Config
+    from helpers import live_mic, mic_url
+    from plugins.vc_commands import mic_notify
+    if not args:
+        base = await live_mic.resolve_base_url(force=True)
+        await mic_notify(msg, ("🌐 <b>Mic page address</b>\n\n"
+                               + (f"✅ Working: <code>{_html.escape(base)}</code>" if base else _no_url_text())
+                               + "\n\nBadalne ke liye: <code>.mic url https://your-app.herokuapp.com</code>\n"
+                               "Auto par wapas: <code>.mic url reset</code>"),
+                         disable_web_page_preview=True)
+        return
+    if not Config.is_owner(uid):
+        await mic_notify(msg, "⛔ Sirf bot owner mic address badal sakta hai.")
+        return
+    ok, info = await mic_url.set_override(args[0])
+    if ok and not info:
+        base = await live_mic.resolve_base_url(force=True)
+        await mic_notify(msg, "♻️ Mic address auto-detect par wapas.\n"
+                         + (f"✅ <code>{_html.escape(base)}</code>" if base else _no_url_text()),
+                         disable_web_page_preview=True)
+    elif ok:
+        await mic_notify(msg, f"✅ <b>Mic address save + verify ho gaya</b>\n<code>{_html.escape(info)}</code>\n\n"
+                         "Ab <code>.mic on</code> karo — link sahi khulega.",
+                         disable_web_page_preview=True)
+    elif info == "invalid":
+        await mic_notify(msg, "❌ Ye address sahi nahi lag raha. Example:\n"
+                         "<code>.mic url https://my-app-1a2b3c4d5e6f.herokuapp.com</code>")
+    else:
+        await mic_notify(msg, "❌ Ye address is bot ko nahi khol raha ("
+                         + ("Heroku 'nothing here' / doosri app" if info == "foreign" else "khula hi nahi")
+                         + ").\nHeroku Dashboard → <b>Open app</b> wala exact address bhejo.",
+                         disable_web_page_preview=True)
 
 
 async def _target(msg, uid):
@@ -68,7 +124,13 @@ async def run_web_mic(msg, action: str, args=()):
         live = live_mic.has_live_socket(uid)
         await mic_notify(msg, "🎤 <b>Live Mic status</b>\n\n"
                          f"Status: {'🟢 LIVE' if live else ('🟡 link khula, mic band' if s else '⚪ OFF')}\n"
-                         f"🎯 Target: <code>{tgt or '— set nahi'}</code>")
+                         f"🎯 Target: <code>{tgt or '— set nahi'}</code>\n"
+                         f"🌐 Mic page: {_url_line(await live_mic.resolve_base_url())}",
+                         disable_web_page_preview=True)
+        return
+
+    if action == "url":
+        await _set_url(msg, uid, list(args))
         return
 
     if action != "on":
@@ -84,8 +146,10 @@ async def run_web_mic(msg, action: str, args=()):
         return
     base = await live_mic.resolve_base_url()
     if not base:
-        await mic_notify(msg, "❌ Web link ka address nahi mila. Hosting me env "
-                         "<code>LIVE_MIC_BASE_URL=https://your-app-url</code> set karo.")
+        # v85 ROOT FIX: pehle yahan bina check kiye purana / galat address
+        # chala jata tha -> Heroku "There's nothing here, yet."  Ab sirf
+        # verified address bhejte hain; nahi mila to saaf batate hain.
+        await mic_notify(msg, _no_url_text(), disable_web_page_preview=True)
         return
     # Playing ID (spare if set, else main) ko group me pahunchao.
     try:

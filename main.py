@@ -56,7 +56,8 @@ logger = logging.getLogger("vcbot")
 async def _health_response(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     try:
         await reader.read(4096)
-        body = b"vcfyt bot is running\n"
+        from helpers.mic_url import health_text
+        body = health_text().encode()
         writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n" + f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
         await writer.drain()
     except (ConnectionError, asyncio.IncompleteReadError):
@@ -197,8 +198,9 @@ async def main():
     health_server = await _start_heroku_health_server()
     
     try:
+        # v85: self-check runs in the background so startup is never delayed.
         from helpers.live_mic import load_base_url
-        await load_base_url()
+        globals()['_mic_url_task'] = asyncio.get_running_loop().create_task(load_base_url())
     except Exception:
         pass
     try:

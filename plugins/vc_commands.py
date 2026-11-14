@@ -2247,7 +2247,9 @@ async def cmd_mic(bot: Client, msg: Message):
         await run_bridge(msg, ["bridge", action, *parts[2:]])
         return
     from plugins.web_mic import run_web_mic
-    await run_web_mic(msg, action if action in {"on", "off", "leave", "status"} else "help", parts[2:])
+    if action in {"link", "seturl", "domain"}:
+        action = "url"
+    await run_web_mic(msg, action if action in {"on", "off", "leave", "status", "url"} else "help", parts[2:])
 
 
 @Client.on_message(HAS_USER & cmd_prefix(r"(setgc|unsetgc|gc)\b", flags=re.IGNORECASE) & (filters.group | filters.private))

@@ -92,7 +92,7 @@ The logged-in user account must be a member of every group where it will join a 
 | `AUTO_LIVE_BOOST` | No | `true` | Re-apply participant volume after joins and reconnects. |
 | `AUDIO_ARCHIVE_CHANNEL` | No | — | Optional shared-audio archive channel. |
 | `AUDIO_ARCHIVE_BOT_TOKEN` | No | — | Optional bot token used by the archive worker. |
-| `LIVE_MIC_BASE_URL` | No | `https://vcfytbpt22922.herokuapp.com` | Full public URL for live mic relay links. |
+| `LIVE_MIC_BASE_URL` | No | auto | Exact app URL from Heroku "Open app". Optional: the bot verifies every candidate URL against `/health` and never sends a dead link. Owners can also set it from Telegram with `.mic url <link>`. |
 
 For multiple owners, set `OWNER_IDS` as a comma- or semicolon-separated list. `OWNER_ID` remains supported as the primary owner variable.
 

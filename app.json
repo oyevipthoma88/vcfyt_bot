@@ -57,7 +57,7 @@
       "required": false
     },
     "LIVE_MIC_BASE_URL": {
-      "description": "RECOMMENDED: the exact URL Heroku shows under Settings → Domains / Open app (e.g. https://my-vc-bot-1a2b3c4d5e6f.herokuapp.com). Used for live mic links.",
+      "description": "Optional. Exact URL from Heroku Open app (e.g. https://my-vc-bot-1a2b3c4d5e6f.herokuapp.com). Leave empty to auto-detect; the bot verifies it and never sends a dead link. Can also be set with .mic url <link>.",
       "required": false
     },
     "START_PIC": {
