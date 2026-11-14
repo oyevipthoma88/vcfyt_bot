@@ -1,4 +1,5 @@
 """v58: voice presence (1-4 kHz) louder than v57 after Opus, no extra crackle."""
+import pytest
 import os, subprocess, tempfile
 import numpy as np
 import helpers  # noqa: F401

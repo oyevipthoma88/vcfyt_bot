@@ -56,7 +56,12 @@ def phone_drive_db(boost=None) -> float:
 
 
 def phone_chain(volume=None, echo=None, echo_level=None, boost=None,
-                treble=None, input_gain_db: float = 0.0, extra_filters: str = "") -> str:
+                treble=None, bass=None, gain=None, input_gain_db: float = 0.0,
+                extra_filters: str = "") -> str:
+    # bass/gain accepted (and ignored: phone mode cuts < 280 Hz on purpose) so
+    # build_ffmpeg_filter can pass the same kwargs to every mode. Old signature
+    # raised TypeError -> "Phone" mode me har play crash hota tha.
+    del bass, gain
     f = ["aresample=48000", "pan=mono|c0=0.5*c0+0.5*c1"]
     f += ["highpass=f=280:p=2"] * 3
     if input_gain_db and input_gain_db > 0.05:

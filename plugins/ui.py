@@ -296,6 +296,8 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
             [B("🎚️ Sound", callback_data="menu:settings", style="primary"),
              B("🔗 Sync Play", callback_data="sync:menu", style="primary"),
              B("🎵 Library", callback_data="aud:menu", style="primary")],
+            [B("💎 Premium", callback_data="pay:menu", style="success"),
+             B("🎟️ Redeem", callback_data="pay:coupon", style="success")],
             [B("👤 Account", callback_data="menu:status", style="primary"),
              B("☰ More", callback_data="menu:more", style="primary"),
              B("📘 Help", callback_data="menu:tutorial", style="primary")],
@@ -318,7 +320,8 @@ def more_kb() -> K:
         [B("🎬 Video Guide", callback_data="tut:video", style="primary"),
          B("📘 Help", callback_data="menu:tutorial", style="primary")],
         [B("💎 Premium", callback_data="pay:menu", style="success"),
-         B("👥 Refer & Earn", callback_data="ref:menu", style="success")],
+         B("🎟️ Redeem", callback_data="pay:coupon", style="success")],
+        [B("👥 Refer & Earn", callback_data="ref:menu", style="success")],
         [B("🔁 Re-Login", callback_data="menu:login", style="primary"),
          B("🚪 Logout", callback_data="menu:logout", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
@@ -449,22 +452,31 @@ def status_text(user_id: int, data: dict, uvc, s: dict, premium: dict = None) ->
     logged = ("🟢 Active" if uvc else
               ("💾 Saved (idle)" if data.get("string_session") else "🔴 Not logged in"))
     acc = (
-        f"├ <b>VC Account:</b> {uvc.account_name} (@{uvc.account_username or 'none'})\n"
+        f"├ <b>VC Account:</b> {_html.escape(str(uvc.account_name or '—'))} "
+        f"(@{_html.escape(str(uvc.account_username or 'none'))})\n"
         f"├ <b>Acc ID:</b> <code>{uvc.account_id}</code>\n"
         f"└ <b>Active VCs:</b> {len(uvc.chats)}\n"
         if uvc else "└ <i>Koi active VC session nahi</i>\n"
     )
+    from helpers.access_control import format_until, plan_label, time_left
     if premium and premium.get("active"):
-        prem = (f"💎 <b>Premium</b> · {premium.get('plan', '—')}\n"
-                f"   until <code>{premium.get('until', '—')}</code>")
+        if premium.get("plan") == "owner":
+            prem = "👑 <b>Owner</b> · unlimited"
+        else:
+            left = time_left(premium.get("until"))
+            prem = (f"💎 <b>Premium</b> · {plan_label(premium.get('plan'))}\n"
+                    f"   till <b>{format_until(premium.get('until'))}</b>"
+                    + (f" · ⏳ {left}" if left and left != "expired" else ""))
     else:
         prem = "🆓 <b>Free plan</b> · upgrade ke liye 💎 Premium"
+    esc = _html.escape
+    joined = format_until(data.get("joined_at")) if data.get("joined_at") else "—"
     return card("👤", "Your account",
         "<b>Profile</b>\n"
         f"├ <b>ID:</b> <code>{user_id}</code>\n"
-        f"├ <b>Name:</b> {data.get('first_name', '—')}\n"
-        f"├ <b>Username:</b> @{data.get('username') or 'none'}\n"
-        f"└ <b>Joined:</b> {data.get('joined_at', '—')}\n\n"
+        f"├ <b>Name:</b> {esc(str(data.get('first_name') or '—'))}\n"
+        f"├ <b>Username:</b> @{esc(str(data.get('username') or 'none'))}\n"
+        f"└ <b>Joined:</b> {joined}\n\n"
         "<b>Session</b>\n"
         f"├ <b>Login:</b> {logged}\n"
         f"{acc}\n"

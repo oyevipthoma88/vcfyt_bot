@@ -1,4 +1,5 @@
 """v59/v60: playback must be loud without lifting the noise floor."""
+import pytest
 import helpers  # noqa: F401  (installs playback patches)
 from helpers import audio_processor as ap
 

@@ -56,8 +56,7 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("highpass", stages[:3])
         self.assertEqual(stages[-1], "alimiter")
         self.assertTrue(any(s in ("acompressor", "mcompand") for s in stages))
-        # 100x: density compressor stack is intentional now.
-        self.assertGreaterEqual(stages.count("acompressor"), 1)
+        # v78 "loudest" default uses a 3-band mcompand instead of acompressor.
         self.assertNotIn("aecho=", af)
 
     def test_filter_uses_ffmpeg_compatible_compressor_and_limiter_ranges(self):
