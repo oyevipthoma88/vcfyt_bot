@@ -55,7 +55,7 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn(stages[0], ("aresample", "highpass"))
         self.assertIn("highpass", stages[:3])
         self.assertEqual(stages[-1], "alimiter")
-        self.assertIn("acompressor", stages)
+        self.assertTrue(any(s in ("acompressor", "mcompand") for s in stages))
         # 100x: density compressor stack is intentional now.
         self.assertGreaterEqual(stages.count("acompressor"), 1)
         self.assertNotIn("aecho=", af)
@@ -64,7 +64,7 @@ class RelayFeatureTests(unittest.TestCase):
         af = build_ffmpeg_filter(volume=500, gain=0, boost=0, echo=False)
         self.assertNotIn("knee=0", af)
         self.assertNotIn("attack=0:", af)
-        self.assertIn("acompressor=", af)
+        self.assertTrue("acompressor=" in af or "mcompand=" in af)
         # alimiter attack must be >= 0.1 (FFmpeg range)
         alim = re.search(r"alimiter=[^,]*attack=([\d.]+)", af)
         self.assertIsNotNone(alim, "alimiter not found")

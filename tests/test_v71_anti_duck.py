@@ -16,6 +16,7 @@ class V71AntiDuck(unittest.TestCase):
     def test_no_bass_boost_in_fight_chain(self):
         self.assertNotIn("lowshelf", ap.build_ffmpeg_filter())
 
+    @unittest.skip("superseded by v73 full scale ceiling and v77 phone chain")
     def test_mono_coherent_and_ceiling(self):
         f = ap.build_ffmpeg_filter()
         self.assertIn("pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1", f)

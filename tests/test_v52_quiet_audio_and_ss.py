@@ -51,4 +51,5 @@ def test_ss_off_leaves_presentation_before_removing_screen_track():
     src = open(os.path.join(os.path.dirname(__file__), "..", "helpers", "vc_manager.py")).read()
     body = src[src.index("async def _ss_toggle_independent"):]
     off = body[body.index("            else:\n"):]
-    assert off.index("_ss_leave_hard") < off.index("set_stream_sources")
+    # v66 fix: set_stream_sources runs before _ss_leave_hard to prevent crash
+    assert off.index("set_stream_sources") < off.index("_ss_leave_hard")

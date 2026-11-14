@@ -23,34 +23,38 @@ class MockPhoto:
 async def mock_get_chat_photos(uid, limit=1):
     yield MockPhoto('photo_fid_789')
 
-@pytest.mark.asyncio
-async def test_ss_avatar_async_generator():
-    from helpers.vc_manager import UserVC
-    uvc = UserVC(1001, 'dummy_session')
-    client = MagicMock()
-    client.get_users = AsyncMock(return_value=None)
-    client.get_chat_photos = mock_get_chat_photos
-    async def fake_download(fid, file_name):
-        return file_name
-    client.download_media = AsyncMock(side_effect=fake_download)
-    uvc.client = client
-    # Ensures async generator is consumed without TypeError
-    path = await uvc._ss_avatar(1001)
-    assert client.download_media.called
+def test_ss_avatar_async_generator():
+    import asyncio
+    async def _test():
+        from helpers.vc_manager import UserVC
+        uvc = UserVC(1001, 'dummy_session')
+        client = MagicMock()
+        client.get_users = AsyncMock(return_value=None)
+        client.get_chat_photos = mock_get_chat_photos
+        async def fake_download(fid, file_name):
+            return file_name
+        client.download_media = AsyncMock(side_effect=fake_download)
+        uvc.client = client
+        # Ensures async generator is consumed without TypeError
+        path = await uvc._ss_avatar(1001)
+        assert client.download_media.called
+    asyncio.run(_test())
 
-@pytest.mark.asyncio
-async def test_ss_avatar_direct_user_photo():
-    from helpers.vc_manager import UserVC
-    uvc = UserVC(1001, 'dummy_session')
-    client = MagicMock()
-    client.get_users = AsyncMock(return_value=MockUser(photo=MockChatPhoto('my_big_fid')))
-    async def fake_download(fid, file_name):
-        return file_name
-    client.download_media = AsyncMock(side_effect=fake_download)
-    uvc.client = client
-    path = await uvc._ss_avatar(1001)
-    assert client.download_media.called
-    assert client.download_media.call_args[0][0] == 'my_big_fid'
+def test_ss_avatar_direct_user_photo():
+    import asyncio
+    async def _test():
+        from helpers.vc_manager import UserVC
+        uvc = UserVC(1001, 'dummy_session')
+        client = MagicMock()
+        client.get_users = AsyncMock(return_value=MockUser(photo=MockChatPhoto('my_big_fid')))
+        async def fake_download(fid, file_name):
+            return file_name
+        client.download_media = AsyncMock(side_effect=fake_download)
+        uvc.client = client
+        path = await uvc._ss_avatar(1001)
+        assert client.download_media.called
+        assert client.download_media.call_args[0][0] == 'my_big_fid'
+    asyncio.run(_test())
 
 def test_telegram_live_screen_render():
     from helpers import telegram_live_screen

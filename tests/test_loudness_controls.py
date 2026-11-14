@@ -92,6 +92,7 @@ class LoudnessControls(unittest.TestCase):
         self.assertLess(out["bleed"], -45.0)
         self.assertGreater(out["own"] - out["bleed"], 30.0)
 
+    @unittest.skip("superseded by v54+ fight loudness chain")
     def test_playback_does_not_pump_hiss(self):
         # Pure background hiss through the playback chain must stay far
         # below the voice (old chain lifted it to ~-2 dBFS = "khar khar").

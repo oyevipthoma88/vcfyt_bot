@@ -80,13 +80,26 @@ def ensure_ffmpeg() -> str:
         return shutil.which("ffmpeg") or ""
 
     if not ffmpeg:
-        try:
-            import imageio_ffmpeg
-            ffmpeg = _link(imageio_ffmpeg.get_ffmpeg_exe(), "ffmpeg")
-            log.info("Using bundled ffmpeg: %s", ffmpeg)
-        except Exception as e:  # pragma: no cover
-            log.error("ffmpeg not found and imageio-ffmpeg unavailable: %s", e)
-            return ""
+        for p in ("/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/bin/ffmpeg"):
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                ffmpeg = _link(p, "ffmpeg")
+                log.info("Using system ffmpeg: %s", ffmpeg)
+                break
+        if not ffmpeg:
+            try:
+                import imageio_ffmpeg
+                ffmpeg = _link(imageio_ffmpeg.get_ffmpeg_exe(), "ffmpeg")
+                log.info("Using bundled ffmpeg: %s", ffmpeg)
+            except Exception as e:  # pragma: no cover
+                log.error("ffmpeg not found and imageio-ffmpeg unavailable: %s", e)
+                return ""
+
+    if not shutil.which("ffprobe"):
+        for p in ("/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "/bin/ffprobe"):
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                _link(p, "ffprobe")
+                log.info("Using system ffprobe: %s", p)
+                break
 
     if not shutil.which("ffprobe"):
         log.info("ffprobe missing - installing built-in ffprobe shim: %s", _install_ffprobe_shim())

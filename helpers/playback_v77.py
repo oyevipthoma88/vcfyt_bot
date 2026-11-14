@@ -95,16 +95,25 @@ def phone_chain(volume=None, echo=None, echo_level=None, boost=None,
 
 
 def loudest_chain(volume=None, echo=None, echo_level=None, boost=None,
-                  treble=None, input_gain_db=0.0, extra_filters=""):
+                  treble=None, bass=None, gain=None, input_gain_db=0.0, extra_filters=""):
     f = ["aresample=48000", "pan=mono|c0=0.5*c0+0.5*c1"]
     f += ["highpass=f=330:p=2"] * 4
     f += ["lowpass=f=4300:p=2"] * 2
     if input_gain_db and input_gain_db > 0.05:
         f.append(f"volume={ap._db(input_gain_db)}dB")
+    if ap._has_filter("afftdn"):
+        f.append("afftdn=nr=10:nf=-50")
     if ap._has_filter("speechnorm"):
-        f.append("speechnorm=e=50:r=0.001:l=1:p=0.95")
+        f.append("speechnorm=e=30:r=0.001:l=1:p=0.95")
     else:
         f.append("dynaudnorm=f=50:g=3:p=0.95:m=100")
+    b = 50 if bass is None else ap.clamp(int(bass), ap.BASS_MIN, ap.BASS_MAX)
+    t = 100 if treble is None else ap.clamp(int(treble), 0, 100)
+    g = 0 if gain is None else ap.clamp(int(gain), 0, ap.GAIN_MAX)
+    f.append(f"equalizer=f=150:t=q:w=1.2:g={1.0 + (b / 100.0) * 8.0:.1f}")
+    f.append(f"highshelf=f=6000:g={(t - 50) / 25.0:.1f}")
+    if g > 0:
+        f.append(f"volume={g * 4.0 / ap.GAIN_MAX:.2f}dB")
     # 3-band squash: every band pushed to the ceiling separately
     f.append("mcompand=args='0.002\\,0.08 6 -60/-20\\,-30/-6\\,0/-1 1000 | 0.002\\,0.06 6 -60/-18\\,-30/-4\\,0/-1 2400 | 0.001\\,0.04 6 -60/-16\\,-30/-3\\,0/-1 22000'")
     t = ap.clamp(100 if treble is None else int(treble), 0, 100)
@@ -137,10 +146,11 @@ def build_ffmpeg_filter(*args, **kwargs) -> str:
         return _orig_build(*args, **kwargs)
     chain = loudest_chain if get_mode() == "loudest" else phone_chain
     return chain(volume=kwargs.get("volume"), echo=kwargs.get("echo"),
-                       echo_level=kwargs.get("echo_level"), boost=kwargs.get("boost"),
-                       treble=kwargs.get("treble"),
-                       input_gain_db=kwargs.get("input_gain_db") or 0.0,
-                       extra_filters=kwargs.get("extra_filters") or "")
+                 echo_level=kwargs.get("echo_level"), boost=kwargs.get("boost"),
+                 treble=kwargs.get("treble"), bass=kwargs.get("bass"),
+                 gain=kwargs.get("gain"),
+                 input_gain_db=kwargs.get("input_gain_db") or 0.0,
+                 extra_filters=kwargs.get("extra_filters") or "")
 
 
 def install():

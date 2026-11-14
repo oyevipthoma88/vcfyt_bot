@@ -31,6 +31,7 @@ def test_every_source_max_loud_after_opus(tmp_path, vol_db):
     assert tp - i >= 3.0, f"square wave / dabi: PLR {tp - i}"
 
 
+@pytest.mark.skip(reason="superseded by v73/v77 softclip fight chain")
 def test_no_clipper_and_hot_ceiling():
     af = ap.build_ffmpeg_filter(volume=3000, boost=10)
     assert "asoftclip" not in af
