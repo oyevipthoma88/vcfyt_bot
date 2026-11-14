@@ -29,6 +29,8 @@ DB_LAST_GOOD = "live_mic_base_url"            # last verified URL (legacy key)
 DB_OVERRIDE = "live_mic_base_url_override"    # owner-set via `.mic url <link>`
 FRESH_SECONDS = 60.0       # skip re-probing a URL verified this recently
 PROBE_TIMEOUT = 6.0
+TUNNEL_PROBES = 10
+TUNNEL_PROBE_GAP = 3.0
 
 OK, FOREIGN, UNREACHABLE = "ok", "foreign", "unreachable"
 
@@ -171,6 +173,11 @@ async def candidates() -> List[Tuple[str, str]]:
     name = _cfg("_HEROKU_APP_NAME", "HEROKU_APP_NAME")
     if name:
         add("app-name guess", f"https://{name}.herokuapp.com")
+    try:
+        from helpers import mic_tunnel
+        add("auto tunnel", mic_tunnel.current())
+    except Exception:
+        pass
     return out
 
 
@@ -240,7 +247,44 @@ async def resolve(force: bool = False) -> str:
                     return url
         for source, url, result in last_report:
             logger.warning("Live mic URL rejected (%s): %s -> %s", source, url, result)
+            # v86: a stored "last working" URL that now opens Heroku's
+            # "nothing here" page is dead for good — forget it.
+            if source == "last working" and result == FOREIGN:
+                await _db_set(DB_LAST_GOOD, "")
+        # v86 ROOT FIX: Heroku address unknown -> open our own https tunnel.
+        url = await _tunnel_url(force_new=any(
+            s == "auto tunnel" for s, _, _ in last_report))
+        if url:
+            return url
         return ""
+
+
+async def _tunnel_url(force_new: bool = False) -> str:
+    global _verified, _verified_at
+    try:
+        from helpers import mic_tunnel
+    except Exception:
+        return ""
+    url = normalize(await mic_tunnel.ensure(force_new=force_new))
+    if not url:
+        if mic_tunnel.last_error:
+            last_report.append(("auto tunnel", "cloudflare", "unreachable"))
+        return ""
+    # Fresh trycloudflare names need a few seconds of DNS propagation.
+    result = UNREACHABLE
+    for _ in range(TUNNEL_PROBES):
+        result = await probe(url)
+        if result == OK:
+            break
+        await asyncio.sleep(TUNNEL_PROBE_GAP)
+    last_report.append(("auto tunnel", url, result))
+    if result != OK:
+        logger.warning("Live mic tunnel %s not verified (%s)", url, result)
+        return ""
+    # Not saved as "last working": tunnel links change on every restart.
+    _verified, _verified_at = url, time.monotonic()
+    logger.info("Live mic public URL verified (auto tunnel): %s", url)
+    return url
 
 
 async def set_override(url: str) -> Tuple[bool, str]:

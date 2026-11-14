@@ -2632,6 +2632,11 @@ async def start_server(port: int) -> Optional[web.AppRunner]:
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     _runner = runner
+    try:
+        from helpers import mic_tunnel
+        mic_tunnel.set_port(port)
+    except Exception:
+        pass
     logger.info("Live mic web server ready on port %s", port)
     return runner
 
@@ -2643,3 +2648,8 @@ async def stop_server():
             await session.stop()
         await _runner.cleanup()
         _runner = None
+    try:
+        from helpers import mic_tunnel
+        await mic_tunnel.stop()
+    except Exception:
+        pass
