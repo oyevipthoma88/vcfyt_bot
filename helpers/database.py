@@ -44,6 +44,7 @@ class Database:
                 self._mongo = client["vc_bot"]
                 print("[DB] Connected to MongoDB")
                 await self._check_initial_quota()
+                await self.ensure_coupon_indexes()
             except Exception as e:
                 logger.error("[DB] MongoDB connect error: %s; falling back to SQLite", e)
                 self._use_mongo = False
@@ -293,6 +294,16 @@ class Database:
                 username TEXT, name TEXT, redeemed_at TEXT
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS coupon_claims (
+                code       TEXT NOT NULL,
+                user_id    INTEGER NOT NULL,
+                plan_id    TEXT,
+                claimed_at TEXT,
+                PRIMARY KEY (code, user_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_redeem_logs_code_user ON redeem_logs (code, user_id)")
         c.execute("""
             CREATE TABLE IF NOT EXISTS payment_requests (
                 request_id TEXT PRIMARY KEY,
@@ -753,12 +764,27 @@ class Database:
         return ids if ids else [user_id]
 
     async def get_premium(self, user_id: int) -> Optional[dict]:
-        async def _m():
-            return await self._mongo.premium.find_one({"user_id": user_id})
-        def _s():
-            rows = self._sql("SELECT * FROM premium WHERE user_id=?", (user_id,), fetch=True)
-            return dict(rows[0]) if rows else None
-        return await self._safe_read(_m, _s)
+        """Return the premium row with the LATEST premium_until across both
+        stores. Old code returned the Mongo row whenever it existed, so a
+        grant written to SQLite during a Mongo quota-block was hidden behind
+        an expired Mongo row ("redeem kiya par premium nahi dikh raha")."""
+        rows = []
+        if self._mongo_on():
+            try:
+                doc = await self._mongo.premium.find_one({"user_id": user_id})
+                if doc:
+                    rows.append(dict(doc))
+            except Exception as e:
+                logger.warning("[DB] premium read failed on Mongo: %s", e)
+        try:
+            r = self._sql("SELECT * FROM premium WHERE user_id=?", (user_id,), fetch=True)
+            if r:
+                rows.append(dict(r[0]))
+        except Exception as e:
+            logger.warning("[DB] premium read failed on SQLite: %s", e)
+        if not rows:
+            return None
+        return max(rows, key=lambda d: str(d.get("premium_until") or ""))
 
     async def set_premium(self, user_id: int, until_iso: str, plan: str = ""):
         ts = datetime.now(timezone.utc).isoformat()
@@ -773,17 +799,23 @@ class Database:
         await self._safe_write(_m, _s)
 
     async def revoke_premium(self, user_id: int) -> bool:
-        async def _m():
-            result = await self._mongo.premium.delete_one({"user_id": user_id})
-            return bool(result.deleted_count)
-        def _s():
+        """Delete from BOTH stores, otherwise the merged get_premium() would
+        bring a revoked plan back from the other copy."""
+        removed = False
+        if self._mongo_on():
+            try:
+                result = await self._mongo.premium.delete_one({"user_id": user_id})
+                removed = bool(result.deleted_count) or removed
+            except Exception as e:
+                logger.warning("[DB] premium revoke on Mongo failed: %s", e)
+        try:
             rows = self._sql("SELECT user_id FROM premium WHERE user_id=?", (user_id,), fetch=True)
-            if not rows:
-                return False
-            self._sql("DELETE FROM premium WHERE user_id=?", (user_id,))
-            return True
-        res = await self._safe_write(_m, _s)
-        return bool(res)
+            if rows:
+                self._sql("DELETE FROM premium WHERE user_id=?", (user_id,))
+                removed = True
+        except Exception as e:
+            logger.warning("[DB] premium revoke on SQLite failed: %s", e)
+        return removed
 
     async def get_usage(self, user_id: int, date_str: str) -> int:
         async def _m():
@@ -873,113 +905,288 @@ class Database:
             claimed[m] = await self.referral_milestone_claimed(user_id, m)
         return {"count": count, "claimed": claimed}
 
-    async def create_coupon(self, code: str, plan_id: str, max_uses: int = 1,
-                            created_by: int = 0) -> bool:
-        code = code.strip().upper()
+    # ── Coupons ──────────────────────────────────────────────────────────
+    # REDEEM ROOT FIX (v84):
+    #  * Ek coupon sirf EK store me rehta hai (Mongo agar configured hai, warna
+    #    SQLite). Pehle har coupon Mongo + SQLite dono me copy hota tha aur
+    #    used_count sirf ek me badhta tha -> Mongo read fail / quota-block hone
+    #    par SQLite ki purani copy (used_count=0) se wahi code baar-baar chal
+    #    jaata tha.
+    #  * Har user ka claim alag record hai (code + user_id unique). Ek user ek
+    #    code sirf ek baar redeem kar sakta hai, chahe max_uses kitna bhi ho.
+    #  * Claim + counter ek atomic step me: SQLite me ek transaction, Mongo me
+    #    unique _id insert + conditional $inc ($expr used_count < max_uses).
+    #  * Agar coupon ka store abhi write nahi le raha, redeem REFUSE hota hai
+    #    (doosre store me "fallback" nahi) -> double-use ka raasta band.
+
+    COUPON_OK = "ok"
+    COUPON_MISSING = "missing"
+    COUPON_EXHAUSTED = "exhausted"
+    COUPON_ALREADY = "already"
+    COUPON_ERROR = "error"
+
+    @staticmethod
+    def _norm_code(code) -> str:
+        return str(code or "").strip().upper()
+
+    def _mongo_on(self) -> bool:
+        return bool(self._use_mongo and self._mongo is not None)
+
+    async def _coupon_location(self, code: str):
+        """Return ("mongo", doc) / ("sqlite", doc) / (None, None) / ("error", None).
+
+        Mongo is authoritative whenever it holds the coupon. If Mongo is
+        configured but unreadable we return "error" instead of guessing from
+        a possibly stale SQLite copy.
+        """
+        code = self._norm_code(code)
         if not code:
+            return None, None
+        if self._mongo_on():
+            try:
+                doc = await self._mongo.coupons.find_one({"code": code})
+            except Exception as e:
+                logger.warning("[DB] coupon read failed (%s): %s", code, e)
+                return "error", None
+            if doc:
+                return "mongo", dict(doc)
+        try:
+            rows = self._sql("SELECT * FROM coupons WHERE code=?", (code,), fetch=True)
+        except Exception as e:
+            logger.warning("[DB] coupon sqlite read failed (%s): %s", code, e)
+            return "error", None
+        if rows:
+            return "sqlite", dict(rows[0])
+        return None, None
+
+    async def create_coupon(self, code: str, plan_id: str, max_uses: int = 1,
+                            created_by: int = 0) -> Optional[bool]:
+        """True = created, False = code already exists, None = DB error."""
+        code = self._norm_code(code)
+        if not code:
+            return False
+        max_uses = max(1, int(max_uses or 1))
+        where, _ = await self._coupon_location(code)
+        if where == "error":
+            return None  # DB unreadable right now -> caller shows "try again"
+        if where in ("mongo", "sqlite"):
             return False
         ts = datetime.now(timezone.utc).isoformat()
-        async def _m():
-            existing = await self._mongo.coupons.find_one({"code": code})
-            if existing:
-                return False
-            await self._mongo.coupons.insert_one(
-                {"code": code, "plan_id": plan_id, "max_uses": max_uses,
-                 "used_count": 0, "created_at": ts, "created_by": created_by})
-            return True
-        def _s():
-            existing = self._sql("SELECT 1 FROM coupons WHERE code=?", (code,), fetch=True)
-            if existing:
-                return False
-            self._sql("INSERT INTO coupons VALUES (?,?,?,?,?,?)", (code, plan_id, max_uses, 0, ts, created_by))
-            return True
-        if await self.get_coupon(code):
-            return False
-        res = await self._safe_write(_m, _s)
-        if res and self._use_mongo and self._mongo is not None:
+        doc = {"code": code, "plan_id": plan_id, "max_uses": max_uses,
+               "used_count": 0, "created_at": ts, "created_by": created_by}
+        if self._mongo_on() and not self._quota_blocked():
             try:
-                _s()
-            except Exception:
-                pass
-        return bool(res)
+                await self._mongo.coupons.insert_one(dict(doc))
+                return True  # Mongo only - NO SQLite mirror (split-brain root cause)
+            except Exception as e:
+                if "duplicate key" in str(e).lower() or "E11000" in str(e):
+                    return False
+                if self._is_quota_error(e):
+                    self._mark_quota_blocked()
+                logger.warning("[DB] coupon create on Mongo failed, using SQLite: %s", e)
+        try:
+            self._sql("INSERT INTO coupons (code, plan_id, max_uses, used_count, created_at, created_by) "
+                      "VALUES (?,?,?,?,?,?)", (code, plan_id, max_uses, 0, ts, created_by))
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
     async def get_coupon(self, code: str) -> Optional[dict]:
-        code = code.strip().upper()
-        async def _m():
-            return await self._mongo.coupons.find_one({"code": code})
-        def _s():
-            rows = self._sql("SELECT * FROM coupons WHERE code=?", (code,), fetch=True)
-            return dict(rows[0]) if rows else None
-        return await self._safe_read(_m, _s)
+        where, doc = await self._coupon_location(code)
+        return doc if where in ("mongo", "sqlite") else None
+
+    async def coupon_claimed_by_any(self, code: str, user_ids) -> bool:
+        """True if any of user_ids already redeemed `code` (new claims table
+        or legacy redeem_logs, in either store)."""
+        code = self._norm_code(code)
+        ids = sorted({int(u) for u in (user_ids or []) if u is not None})
+        if not code or not ids:
+            return False
+        if self._mongo_on():
+            try:
+                if await self._mongo.coupon_claims.find_one(
+                        {"code": code, "user_id": {"$in": ids}}):
+                    return True
+                if await self._mongo.redeem_logs.find_one(
+                        {"code": code, "user_id": {"$in": ids}}):
+                    return True
+            except Exception as e:
+                logger.warning("[DB] claim lookup failed on Mongo: %s", e)
+                raise
+        marks = ",".join("?" for _ in ids)
+        for table in ("coupon_claims", "redeem_logs"):
+            rows = self._sql(f"SELECT 1 FROM {table} WHERE code=? AND user_id IN ({marks}) LIMIT 1",
+                             (code, *ids), fetch=True)
+            if rows:
+                return True
+        return False
+
+    async def claim_coupon(self, code: str, user_id: int):
+        """Atomically reserve one use of `code` for `user_id`.
+
+        Returns (status, coupon_doc). status is one of COUPON_* constants.
+        """
+        code = self._norm_code(code)
+        user_id = int(user_id)
+        where, doc = await self._coupon_location(code)
+        if where == "error":
+            return self.COUPON_ERROR, None
+        if where is None:
+            return self.COUPON_MISSING, None
+        ts = datetime.now(timezone.utc).isoformat()
+        if where == "mongo":
+            claim_id = f"{code}:{user_id}"
+            try:
+                await self._mongo.coupon_claims.insert_one(
+                    {"_id": claim_id, "code": code, "user_id": user_id,
+                     "plan_id": doc.get("plan_id"), "claimed_at": ts})
+            except Exception as e:
+                if "duplicate key" in str(e).lower() or "E11000" in str(e):
+                    return self.COUPON_ALREADY, doc
+                logger.warning("[DB] coupon claim insert failed: %s", e)
+                return self.COUPON_ERROR, doc
+            try:
+                updated = await self._mongo.coupons.find_one_and_update(
+                    {"code": code,
+                     "$expr": {"$lt": [{"$ifNull": ["$used_count", 0]},
+                                       {"$ifNull": ["$max_uses", 1]}]}},
+                    {"$inc": {"used_count": 1}},
+                    return_document=True,
+                )
+            except Exception as e:
+                logger.warning("[DB] coupon counter update failed: %s", e)
+                await self._drop_claim_mongo(claim_id)
+                return self.COUPON_ERROR, doc
+            if not updated:
+                await self._drop_claim_mongo(claim_id)
+                return self.COUPON_EXHAUSTED, doc
+            return self.COUPON_OK, dict(updated)
+
+        # SQLite: claim + counter in ONE transaction.
+        conn = sqlite3.connect(self._sqlite_path, timeout=10, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        try:
+            c = conn.cursor()
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute("INSERT INTO coupon_claims (code, user_id, plan_id, claimed_at) "
+                          "VALUES (?,?,?,?)", (code, user_id, doc.get("plan_id"), ts))
+            except sqlite3.IntegrityError:
+                c.execute("ROLLBACK")
+                return self.COUPON_ALREADY, doc
+            c.execute("UPDATE coupons SET used_count = COALESCE(used_count,0) + 1 "
+                      "WHERE code=? AND COALESCE(used_count,0) < COALESCE(max_uses,1)", (code,))
+            if c.rowcount != 1:
+                c.execute("ROLLBACK")
+                return self.COUPON_EXHAUSTED, doc
+            row = c.execute("SELECT * FROM coupons WHERE code=?", (code,)).fetchone()
+            c.execute("COMMIT")
+            return self.COUPON_OK, dict(row) if row else doc
+        except Exception as e:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            logger.warning("[DB] sqlite coupon claim failed: %s", e)
+            return self.COUPON_ERROR, doc
+        finally:
+            conn.close()
+
+    async def _drop_claim_mongo(self, claim_id: str):
+        try:
+            await self._mongo.coupon_claims.delete_one({"_id": claim_id})
+        except Exception as e:
+            logger.warning("[DB] could not drop coupon claim %s: %s", claim_id, e)
+
+    async def release_coupon_claim(self, code: str, user_id: int) -> None:
+        """Undo a successful claim_coupon (used only if granting premium failed)."""
+        code = self._norm_code(code)
+        user_id = int(user_id)
+        where, _ = await self._coupon_location(code)
+        if where == "mongo":
+            try:
+                res = await self._mongo.coupon_claims.delete_one({"_id": f"{code}:{user_id}"})
+                if res.deleted_count:
+                    await self._mongo.coupons.update_one(
+                        {"code": code, "used_count": {"$gt": 0}}, {"$inc": {"used_count": -1}})
+            except Exception as e:
+                logger.warning("[DB] release claim failed: %s", e)
+        elif where == "sqlite":
+            conn = sqlite3.connect(self._sqlite_path, timeout=10, isolation_level=None)
+            try:
+                c = conn.cursor()
+                c.execute("BEGIN IMMEDIATE")
+                c.execute("DELETE FROM coupon_claims WHERE code=? AND user_id=?", (code, user_id))
+                if c.rowcount:
+                    c.execute("UPDATE coupons SET used_count = used_count - 1 "
+                              "WHERE code=? AND used_count > 0", (code,))
+                c.execute("COMMIT")
+            except Exception as e:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                logger.warning("[DB] sqlite release claim failed: %s", e)
+            finally:
+                conn.close()
 
     async def use_coupon(self, code: str) -> Optional[dict]:
-        coupon = await self.get_coupon(code)
-        if not coupon:
-            return None
-        if int(coupon.get("used_count", 0)) >= int(coupon.get("max_uses", 1)):
-            return None
-        async def _m():
-            result = await self._mongo.coupons.find_one_and_update(
-                {"code": coupon["code"],
-                 "used_count": {"$lt": int(coupon.get("max_uses", 1))}},
-                {"$inc": {"used_count": 1}},
-                return_document=True,
-            )
-            return dict(result) if result else None
-        def _s():
-            conn = sqlite3.connect(self._sqlite_path)
-            c = conn.cursor()
-            c.execute(
-                "UPDATE coupons SET used_count = used_count + 1 "
-                "WHERE code=? AND used_count < max_uses",
-                (coupon["code"],),
-            )
-            updated = c.rowcount
-            conn.commit()
-            conn.close()
-            return coupon if updated > 0 else None
-        return await self._safe_write(_m, _s)
+        """Deprecated: use claim_coupon(code, user_id). Kept so old imports don't
+        crash; it never allows a use without a per-user claim."""
+        raise RuntimeError("use_coupon() is removed - use claim_coupon(code, user_id)")
 
     async def refund_coupon(self, code: str) -> None:
-        code = (code or "").strip().upper()
-        if not code:
-            return
-        async def _m():
-            await self._mongo.coupons.find_one_and_update(
-                {"code": code, "used_count": {"$gt": 0}},
-                {"$inc": {"used_count": -1}},
-            )
-        def _s():
-            self._sql("UPDATE coupons SET used_count = used_count - 1 WHERE code=? AND used_count > 0", (code,))
-        await self._safe_write(_m, _s)
+        raise RuntimeError("refund_coupon() is removed - use release_coupon_claim(code, user_id)")
 
     async def log_redeem(self, code, plan_id, user_id, username="", name=""):
+        code = self._norm_code(code)
         ts = datetime.now(timezone.utc).isoformat()
         doc = {"code": code, "plan_id": plan_id, "user_id": user_id,
                "username": username or "", "name": name or "", "redeemed_at": ts}
         async def _m():
-            await self._mongo.redeem_logs.insert_one(doc)
+            await self._mongo.redeem_logs.insert_one(dict(doc))
         def _s():
             self._sql("INSERT INTO redeem_logs VALUES (?,?,?,?,?,?)",
                       (code, plan_id, user_id, username or "", name or "", ts))
         await self._safe_write(_m, _s)
 
     async def redeem_logs(self, code: str = None, limit: int = 50) -> list:
+        code = self._norm_code(code) if code else None
         async def _m():
-            q = {"code": code.upper()} if code else {}
+            q = {"code": code} if code else {}
             return await self._mongo.redeem_logs.find(q).sort("redeemed_at", -1).to_list(limit)
         def _s():
             if code:
                 rows = self._sql("SELECT * FROM redeem_logs WHERE code=? ORDER BY redeemed_at DESC LIMIT ?",
-                                 (code.upper(), limit), fetch=True)
+                                 (code, limit), fetch=True)
             else:
                 rows = self._sql("SELECT * FROM redeem_logs ORDER BY redeemed_at DESC LIMIT ?",
                                  (limit,), fetch=True)
             return [dict(r) for r in rows] if rows else []
-        res = await self._safe_read(_m, _s)
-        return res if res is not None else []
+        # Union both stores (logs written to SQLite during a Mongo outage
+        # used to be invisible).
+        out, seen = [], set()
+        rows = []
+        if self._mongo_on():
+            try:
+                rows.extend(await _m() or [])
+            except Exception as e:
+                logger.warning("[DB] redeem log read failed: %s", e)
+        try:
+            rows.extend(_s() or [])
+        except Exception as e:
+            logger.warning("[DB] sqlite redeem log read failed: %s", e)
+        for r in rows:
+            k = (r.get("code"), r.get("user_id"), str(r.get("redeemed_at"))[:19])
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(r)
+        out.sort(key=lambda r: str(r.get("redeemed_at", "")), reverse=True)
+        return out[:limit]
 
     async def all_coupons(self) -> list:
+        """Mongo copy wins over a legacy SQLite mirror of the same code."""
         async def _m():
             return await self._mongo.coupons.find({}).to_list(None)
         def _s():
@@ -990,22 +1197,38 @@ class Database:
         return res
 
     async def delete_coupon(self, code: str) -> bool:
-        code = code.strip().upper()
-        async def _m():
-            result = await self._mongo.coupons.delete_one({"code": code})
-            return bool(result.deleted_count)
-        def _s():
-            rows = self._sql("SELECT 1 FROM coupons WHERE code=?", (code,), fetch=True)
-            if not rows:
-                return False
-            self._sql("DELETE FROM coupons WHERE code=?", (code,))
-            return True
-        res = await self._safe_write(_m, _s)
+        """Delete from BOTH stores so no stale copy can come back.
+        Claims are kept: the same user can never redeem the same code name twice."""
+        code = self._norm_code(code)
+        deleted = False
+        if self._mongo_on():
+            try:
+                result = await self._mongo.coupons.delete_many({"code": code})
+                deleted = bool(result.deleted_count) or deleted
+            except Exception as e:
+                logger.warning("[DB] coupon delete on Mongo failed: %s", e)
         try:
-            res = bool(_s()) or bool(res)
-        except Exception:
-            pass
-        return bool(res)
+            rows = self._sql("SELECT 1 FROM coupons WHERE code=?", (code,), fetch=True)
+            if rows:
+                self._sql("DELETE FROM coupons WHERE code=?", (code,))
+                deleted = True
+        except Exception as e:
+            logger.warning("[DB] coupon delete on SQLite failed: %s", e)
+        return deleted
+
+    async def ensure_coupon_indexes(self) -> None:
+        if not self._mongo_on():
+            return
+        for coll, keys, kw in (
+            ("coupons", [("code", 1)], {"unique": True}),
+            ("coupon_claims", [("code", 1), ("user_id", 1)], {}),
+            ("redeem_logs", [("code", 1), ("user_id", 1)], {}),
+            ("payment_requests", [("request_id", 1)], {"unique": True}),
+        ):
+            try:
+                await self._mongo[coll].create_index(keys, **kw)
+            except Exception as e:
+                logger.warning("[DB] index %s on %s skipped: %s", keys, coll, e)
 
     async def create_payment_request(self, user_id: int, plan_id: str) -> str:
         request_id = uuid.uuid4().hex[:12]
@@ -1055,5 +1278,48 @@ class Database:
                 (status, ts, reviewed_by, request_id))
         await self._safe_write(_m, _s)
 
+    async def transition_payment_request(self, request_id: str, status: str,
+                                         reviewed_by: int = 0) -> Optional[dict]:
+        """Atomically move a request pending -> status. Returns the request
+        only for the ONE caller that won; a second tap / second owner gets
+        None (old flow: two taps = premium granted twice)."""
+        ts = datetime.now(timezone.utc).isoformat()
+        if self._mongo_on():
+            try:
+                doc = await self._mongo.payment_requests.find_one_and_update(
+                    {"request_id": request_id, "status": "pending"},
+                    {"$set": {"status": status, "reviewed_at": ts, "reviewed_by": reviewed_by}},
+                )
+                if doc:
+                    return dict(doc)
+                if await self._mongo.payment_requests.find_one({"request_id": request_id}):
+                    return None  # exists in Mongo but not pending any more
+            except Exception as e:
+                logger.warning("[DB] payment transition on Mongo failed: %s", e)
+                return None
+        conn = sqlite3.connect(self._sqlite_path, timeout=10, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        try:
+            c = conn.cursor()
+            c.execute("BEGIN IMMEDIATE")
+            row = c.execute("SELECT * FROM payment_requests WHERE request_id=? AND status='pending'",
+                            (request_id,)).fetchone()
+            if not row:
+                c.execute("ROLLBACK")
+                return None
+            c.execute("UPDATE payment_requests SET status=?, reviewed_at=?, reviewed_by=? "
+                      "WHERE request_id=? AND status='pending'",
+                      (status, ts, reviewed_by, request_id))
+            c.execute("COMMIT")
+            return dict(row)
+        except Exception as e:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            logger.warning("[DB] payment transition on SQLite failed: %s", e)
+            return None
+        finally:
+            conn.close()
 
 db = Database()

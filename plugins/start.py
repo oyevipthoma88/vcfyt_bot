@@ -2,7 +2,7 @@
 import os
 from pyrogram import Client, filters
 from plugins.ui import dm_cmd
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardMarkup as K, Message
 
 from config import Config
 from helpers.access_control import premium_info
@@ -13,7 +13,7 @@ from helpers.audio_processor import (
 from helpers.database import db
 from helpers.logger_channel import log_command, log_error, log_new_user
 from helpers.vc_manager import AUTO_PRESET, session_manager
-from plugins.ui import HAS_USER
+from plugins.ui import B, HAS_USER
 from plugins.ui import (
     home_kb, home_text, settings_kb, settings_text, status_text, edit_screen, safe_answer,
 )
@@ -51,7 +51,9 @@ async def cmd_start(bot: Client, msg: Message):
         await log_new_user(user.id, user.username, user.first_name)
 
     # Process referral deep link: /start ref_<referrer_id>
-    if len(msg.command) > 1 and msg.command[1].startswith("ref_"):
+    # Only brand-new users count: old code let any existing user (or the same
+    # user again via another referrer's link) inflate referral rewards.
+    if not existing and len(msg.command) > 1 and msg.command[1].startswith("ref_"):
         try:
             referrer_id = int(msg.command[1][4:])
             from plugins.referral import process_referral_start
@@ -118,10 +120,16 @@ async def cb_status(bot, cq):
     data = await db.get_user(uid)
     s = await db.get_settings(uid)
     uvc = session_manager.users.get(uid)
-    from plugins.ui import back_kb
     prem = await premium_info(uid)
+    rows = []
+    if not (prem or {}).get("active"):
+        rows.append([B("💎 Get Premium", callback_data="pay:menu", style="success"),
+                     B("🎟️ Redeem", callback_data="pay:coupon", style="success")])
+    else:
+        rows.append([B("💎 My Plan", callback_data="pay:menu", style="success")])
+    rows.append([B("🏠 Home", callback_data="menu:home", style="primary")])
     await edit_screen(cq.message, status_text(uid, data, uvc, s, prem),
-                               reply_markup=back_kb("menu:home"))
+                      reply_markup=K(rows))
     await safe_answer(cq)
 
 @Client.on_message(HAS_USER & dm_cmd("settings") & filters.private)

@@ -108,7 +108,7 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
     if engine_ok:
         text = _bq(
             "✅ <b>Login Successful — VC engine activated!</b>\n"
-            f"👤 Account: <a href='tg://user?id={me.id}'>{me.first_name}</a>\n"
+            f"👤 Account: <a href='tg://user?id={me.id}'>{__import__('html').escape(me.first_name or 'Account')}</a>\n"
             f"🆔 ID: <code>{me.id}</code>\n"
             f"🛡️ 2FA: {'Verified' if twofa else 'Not required'}\n\n"
             "🎵 Ab kisi bhi group me <code>.play</code> use karein!"

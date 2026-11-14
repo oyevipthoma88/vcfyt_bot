@@ -9,6 +9,7 @@ import inspect
 import json
 import logging
 import os
+from html import escape as _h
 from typing import Optional
 
 from pyrogram import Client, filters
@@ -17,6 +18,7 @@ from pyrogram.types import (
 )
 
 from config import Config
+from plugins.ui import HAS_USER
 from helpers.vc_manager import session_manager
 
 logger = logging.getLogger("vcbot.vc_joiner")
@@ -314,14 +316,14 @@ def _text() -> str:
     n_users = len(session_manager.users)
     auto = "🟢 ON" if _state.get("auto") == "1" else "⚪ OFF"
     return (
-        "╭─「 🎛️ **VC JOINER** 」\n"
-        f"│ 🎯 Targets: `{len(_state['targets'])}`\n"
-        f"│ 👥 Users:   `{n_users}`\n"
-        f"│ 🔗 Joined:  `{len(_joined)}`\n"
+        "╭─「 🎛️ <b>VC JOINER</b> 」\n"
+        f"│ 🎯 Targets: <code>{len(_state['targets'])}</code>\n"
+        f"│ 👥 Users:   <code>{n_users}</code>\n"
+        f"│ 🔗 Joined:  <code>{len(_joined)}</code>\n"
         f"│ ♻️ Auto:    {auto}\n"
         "│\n"
         "│ Har stored user target VC me\n"
-        "│ **silently muted** join hoga.\n"
+        "│ <b>silently muted</b> join hoga.\n"
         "╰────────────────"
     )
 
@@ -329,7 +331,7 @@ def _text() -> str:
 # ---------------------------------------------------------------
 # COMMANDS
 # ---------------------------------------------------------------
-@Client.on_message(filters.text & filters.regex(r"^[./!]vcjoin(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
+@Client.on_message(HAS_USER & filters.text & filters.regex(r"^[./!]vcjoin(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
 async def _cmd_vcjoin(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):
         return
@@ -337,7 +339,7 @@ async def _cmd_vcjoin(client: Client, msg: Message):
     await msg.reply_text(_text(), reply_markup=_menu())
 
 
-@Client.on_message(filters.text & filters.regex(r"^[./!]setvc(?:@\w+)?\b", flags=2) & filters.group)
+@Client.on_message(HAS_USER & filters.text & filters.regex(r"^[./!]setvc(?:@\w+)?\b", flags=2) & filters.group)
 async def _cmd_setvc(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):
         return
@@ -345,23 +347,23 @@ async def _cmd_setvc(client: Client, msg: Message):
     title = msg.chat.title or str(cid)
     for t in _state["targets"]:
         if t["chat_id"] == cid:
-            await msg.reply_text(f"ℹ️ Already target: **{title}**")
+            await msg.reply_text(f"ℹ️ Already target: <b>{_h(title)}</b>")
             return
     _state["targets"].append({"chat_id": cid, "title": title})
     _save_state()
     await msg.reply_text(
-        f"✅ Target added:\n`{cid}` — {title}\n\n"
-        "Ab `/vcjoin` se **Join All** chala do."
+        f"✅ Target added:\n<code>{cid}</code> — {_h(title)}\n\n"
+        "Ab <code>/vcjoin</code> se <b>Join All</b> chala do."
     )
 
 
-@Client.on_message(filters.text & filters.regex(r"^[./!]delvc(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
+@Client.on_message(HAS_USER & filters.text & filters.regex(r"^[./!]delvc(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
 async def _cmd_delvc(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):
         return
     parts = (msg.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        await msg.reply_text("Usage: `/delvc -1001234567890`")
+        await msg.reply_text("Usage: <code>/delvc -1001234567890</code>")
         return
     try:
         cid = int(parts[1].strip())
@@ -374,7 +376,7 @@ async def _cmd_delvc(client: Client, msg: Message):
         await msg.reply_text("Not found")
         return
     _save_state()
-    await msg.reply_text(f"🗑️ Removed `{cid}`")
+    await msg.reply_text(f"🗑️ Removed <code>{cid}</code>")
 
 
 # ---------------------------------------------------------------
@@ -414,8 +416,8 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
         if not _state["targets"]:
             await cq.answer("Koi target nahi", show_alert=True)
             return
-        body = "**🎯 Targets:**\n" + "\n".join(
-            f"`{i}.` {t['title']} — `{t['chat_id']}`"
+        body = "<b>🎯 Targets:</b>\n" + "\n".join(
+            f"<code>{i}.</code> {_h(t['title'])} — <code>{t['chat_id']}</code>"
             for i, t in enumerate(_state["targets"], 1)
         )
         await cq.message.edit_text(body, reply_markup=_menu())
@@ -427,13 +429,13 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
         if not uids:
             await cq.answer("Koi user stored nahi", show_alert=True)
             return
-        lines = ["**👥 Stored users:**\n"]
+        lines = ["<b>👥 Stored users:</b>\n"]
         for uid in uids[:30]:
             uvc = session_manager.users.get(uid)
             nm = getattr(uvc, "account_name", "") if uvc else ""
-            lines.append(f"• `{uid}` {nm}".rstrip())
+            lines.append(f"• <code>{uid}</code> {_h(str(nm or ''))}".rstrip())
         if len(uids) > 30:
-            lines.append(f"_+{len(uids)-30} aur..._")
+            lines.append(f"<i>+{len(uids)-30} aur...</i>")
         await cq.message.edit_text("\n".join(lines), reply_markup=_menu())
         await cq.answer()
         return
@@ -442,8 +444,8 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
         if not _joined:
             await cq.answer("Koi active join nahi", show_alert=True)
             return
-        body = "**🔗 Active joins:**\n" + "\n".join(
-            f"• `{uid}` → `{cid}`" for (uid, cid) in list(_joined)[:40]
+        body = "<b>🔗 Active joins:</b>\n" + "\n".join(
+            f"• <code>{uid}</code> → <code>{cid}</code>" for (uid, cid) in list(_joined)[:40]
         )
         await cq.message.edit_text(body, reply_markup=_menu())
         await cq.answer()
@@ -461,14 +463,14 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
             for k in T:
                 T[k] += r.get(k, 0)
             await msg.edit_text(
-                f"⏳ **{t['title']}**\n"
+                f"⏳ <b>{_h(t['title'])}</b>\n"
                 f"✅ {r['joined']}  ❌ {r['failed']}  ⏭️ {r['skipped']}"
             )
         await msg.edit_text(
-            f"✅ **Done**\n"
-            f"Joined: `{T['joined']}`\n"
-            f"Failed: `{T['failed']}`\n"
-            f"Skipped: `{T['skipped']}`",
+            f"✅ <b>Done</b>\n"
+            f"Joined: <code>{T['joined']}</code>\n"
+            f"Failed: <code>{T['failed']}</code>\n"
+            f"Skipped: <code>{T['skipped']}</code>",
             reply_markup=_menu(),
         )
         return
@@ -484,7 +486,7 @@ async def _cb_vcj(client: Client, cq: CallbackQuery):
             r = await _leave_all_target(t["chat_id"])
             total += r["left"]
         await msg.edit_text(
-            f"⏹️ Done — `{total}` joins cleared.", reply_markup=_menu(),
+            f"⏹️ Done — <code>{total}</code> joins cleared.", reply_markup=_menu(),
         )
         return
 

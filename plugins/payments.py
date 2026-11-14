@@ -23,6 +23,11 @@ Callbacks:
 """
 
 
+import html
+import json
+import secrets
+import time
+
 from pyrogram import Client, filters
 from plugins.ui import dm_cmd
 from pyrogram.types import InlineKeyboardMarkup as K, Message
@@ -31,10 +36,14 @@ from config import Config
 from helpers.access_control import (
     PAYMENT_CONTACT_URL, PAYMENT_PLANS,
     get_payment_config, get_plan_price, get_qr_code, grant_premium,
-    premium_info, redeem_coupon, revoke_premium_all, set_payment_config, set_qr_code,
+    format_until, plan_label, premium_info, redeem_coupon, revoke_premium_all,
+    set_payment_config, set_qr_code, time_left,
 )
 from helpers.database import db
-from plugins.ui import HAS_USER, cmd_text, B, LINE, edit_screen, safe_answer
+from plugins.ui import HAS_USER, cmd_text, B, LINE, card, edit_screen, safe_answer
+
+_VALID_PLANS = {p[0] for p in PAYMENT_PLANS}
+_esc = html.escape
 
 # Track users who are expected to send a payment screenshot
 # Persisted in DB so it survives restarts.
@@ -42,40 +51,54 @@ SS_PENDING_KEY = "pending_payment_ss"
 
 
 async def _load_pending_ss() -> dict:
-    import json as _json
+    """Keys are ALWAYS str(user_id). JSON turns int keys into strings, so the
+    old `user_id in pending` (int) never matched after the first save and
+    payment screenshots were silently ignored."""
     raw = await db.get_app_value(SS_PENDING_KEY)
     if raw:
         try:
-            return _json.loads(raw)
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return {str(k): v for k, v in data.items()}
         except (ValueError, TypeError):
             pass
     return {}
 
 
 async def _save_pending_ss(data: dict):
-    import json as _json
-    await db.set_app_value(SS_PENDING_KEY, _json.dumps(data))
+    await db.set_app_value(SS_PENDING_KEY, json.dumps({str(k): v for k, v in data.items()}))
+
+
+# Users who tapped "🎟️ Redeem Coupon" and whose next text is the code.
+_AWAIT_CODE: dict = {}
+_AWAIT_TTL = 300
+
+
+def _awaiting(uid: int) -> bool:
+    t = _AWAIT_CODE.get(uid)
+    if t and time.time() - t < _AWAIT_TTL:
+        return True
+    _AWAIT_CODE.pop(uid, None)
+    return False
 
 
 # ── Owner: price & coupon panel ──────────────────────────
 
 def _payment_panel_text() -> str:
-    return (
-        "💳 <b>Payment Management</b>\n\n"
-        f"{LINE}\n"
-        "<b>Owner Commands:</b>\n"
+    return card("💳", "Payment management",
+        "<b>Prices & premium</b>\n"
         "• <code>.setprice &lt;plan_id&gt; &lt;price&gt;</code>\n"
         "• <code>.grant &lt;user_id&gt; &lt;plan_id&gt;</code>\n"
-        "• <code>.revoke &lt;user_id&gt;</code>\n"
-        "• <code>.addcoupon &lt;code&gt; &lt;plan_id&gt; [max_uses]</code>\n"
-        "• <code>.delcoupon &lt;code&gt;</code>\n"
-        "• <code>.listcoupons</code>\n"
-        "• <code>.setqr</code> (QR photo reply karke)\n"
-        "• <code>.clearqr</code>\n"
-        "• <code>.pending</code> — pending payment requests\n\n"
-        "<b>Plans:</b>\n"
-        + "\n".join(f"• <code>{p[0]}</code> — {p[1]}" for p in PAYMENT_PLANS)
-    )
+        "• <code>.revoke &lt;user_id&gt;</code>\n\n"
+        "<b>Coupons</b>\n"
+        "• <code>.addcoupon &lt;code|auto&gt; &lt;plan_id&gt; [max_uses]</code>\n"
+        "• <code>.delcoupon &lt;code&gt;</code> · <code>.listcoupons</code>\n"
+        "• <code>.redeemlogs [code]</code>\n\n"
+        "<b>QR & requests</b>\n"
+        "• <code>.setqr</code> (QR photo pe reply) · <code>.clearqr</code>\n"
+        "• <code>.pending</code> — pending requests\n\n"
+        "<b>Plans:</b> " + " · ".join(f"<code>{p[0]}</code>" for p in PAYMENT_PLANS),
+        "Har coupon ek user sirf 1 baar use kar sakta hai. max_uses = kitne alag users.")
 
 
 def payment_owner_kb() -> K:
@@ -90,60 +113,109 @@ async def _prices_text() -> str:
     config = await get_payment_config()
     lines = []
     for plan_id, label, _, _ in PAYMENT_PLANS:
-        price = config.get(plan_id, {}).get("price", "— not set —")
-        lines.append(f"• <b>{label}</b> (<code>{plan_id}</code>): <code>{price}</code>")
-    return "💳 <b>Payment Plans & Prices</b>\n\n" + "\n".join(lines)
+        price = config.get(plan_id, {}).get("price") or "— not set —"
+        lines.append(f"• <b>{label}</b> (<code>{plan_id}</code>) → <code>{_esc(str(price))}</code>")
+    return card("💳", "Plans & prices", "\n".join(lines))
 
 
 # ── User: plans display ──────────────────────────────────
 
+def _premium_status_block(pinfo: dict) -> str:
+    if pinfo.get("active"):
+        if pinfo.get("plan") == "owner":
+            return "👑 <b>Owner</b> · unlimited access"
+        left = time_left(pinfo.get("until"))
+        return (f"💎 <b>Premium active</b> · {plan_label(pinfo.get('plan'))}\n"
+                f"📅 Valid till <b>{format_until(pinfo.get('until'))}</b>"
+                + (f"\n⏳ {left} baaki" if left and left != "expired" else ""))
+    return "🆓 <b>Free plan</b> · roz ki limit lagi hai"
+
+
 async def _user_plans_text(user_id: int) -> str:
     config = await get_payment_config()
     pinfo = await premium_info(user_id)
-
-    header = ""
-    if pinfo["active"]:
-        header = (
-            f"✅ <b>Premium Active</b>\n"
-            f"📋 Plan: <code>{pinfo['plan']}</code>\n"
-            f"⏰ Until: <code>{pinfo['until']}</code>\n\n"
-        )
-    else:
-        header = "⚠️ <b>Free Plan — Daily Limit Active</b>\n\n"
-
     lines = []
     for plan_id, label, _, _ in PAYMENT_PLANS:
-        entry = config.get(plan_id)
-        price = entry.get("price", "—") if entry else "—"
-        lines.append(f"• <b>{label}</b> — <code>{price}</code>  (<code>{plan_id}</code>)")
-
-    return (
-        f"💳 <b>Upgrade to Premium</b>\n\n"
-        f"{header}"
-        f"{LINE}\n"
-        + "\n".join(lines)
-        + f"\n{LINE}\n\n"
-        "Premium = <b>unlimited</b> uses, no daily limit!\n"
-        "Plan choose karein → Request karein → QR DM mein aayega → payment karein → screenshot bhejein.\n"
-        "Ya coupon code redeem karein: <code>.redeem &lt;code&gt;</code>"
-    )
+        entry = config.get(plan_id) or {}
+        price = entry.get("price") or "—"
+        lines.append(f"🔹 <b>{label}</b>  ·  <code>{_esc(str(price))}</code>")
+    return card("💎", "Premium",
+        f"<blockquote>{_premium_status_block(pinfo)}</blockquote>\n"
+        "<b>Plans</b>\n" + "\n".join(lines) + "\n\n"
+        "♾️ Premium = <b>unlimited</b> uses, koi daily limit nahi.",
+        "Plan chuno → QR pe pay karo → screenshot bhejo → owner approve karega.\n"
+        "Coupon hai? 🎟️ <b>Redeem Coupon</b> dabao aur code bhejo.")
 
 
 def user_payment_kb(config: dict = None) -> K:
-    rows = []
-    plan_rows = []
+    config = config or {}
+    buttons = []
     for plan_id, label, _, _ in PAYMENT_PLANS:
-        if config:
-            entry = config.get(plan_id)
-            price = entry.get("price", "—") if entry else "—"
-        else:
-            price = "—"
-        plan_rows.append([B(f"🔹 {label} — {price}", callback_data=f"pay:plan:{plan_id}")])
-    rows.extend(plan_rows[:3])
-    rows.extend(plan_rows[3:])
-    rows.append([B("🎟️ Redeem Coupon", callback_data="pay:coupon")])
-    rows.append([B("⬅ Home", callback_data="menu:home")])
+        entry = config.get(plan_id) or {}
+        price = entry.get("price")
+        text = f"{label} · {price}" if price else label
+        buttons.append(B(f"💠 {text}", callback_data=f"pay:plan:{plan_id}", style="primary"))
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([B("🎟️ Redeem Coupon", callback_data="pay:coupon", style="success")])
+    rows.append([B("🏠 Home", callback_data="menu:home", style="primary")])
     return K(rows)
+
+
+def _redeem_prompt_text() -> str:
+    return card("🎟️", "Redeem coupon",
+        "Apna coupon code <b>abhi yahan bhejo</b> 👇\n"
+        "<i>Example:</i> <code>APEX7DAY</code>",
+        "Ek code ek user sirf 1 baar use kar sakta hai. "
+        "Command se bhi kar sakte ho: <code>.redeem CODE</code>")
+
+
+def _redeem_prompt_kb() -> K:
+    return K([[B("✖️ Cancel", callback_data="pay:coupon_cancel", style="danger"),
+               B("💎 Plans", callback_data="pay:menu", style="primary")]])
+
+
+def _redeem_result(result: dict):
+    if result.get("ok"):
+        until = result.get("until")
+        left = time_left(until)
+        text = card("🎉", "Premium activated",
+            f"<blockquote>💎 <b>{plan_label(result.get('plan'))}</b> plan unlock ho gaya!</blockquote>\n"
+            f"📅 Valid till: <b>{format_until(until)}</b>\n"
+            + (f"⏳ Time left: <b>{left}</b>\n" if left and left != "expired" else "")
+            + "♾️ Ab koi daily limit nahi — enjoy!")
+        kb = K([[B("💎 My Plan", callback_data="pay:menu", style="success"),
+                 B("🏠 Home", callback_data="menu:home", style="primary")]])
+        return text, kb
+    icon = {"already": "♻️", "exhausted": "⌛", "rate_limited": "⏱️",
+            "error": "⚠️"}.get(result.get("reason"), "❌")
+    text = card(icon, "Redeem failed", _esc(result.get("message") or "Redeem nahi hua."))
+    rows = []
+    if result.get("reason") not in ("rate_limited",):
+        rows.append([B("🔁 Try another code", callback_data="pay:coupon", style="primary")])
+    rows.append([B("💎 Plans", callback_data="pay:menu", style="primary"),
+                 B("🏠 Home", callback_data="menu:home", style="primary")])
+    return text, K(rows)
+
+
+async def _do_redeem(msg: Message, code: str):
+    u = msg.from_user
+    _AWAIT_CODE.pop(u.id, None)
+    result = await redeem_coupon(u.id, code, u.username or "",
+                                 " ".join(x for x in (u.first_name, u.last_name) if x))
+    text, kb = _redeem_result(result)
+    await msg.reply_text(text, reply_markup=kb, disable_web_page_preview=True)
+    if result.get("ok"):
+        try:
+            from helpers.logger_channel import get_channel
+            cid = get_channel()
+            if cid:
+                who = f"@{u.username}" if u.username else _esc(u.first_name or "-")
+                await msg._client.send_message(
+                    cid, f"🎟️ <b>Coupon redeemed</b>\n"
+                         f"Code: <code>{_esc(code.strip().upper())}</code> · {plan_label(result.get('plan'))}\n"
+                         f"User: {who} (<code>{u.id}</code>)")
+        except Exception:
+            pass
 
 
 # ── Owner commands ───────────────────────────────────────
@@ -234,26 +306,39 @@ async def cmd_revoke(bot: Client, msg: Message):
 async def cmd_addcoupon(bot: Client, msg: Message):
     if not Config.is_owner(msg.from_user.id):
         return
-    parts = cmd_text(msg).split(maxsplit=3)
+    parts = cmd_text(msg).split()
     if len(parts) < 3:
         await msg.reply_text(
-            "Usage: <code>.addcoupon &lt;code&gt; &lt;plan_id&gt; [max_uses]</code>\n"
+            "Usage: <code>.addcoupon &lt;code|auto&gt; &lt;plan_id&gt; [max_uses]</code>\n"
+            "Example: <code>.addcoupon auto 7day 10</code>\n"
             "Plans: " + ", ".join(p[0] for p in PAYMENT_PLANS)
         )
         return
     code = parts[1].strip().upper()
-    plan_id = parts[2].strip().lower()
-    max_uses = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1
-    valid_ids = {p[0] for p in PAYMENT_PLANS}
-    if plan_id not in valid_ids:
-        await msg.reply_text(f"❌ Invalid plan. Valid: {', '.join(sorted(valid_ids))}")
+    if code == "AUTO":
+        code = "APEX-" + secrets.token_hex(4).upper()
+    if not code.replace("-", "").replace("_", "").isalnum() or len(code) > 32:
+        await msg.reply_text("❌ Code me sirf A-Z, 0-9, - aur _ (max 32) chalenge.")
         return
+    plan_id = parts[2].strip().lower()
+    if plan_id not in _VALID_PLANS:
+        await msg.reply_text(f"❌ Invalid plan. Valid: {', '.join(sorted(_VALID_PLANS))}")
+        return
+    max_uses = 1
+    if len(parts) > 3:
+        if not parts[3].isdigit() or not (1 <= int(parts[3]) <= 100000):
+            await msg.reply_text("❌ max_uses 1 se 100000 ke beech number hona chahiye.")
+            return
+        max_uses = int(parts[3])
     ok = await db.create_coupon(code, plan_id, max_uses, msg.from_user.id)
     if ok:
-        await msg.reply_text(
-            f"✅ Coupon created!\nCode: <code>{code}</code>\n"
-            f"Plan: <code>{plan_id}</code>\nMax uses: {max_uses}"
-        )
+        await msg.reply_text(card("🎟️", "Coupon created",
+            f"Code: <code>{code}</code>\n"
+            f"Plan: <b>{plan_label(plan_id)}</b>\n"
+            f"Uses: <b>{max_uses}</b> alag users (har user sirf 1 baar)",
+            f"User bheje: <code>.redeem {code}</code>"))
+    elif ok is None:
+        await msg.reply_text("⚠️ Database abhi busy hai, coupon nahi bana. 1 min baad try karein.")
     else:
         await msg.reply_text(f"❌ Coupon <code>{code}</code> already exists.")
 
@@ -266,9 +351,10 @@ async def cmd_delcoupon(bot: Client, msg: Message):
     if len(parts) < 2:
         await msg.reply_text("Usage: <code>.delcoupon &lt;code&gt;</code>")
         return
-    ok = await db.delete_coupon(parts[1])
+    code = parts[1].strip().upper()
+    ok = await db.delete_coupon(code)
     await msg.reply_text(
-        f"✅ Coupon deleted: <code>{parts[1].upper()}</code>" if ok
+        f"✅ Coupon deleted: <code>{_esc(code)}</code>" if ok
         else "❌ Coupon nahi mila."
     )
 
@@ -279,15 +365,19 @@ async def cmd_listcoupons(bot: Client, msg: Message):
         return
     coupons = await db.all_coupons()
     if not coupons:
-        await msg.reply_text("📋 Koi coupon nahi hai.")
+        await msg.reply_text("📋 Koi coupon nahi hai. Banane ke liye: <code>.addcoupon auto 7day 10</code>")
         return
     lines = []
-    for c in coupons:
-        lines.append(
-            f"• <code>{c['code']}</code> — {c['plan_id']} "
-            f"({c.get('used_count', 0)}/{c.get('max_uses', 1)})"
-        )
-    await msg.reply_text("📋 <b>All Coupons</b>\n" + "\n".join(lines))
+    for c in coupons[:80]:
+        used = int(c.get("used_count", 0) or 0)
+        mx = int(c.get("max_uses", 1) or 1)
+        icon = "🔴" if used >= mx else "🟢"
+        lines.append(f"{icon} <code>{_esc(str(c['code']))}</code> · {plan_label(c.get('plan_id'))} "
+                     f"· <b>{used}/{mx}</b> used")
+    more = f"\n<i>+{len(coupons) - 80} aur…</i>" if len(coupons) > 80 else ""
+    await msg.reply_text(card("🎟️", f"All coupons ({len(coupons)})",
+                              "\n".join(lines) + more,
+                              "🟢 active · 🔴 khatam. Details: <code>.redeemlogs CODE</code>"))
 
 
 @Client.on_message(HAS_USER & dm_cmd("redeemlogs") & filters.private)
@@ -300,13 +390,12 @@ async def cmd_redeemlogs(bot: Client, msg: Message):
     if not logs:
         await msg.reply_text("📋 Abhi tak koi redeem log nahi hai.")
         return
-    import html
     lines = []
     for r in logs:
-        who = f"@{r['username']}" if r.get("username") else html.escape(r.get("name") or "-")
-        lines.append(f"• <code>{r['code']}</code> — {r['plan_id']}\n"
-                     f"   👤 {who} (<code>{r['user_id']}</code>) 🕒 {str(r['redeemed_at'])[:16]}")
-    await msg.reply_text("🎟️ <b>Redeem Logs</b>\n" + "\n".join(lines))
+        who = f"@{_esc(r['username'])}" if r.get("username") else _esc(r.get("name") or "-")
+        lines.append(f"• <code>{_esc(str(r.get('code')))}</code> · {plan_label(r.get('plan_id'))}\n"
+                     f"   👤 {who} (<code>{r.get('user_id')}</code>) · 🕒 {format_until(r.get('redeemed_at'))}")
+    await msg.reply_text(card("🎟️", f"Redeem logs ({len(logs)})", "\n".join(lines)))
 
 
 @Client.on_message(HAS_USER & dm_cmd("setqr") & filters.private)
@@ -361,12 +450,31 @@ async def cmd_pending(bot: Client, msg: Message):
 async def cmd_redeem(bot: Client, msg: Message):
     parts = cmd_text(msg).split(maxsplit=1)
     if len(parts) < 2:
-        await msg.reply_text("Usage: <code>.redeem &lt;coupon_code&gt;</code>")
+        _AWAIT_CODE[msg.from_user.id] = time.time()
+        await msg.reply_text(_redeem_prompt_text(), reply_markup=_redeem_prompt_kb())
         return
-    u = msg.from_user
-    result = await redeem_coupon(u.id, parts[1], u.username or "",
-                                 " ".join(x for x in (u.first_name, u.last_name) if x))
-    await msg.reply_text(result["message"])
+    await _do_redeem(msg, parts[1].split()[0])
+
+
+def _awaiting_code_filter(_, __, m) -> bool:
+    u = getattr(m, "from_user", None)
+    if not u or not _awaiting(u.id):
+        return False
+    text = (getattr(m, "text", None) or "").strip()
+    if not text:
+        return False
+    if text[:1] in "./!":
+        _AWAIT_CODE.pop(u.id, None)  # user moved on to a command
+        return False
+    return True
+
+
+# group=1: after force-sub gate (-2), before the login text flow (2), so a
+# coupon code is never mistaken for a phone number / OTP.
+@Client.on_message(filters.private & filters.text & filters.create(_awaiting_code_filter), group=1)
+async def on_coupon_code_text(bot: Client, msg: Message):
+    await _do_redeem(msg, msg.text.strip().split()[0])
+    msg.stop_propagation()
 
 
 # ── User: send payment screenshot ─────────────────────────
@@ -374,11 +482,13 @@ async def cmd_redeem(bot: Client, msg: Message):
 @Client.on_message(filters.photo & filters.private)
 async def on_payment_screenshot(bot: Client, msg: Message):
     """When a user sends a photo and has a pending SS request, forward to owner + log."""
+    if not msg.from_user:
+        return
     user_id = msg.from_user.id
     pending = await _load_pending_ss()
-    if user_id not in pending:
+    info = pending.pop(str(user_id), None)
+    if not info:
         return
-    info = pending.pop(user_id)
     await _save_pending_ss(pending)
     plan_id = info["plan_id"]
     request_id = info["request_id"]
@@ -388,10 +498,11 @@ async def on_payment_screenshot(bot: Client, msg: Message):
     caption = (
         f"📸 <b>Payment Screenshot</b>\n\n"
         f"{LINE}\n"
-        f"👤 <b>User:</b> {msg.from_user.first_name or '—'}\n"
+        f"👤 <b>User:</b> {_esc(msg.from_user.first_name or '—')}"
+        f"{(' (@' + _esc(msg.from_user.username) + ')') if msg.from_user.username else ''}\n"
         f"🆔 <b>User ID:</b> <code>{user_id}</code>\n"
         f"💳 <b>Plan:</b> {label} (<code>{plan_id}</code>)\n"
-        f"💰 <b>Price:</b> <code>{price or '—'}</code>\n"
+        f"💰 <b>Price:</b> <code>{_esc(str(price or '—'))}</code>\n"
         f"📋 <b>Request ID:</b> <code>{request_id}</code>\n"
         f"{LINE}\n\n"
         f"✅ Approve karne ke liye niche button dabayein."
@@ -487,25 +598,33 @@ async def cb_payment(bot, cq):
         if not Config.is_owner(cq.from_user.id):
             await safe_answer(cq, "Sirf owner!", show_alert=True)
             return
-        req_id = parts[2]
-        req = await db.get_payment_request(req_id)
-        if not req or req["status"] != "pending":
-            await safe_answer(cq, "Request nahi mili ya already processed.", show_alert=True)
+        req_id = parts[2] if len(parts) > 2 else ""
+        pre = await db.get_payment_request(req_id)
+        if not pre or pre.get("plan_id") not in _VALID_PLANS:
+            await safe_answer(cq, "Request nahi mili ya plan invalid hai.", show_alert=True)
+            return
+        # Atomic pending -> approved: double tap / two owners can't grant twice.
+        req = await db.transition_payment_request(req_id, "approved", cq.from_user.id)
+        if not req:
+            await safe_answer(cq, "Yeh request pehle hi process ho chuki hai.", show_alert=True)
             return
         try:
             until_iso = await grant_premium(req["user_id"], req["plan_id"])
-        except ValueError:
-            await safe_answer(cq, "Invalid plan!", show_alert=True)
+        except Exception:
+            await db.update_payment_request(req_id, "pending", 0)
+            await safe_answer(cq, "Premium grant fail hua, request pending rakhi hai.", show_alert=True)
             return
-        await db.update_payment_request(req_id, "approved", cq.from_user.id)
-        label = next((p[1] for p in PAYMENT_PLANS if p[0] == req["plan_id"]), req["plan_id"])
+        label = plan_label(req["plan_id"])
         await safe_answer(cq, f"✅ Approved! {label} granted.", show_alert=True)
         try:
             await bot.send_message(
                 req["user_id"],
-                f"🎉 <b>Payment Approved!</b>\n"
-                f"Plan: <b>{label}</b>\nUntil: <code>{until_iso}</code>\n\n"
-                "Ab aap unlimited uses kar sakte hain!"
+                card("🎉", "Payment approved",
+                     f"💎 Plan: <b>{label}</b>\n"
+                     f"📅 Valid till: <b>{format_until(until_iso)}</b>\n"
+                     "♾️ Ab aap unlimited uses kar sakte hain!"),
+                reply_markup=K([[B("💎 My Plan", callback_data="pay:menu", style="success"),
+                                 B("🏠 Home", callback_data="menu:home", style="primary")]]),
             )
         except Exception:
             pass
@@ -516,19 +635,19 @@ async def cb_payment(bot, cq):
         if not Config.is_owner(cq.from_user.id):
             await safe_answer(cq, "Sirf owner!", show_alert=True)
             return
-        req_id = parts[2]
-        req = await db.get_payment_request(req_id)
-        if not req or req["status"] != "pending":
+        req_id = parts[2] if len(parts) > 2 else ""
+        req = await db.transition_payment_request(req_id, "rejected", cq.from_user.id)
+        if not req:
             await safe_answer(cq, "Request nahi mili ya already processed.", show_alert=True)
             return
-        await db.update_payment_request(req_id, "rejected", cq.from_user.id)
         await safe_answer(cq, "❌ Rejected.", show_alert=True)
         try:
             await bot.send_message(
                 req["user_id"],
-                "❌ <b>Payment Request Rejected</b>\n\n"
-                "Aapka payment request reject ho gaya. "
-                "Dobarra try karein ya owner se contact karein."
+                card("❌", "Payment request rejected",
+                     "Aapka payment request reject ho gaya.\n"
+                     "Dobara try karein ya owner se contact karein."),
+                reply_markup=K([[B("💎 Plans", callback_data="pay:menu", style="primary")]]),
             )
         except Exception:
             pass
@@ -542,34 +661,27 @@ async def cb_payment(bot, cq):
         await safe_answer(cq)
 
     elif action == "plan":
-        plan_id = parts[2]
-        label = next((p[1] for p in PAYMENT_PLANS if p[0] == plan_id), plan_id)
+        plan_id = parts[2] if len(parts) > 2 else ""
+        if plan_id not in _VALID_PLANS:
+            await safe_answer(cq, "Plan nahi mila.", show_alert=True)
+            return
+        label = plan_label(plan_id)
         price = await get_plan_price(plan_id)
         qr = await get_qr_code()
 
-        text = (
-            f"💳 <b>{label}</b>\n\n"
-            f"{LINE}\n"
-            f"💰 <b>Price:</b> <code>{price or '— not set —'}</code>\n"
-            f"{LINE}\n\n"
-        )
-
+        body = f"💰 Price: <b>{_esc(str(price or '— not set —'))}</b>\n\n"
         if qr:
-            text += (
-                "📸 <b>Payment Steps:</b>\n"
-                "1. Niche <b>📨 Request This Plan</b> button dabayein\n"
-                "2. QR code aapko DM mein bhej diya jayega\n"
-                "3. QR scan karke payment karein\n"
-                "4. Payment ka <b>screenshot</b> yahan bhejein\n"
-                "5. Owner approve karega — premium turant activate!\n\n"
-            )
+            body += ("<b>Kaise kharidein</b>\n"
+                     "<b>①</b> 📨 <b>Request This Plan</b> dabao\n"
+                     "<b>②</b> QR code DM me aayega — scan karke pay karo\n"
+                     "<b>③</b> Payment ka <b>screenshot</b> yahin bhejo\n"
+                     "<b>④</b> Owner approve karega — premium turant ON ✅")
         else:
-            text += (
-                "⚠️ QR code abhi set nahi hai. Owner se contact karein.\n\n"
-            )
+            body += "⚠️ QR code abhi set nahi hai. Owner se contact karein."
+        text = card("💎", label, body)
 
         kb_rows = []
-        kb_rows.append([B("📨 Request This Plan", callback_data=f"pay:request:{plan_id}")])
+        kb_rows.append([B("📨 Request This Plan", callback_data=f"pay:request:{plan_id}", style="success")])
         if PAYMENT_CONTACT_URL:
             kb_rows.append([B("💬 Contact Owner", url=PAYMENT_CONTACT_URL)])
         kb_rows.append([B("⬅ Back to Plans", callback_data="pay:menu")])
@@ -577,8 +689,11 @@ async def cb_payment(bot, cq):
         await safe_answer(cq)
 
     elif action == "request":
-        plan_id = parts[2]
-        label = next((p[1] for p in PAYMENT_PLANS if p[0] == plan_id), plan_id)
+        plan_id = parts[2] if len(parts) > 2 else ""
+        if plan_id not in _VALID_PLANS:
+            await safe_answer(cq, "Plan nahi mila.", show_alert=True)
+            return
+        label = plan_label(plan_id)
         price = await get_plan_price(plan_id)
         req_id = await db.create_payment_request(cq.from_user.id, plan_id)
 
@@ -601,29 +716,39 @@ async def cb_payment(bot, cq):
 
         # Ask user for screenshot (persist in DB for restart safety)
         pending = await _load_pending_ss()
-        pending[cq.from_user.id] = {"plan_id": plan_id, "request_id": req_id}
+        pending[str(cq.from_user.id)] = {"plan_id": plan_id, "request_id": req_id}
         await _save_pending_ss(pending)
 
         await edit_screen(cq.message,
-            f"📨 <b>Payment Request Created!</b>\n\n"
-            f"{LINE}\n"
-            f"💳 Plan: <b>{label}</b>\n"
-            f"💰 Price: <code>{price or '—'}</code>\n"
-            f"📋 Request ID: <code>{req_id}</code>\n"
-            f"{LINE}\n\n"
-            f"{'✅ QR code DM mein bhej diya!' if qr else '⚠️ QR set nahi hai.'}\n\n"
-            f"📸 <b>Ab payment ka screenshot yahan bhejein.</b>\n"
-            f"Owner ko screenshot bhej di jayegi aur approve/reject karega.",
+            card("📨", "Request created",
+                 f"💎 Plan: <b>{label}</b>\n"
+                 f"💰 Price: <b>{_esc(str(price or '—'))}</b>\n"
+                 f"🧾 Request ID: <code>{req_id}</code>\n\n"
+                 + ("✅ QR code DM me bhej diya.\n" if qr else "⚠️ QR set nahi hai — owner se contact karein.\n")
+                 + "📸 <b>Ab payment ka screenshot yahin bhejo.</b>",
+                 "Owner ko screenshot jayega, approve hote hi aapko message milega."),
             reply_markup=K([
-                [B("⬅ Plans", callback_data="pay:menu")],
-                [B("⬅ Home", callback_data="menu:home")],
+                [B("💎 Plans", callback_data="pay:menu", style="primary"),
+                 B("🏠 Home", callback_data="menu:home", style="primary")],
             ]))
         await safe_answer(cq, "Request sent! QR + screenshot instructions bheje!")
 
     elif action == "coupon":
-        await edit_screen(cq.message,
-            "🎟️ <b>Coupon Redeem</b>\n\n"
-            "Apna coupon code bhejein:\n"
-            "<code>.redeem &lt;code&gt;</code>",
-            reply_markup=K([[B("⬅ Back to Plans", callback_data="pay:menu")]]))
+        _AWAIT_CODE[cq.from_user.id] = time.time()
+        try:  # VC "typing mode" would otherwise swallow the code
+            from plugins import vc_tools as _vt
+            _vt._typing.pop(cq.from_user.id, None)
+        except Exception:
+            pass
+        await edit_screen(cq.message, _redeem_prompt_text(), reply_markup=_redeem_prompt_kb())
+        await safe_answer(cq, "Code bhejo 👇")
+
+    elif action == "coupon_cancel":
+        _AWAIT_CODE.pop(cq.from_user.id, None)
+        config = await get_payment_config()
+        await edit_screen(cq.message, await _user_plans_text(cq.from_user.id),
+                          reply_markup=user_payment_kb(config))
+        await safe_answer(cq, "Cancelled")
+
+    else:
         await safe_answer(cq)

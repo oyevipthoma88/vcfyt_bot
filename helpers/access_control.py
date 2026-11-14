@@ -225,39 +225,146 @@ async def revoke_premium_all(user_id: int) -> bool:
     return ok
 
 
+# ── Coupon redeem ─────────────────────────────────────────────────────
+# Rules (v84 root fix):
+#   1. Ek user (aur uske same-session linked IDs) ek code sirf EK baar.
+#   2. Total uses kabhi max_uses se zyada nahi (atomic counter).
+#   3. Ek hi code par parallel taps ek-ek karke process hote hain (lock).
+#   4. DB write fail ho to redeem refuse - kabhi "free" use nahi.
+#   5. Galat code ki guessing: 5 galat try / 10 min ke baad thodi der block.
+
+import asyncio as _asyncio
+import time as _time
+
+_REDEEM_LOCKS: dict = {}
+_REDEEM_FAILS: dict = {}
+REDEEM_MAX_FAILS = 5
+REDEEM_FAIL_WINDOW = 600  # seconds
+
+
+def _redeem_lock(code: str) -> "_asyncio.Lock":
+    lock = _REDEEM_LOCKS.get(code)
+    if lock is None:
+        lock = _REDEEM_LOCKS[code] = _asyncio.Lock()
+    return lock
+
+
+def _fail_wait(user_id: int) -> int:
+    """Seconds the user must wait before trying another code (0 = allowed)."""
+    now = _time.time()
+    hits = [t for t in _REDEEM_FAILS.get(user_id, []) if now - t < REDEEM_FAIL_WINDOW]
+    _REDEEM_FAILS[user_id] = hits
+    if len(hits) >= REDEEM_MAX_FAILS:
+        return int(REDEEM_FAIL_WINDOW - (now - hits[0])) + 1
+    return 0
+
+
+def _note_fail(user_id: int) -> None:
+    _REDEEM_FAILS.setdefault(user_id, []).append(_time.time())
+
+
+def plan_label(plan_id: str) -> str:
+    return next((p[1] for p in PAYMENT_PLANS if p[0] == plan_id), plan_id or "—")
+
+
+def format_until(until_iso) -> str:
+    """'2026-11-21T09:54:00+00:00' -> '21 Nov 2026, 03:24 PM IST'. Lifetime -> 'Lifetime'."""
+    dt = _parse_iso(str(until_iso or ""))
+    if not dt:
+        return "—"
+    if dt.year >= 9999:
+        return "Lifetime ♾️"
+    ist = dt.astimezone(timezone(timedelta(hours=5, minutes=30)))
+    return ist.strftime("%d %b %Y, %I:%M %p IST")
+
+
+def time_left(until_iso) -> str:
+    dt = _parse_iso(str(until_iso or ""))
+    if not dt:
+        return ""
+    if dt.year >= 9999:
+        return "kabhi khatam nahi hoga"
+    secs = int((dt - _now()).total_seconds())
+    if secs <= 0:
+        return "expired"
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        return f"{d} din {h} ghante"
+    if h:
+        return f"{h} ghante {m} min"
+    return f"{max(1, m)} min"
+
+
+def _fail(message: str, reason: str, plan=None) -> dict:
+    return {"ok": False, "reason": reason, "message": message, "plan": plan, "until": None}
+
+
 async def redeem_coupon(user_id: int, code: str, username: str = "", name: str = "") -> dict:
     code = (code or "").strip().upper()
-    if not code:
-        return {"ok": False, "message": "Coupon code likhein.", "plan": None}
+    if not code or len(code) > 64:
+        return _fail("Coupon code likhein.", "empty")
 
-    existing = await db.get_coupon(code)
-    if not existing:
-        return {"ok": False, "message": "Invalid coupon code.", "plan": None}
-    plan_id = existing.get("plan_id", "")
-    if not any(p[0] == plan_id for p in PAYMENT_PLANS):
-        return {"ok": False,
-                "message": f"Yeh coupon ek purane plan ka hai ({plan_id}). "
-                           "Owner se naya code lein.", "plan": plan_id}
+    wait = _fail_wait(user_id)
+    if wait:
+        return _fail(f"Bahut saare galat try ho gaye. {max(1, wait // 60)} min baad try karein.",
+                     "rate_limited")
 
-    coupon = await db.use_coupon(code)
-    if not coupon:
-        return {"ok": False, "message": "Yeh coupon already use ho chuka hai.", "plan": None}
-    plan_id = coupon.get("plan_id", plan_id)
-    try:
-        until_iso = await grant_premium(user_id, plan_id)
-    except ValueError:
+    async with _redeem_lock(code):
+        existing = await db.get_coupon(code)
+        if not existing:
+            _note_fail(user_id)
+            return _fail("Yeh coupon code galat hai. Spelling check karke dobara bhejein.",
+                         "invalid")
+        plan_id = existing.get("plan_id", "")
+        if not any(p[0] == plan_id for p in PAYMENT_PLANS):
+            return _fail(f"Yeh coupon ek purane plan ka hai ({plan_id}). Owner se naya code lein.",
+                         "bad_plan", plan_id)
+
         try:
-            await db.refund_coupon(code)
+            linked = await db.get_linked_user_ids(user_id)
         except Exception:
-            pass
-        return {"ok": False, "message": f"Unknown plan: {plan_id}", "plan": plan_id}
+            linked = []
+        ids = {int(user_id), *[int(x) for x in (linked or [])]}
+        try:
+            if await db.coupon_claimed_by_any(code, ids):
+                return _fail("Aap yeh coupon pehle hi redeem kar chuke ho. "
+                             "Ek code ek user sirf ek baar use kar sakta hai.",
+                             "already", plan_id)
+        except Exception:
+            return _fail("Server busy hai, 1 min baad try karein.", "error", plan_id)
+
+        status, coupon = await db.claim_coupon(code, user_id)
+        if status == db.COUPON_ALREADY:
+            return _fail("Aap yeh coupon pehle hi redeem kar chuke ho. "
+                         "Ek code ek user sirf ek baar use kar sakta hai.", "already", plan_id)
+        if status == db.COUPON_EXHAUSTED:
+            return _fail("Yeh coupon ki saari uses khatam ho chuki hain.", "exhausted", plan_id)
+        if status == db.COUPON_MISSING:
+            _note_fail(user_id)
+            return _fail("Yeh coupon code galat hai. Spelling check karke dobara bhejein.",
+                         "invalid")
+        if status != db.COUPON_OK:
+            return _fail("Server busy hai, 1 min baad try karein.", "error", plan_id)
+
+        plan_id = (coupon or {}).get("plan_id", plan_id)
+        try:
+            until_iso = await grant_premium(user_id, plan_id)
+        except Exception as exc:
+            logger.warning("grant after coupon %s failed for %s: %r", code, user_id, exc)
+            await db.release_coupon_claim(code, user_id)
+            return _fail("Premium activate nahi ho paya, coupon wapas kar diya. "
+                         "Thodi der baad try karein.", "error", plan_id)
+
     try:
         await db.log_redeem(code, plan_id, user_id, username, name)
     except Exception:
         pass
-    label = next((p[1] for p in PAYMENT_PLANS if p[0] == plan_id), plan_id)
-    return {"ok": True, "message": f"\u2705 Premium mil gaya! Plan: {label} Until: {until_iso}",
-            "plan": plan_id}
+    _REDEEM_FAILS.pop(user_id, None)
+    return {"ok": True, "reason": "ok", "plan": plan_id, "until": until_iso,
+            "message": f"✅ Premium mil gaya! Plan: {plan_label(plan_id)} · "
+                       f"Valid till: {format_until(until_iso)}"}
 
 
 async def get_qr_code() -> Optional[str]:
