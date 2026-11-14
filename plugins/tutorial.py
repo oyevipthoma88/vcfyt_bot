@@ -9,19 +9,20 @@ from helpers.logger_channel import log_command
 from plugins.ui import LINE, back_kb, edit_screen, safe_answer, source_button
 
 from plugins.ui import card as _card
-TUTORIAL_MENU_TEXT = _card("📘", "Help & tutorial",
-    "🚀 Naye ho? Pehle <b>Quick Start</b>\n"
-    "⚡ Awaaz tez chahiye? <b>.tez</b> bhejo\n"
-    "▶️ <b>Play & Queue</b> — audio control\n"
-    "🎚️ <b>Audio Settings</b> — live sound tuning\n"
-    "🗃️ <b>Library</b> — duplicate download se bacho",
-    "Poori info: <code>.help mic</code> · <code>.help ss</code> · <code>.help chat</code> · <code>.play ?</code>")
+TUTORIAL_MENU_TEXT = _card("📘", "Help & Tutorial",
+    "🚀 <b>Naye ho?</b> → <b>Quick Start</b> (2 min)\n"
+    "🎤 <b>Live Mic</b> → phone se bolo, VC me tez + saaf\n"
+    "▶️ <b>Play & Queue</b> → audio chalao\n"
+    "🎚️ <b>Audio Settings</b> → sound tuning\n"
+    "❓ <b>FAQ / Fixes</b> → koi dikkat? yahan dekho",
+    "Shortcut: <code>.help mic</code> · <code>.help ss</code> · <code>.play ?</code>")
 
 def tutorial_kb() -> K:
     rows = [
         [B("🎬 Video Tutorial (1 min)", callback_data="tut:video", style="success")],
         [B("🚀 Quick Start", callback_data="tut:quick"),
          B("🔐 Setup / Login", callback_data="tut:setup")],
+        [B("🎤 Live Mic — Web (tez + saaf)", callback_data="tut:livemic", style="success")],
         [B("▶️ Play & Queue", callback_data="tut:play"),
          B("🎚️ Audio Settings", callback_data="tut:effects")],
         [B("🗃️ Audio Library", callback_data="tut:library")],
@@ -33,12 +34,6 @@ def tutorial_kb() -> K:
          B("📜 All Commands", callback_data="tut:cmds")],
         [B("🏠 Home", callback_data="menu:home")],
     ]
-    try:
-        from helpers.feature_flags import live_mic_on
-        if live_mic_on():
-            rows.insert(5, [B("🎤 Live Mic", callback_data="tut:livemic")])
-    except Exception:
-        pass
     rows.extend(source_button())
     return K(rows)
 
@@ -46,17 +41,15 @@ SECTIONS = {
     "quick": (
         "🚀 <b>Quick Start — 2 minute setup</b>\n\n"
         f"{LINE}\n"
-        "1️⃣ <code>.start</code> → <b>🔐 Login</b> → phone, OTP aur 2FA complete karein.\n"
-        "2️⃣ Logged-in account ko target group mein add karein.\n"
-        "3️⃣ Group mein Voice Chat start karein.\n"
-        "4️⃣ Kisi bhi group/private chat mein audio/video ko reply karke <code>.play</code> bhejein; doosre group ke liye chat ID dein.\n"
-        "5️⃣ Loudness ke liye <code>.max</code>; normal control ke liye "
-        "<code>.volume</code> aur <code>.gain</code> (Audio Settings dekhein).\n"
-        "6️⃣ Live mic (VC Bridge) ke liye <code>.mic on</code>; awaaz badhani ho to <code>.mic loud</code> — Live Mic tutorial dekhein.\n"
-        "7️⃣ Repeat chahiye to track chalne ke baad <code>.loop</code>.\n"
+        "1️⃣ <code>.start</code> → <b>🔐 Start Setup</b> → phone, OTP (aur 2FA) bhejo.\n"
+        "2️⃣ Logged-in ID ko target group me add karo.\n"
+        "3️⃣ Group me <code>.setgc</code> bhejo <i>(sirf ek baar)</i>.\n"
+        "4️⃣ Group me Voice Chat start karo.\n"
+        "5️⃣ Audio pe reply karke <code>.play</code> — ya <b>🎤 Live Mic</b> se khud bolo.\n"
         f"{LINE}\n\n"
-        "🔊 Playback maximum practical loudness chain se process hota hai.\n"
-        "💡 Speech clarity ke liye echo off rakhein; music ke liye hi echo on karein."
+        "⚡ Sabse tez playback: <code>.tez</code> / <code>.max</code>\n"
+        "🎤 Live mic: <code>.mic on</code> → link Chrome me kholo → 🎙 dabao\n"
+        "🔁 Repeat: <code>.loop</code>  ·  ⏹ Band: <code>.stop</code>"
     ),
     "setup": (
         "🔐 <b>Setup — 4 steps</b>\n\n"
@@ -157,63 +150,47 @@ SECTIONS = {
     "boost": (
         "🔊 <b>Live Voice Boost</b>\n\n"
         f"{LINE}\n"
-        "<code>.myboost [1-20000]</code> — aapke logged-in account ki apni VC mic volume\n"
+        "<code>.myboost [1-20000]</code> — aapke logged-in account ki VC mic volume\n"
         "<code>.livegain [1-20000]</code> — wahi control\n"
-        "VC join/reconnect par saved value apne aap dobara lagti hai.\n"
+        "VC join/reconnect par saved value apne aap lagti hai.\n"
         f"{LINE}\n\n"
-        "🎤 <b>Live Mic (VC Bridge) ki awaaz</b> ke liye alag control hai:\n"
-        "<code>.mic loud</code> → <b>🚀 Drive</b> (0–20)\n"
-        "• 0–6 saaf • 7–10 bohot tez • 11–20 FIGHT (sabse tez, thodi phategi)\n"
-        "Ek tap: <b>💥 MAX</b> ya <b>⚔️ FIGHT</b>.\n\n"
-        "Detail ke liye <b>🎤 Live Mic</b> tutorial dekhein."
+        "🎤 <b>Web Live Mic</b> ki awaaz:\n"
+        "• Mic page par <b>MIC BOOST</b> slider (50–400%) — turant lagta hai\n"
+        "• <code>.micmode loudest</code> (default, sabse tez) / <code>.micmode clean</code>\n"
+        "• Level <b>green</b> rakho = tez + saaf"
     ),
     "livemic": (
-        "🎤 <b>Live Mic (VC Bridge) — apni aawaz VC me, loud + clear</b>\n\n"
+        "🎤 <b>Live Mic — phone se bolo, VC me TEZ + SAAF</b>\n\n"
         f"{LINE}\n"
-        "Aap ek <b>private group ki VC</b> me bolte ho. Spare ID wahan aapki "
-        "aawaz sunti hai, server par loudness chain (leveller, multiband, exciter, limiter) lagti hai, aur spare ID "
-        "<b>target group ki VC</b> me wahi aawaz loud bolti hai. Koi browser "
-        "link ya RTMP app nahi chahiye.\n\n"
+        "Aap phone ke <b>Chrome</b> me ek private page kholte ho aur bolte ho. "
+        "Bot ki ID wahi awaaz group VC me loud + clear bolti hai.\n\n"
         f"{LINE}\n"
-        "<b>👥 Kaun kya karta hai</b>\n"
-        "• <b>Main ID</b> — bot me login, private VC me bolti hai.\n"
-        "• <b>Spare ID</b> — private VC sunti hai, target VC me bolti hai.\n\n"
-        f"{LINE}\n"
-        "<b>▶ Setup — pehli baar</b>\n"
-        "1. Main ID se bot me login: Home → Login → Phone\n"
-        "2. Live Mic panel → 👥 Spare Mic Account → 📱 Phone se login\n"
-        "3. Ek private group banao — main ID + spare ID dono add karo\n"
-        "4. Target group me bhi dono ID ho\n"
-        "5. Dono groups me Voice Chat start karo\n"
-        "6. Bot DM: <code>.mic src -100PRIVATE</code>\n"
-        "7. Bot DM: <code>.mic chat -100TARGET</code>\n\n"
+        "<b>▶ Pehli baar (ek hi baar)</b>\n"
+        "1. Bot me login: Home → 🔐 Start Setup\n"
+        "2. <i>(Best)</i> Live Mic panel → 👥 Spare ID add karo — phir aap apni ID se VC sun bhi sakte ho\n"
+        "3. Target group set: <code>.mic chat -100xxxxxxxxxx</code>\n"
+        "4. Group me Voice Chat start karo\n\n"
         "<b>▶ Roz ka use</b>\n"
-        "1. Main ID se PRIVATE VC join karo, mic ON\n"
-        "2. Bot DM: <code>.mic on</code> (30 sec ke andar bolna shuru karo)\n"
-        "3. Band: <code>.mic off</code> • Spare ko bahar: <code>.mic leave</code>\n\n"
+        "1. <code>.mic on</code> ya Home → 🎤 Live Mic → <b>MIC ON</b>\n"
+        "2. <b>🎙 MIC KHOLO</b> button → <b>Chrome</b> me khulega\n"
+        "3. Bada 🎙 button dabao → <b>Allow</b> → bolo\n"
+        "4. Band: page par 🎙 dobara ya <code>.mic off</code>\n\n"
         f"{LINE}\n"
-        "<b>🔥 Awaaz badhana (fight me)</b>\n"
-        "<code>.mic loud</code> panel kholo → <b>🚀 Drive</b> = volume control.\n"
-        "• Default 6 = saaf + tez\n"
-        "• 7–10 = bohot tez\n"
-        "• 11–20 = FIGHT: sabse tez, awaaz thodi phategi (saamne wala barabar/tez ho tab)\n"
-        "• <b>💥 MAX</b> (14) / <b>⚔️ FIGHT</b> (20) ek tap me • text: <code>.mic loud 15</code>\n"
-        "• Zyada phate → Drive kam ya Clip SOFT • Bass 0 rakho (shabd tez aate hain)\n"
-        "Bridge chalte hue badlo — turant lagta hai.\n\n"
-        f"{LINE}\n"
-        "<b>🎚️ Presets</b>\n"
-        "<code>.mic on</code> = clean (default, sabse saaf) • <code>.mic on bass</code> • <code>echo</code> • <code>full</code>\n"
-        "Doosre target ke liye: <code>.mic on -1001234567890</code>\n\n"
-        f"{LINE}\n"
-        "<b>🪑 Spare ID</b>\n"
-        "<code>.spare join</code> • <code>.spare mute</code> / <code>.spare unmute</code> • <code>.spare leave</code>\n\n"
+        "<b>🔊 Sabse tez + saaf awaaz</b>\n"
+        "• 🎧 <b>Earphone lagao</b> (VC ki awaaz mic me wapas nahi aati)\n"
+        "• Mic muh se 3–5 cm door\n"
+        "• <b>MIC LEVEL</b> green rakho — red = <b>MIC BOOST</b> kam karo, dheemi = badhao\n"
+        "• Mode: ⚡ <b>FIGHT</b> (tez) · ✨ <b>CLEAN</b> (agar phate)\n"
+        "• Kisi ID ko group admin banao → 200% volume sabke liye\n"
+        "• Page khula rakho, screen lock mat karo\n\n"
         f"{LINE}\n"
         "<b>🩺 Problem → Fix</b>\n"
-        "• Bridge start nahi hua → private VC me main ID mic ON karke bolo, phir dobara <code>.mic on</code>\n"
-        "• Main ID target VC me na jaye — Telegram ek phone se ek hi VC chalata hai\n"
-        "• Koi sun nahi raha → spare ID target group me hai aur mute to nahi?\n"
-        "• Awaaz kam → <code>.mic loud</code> → Drive badhao; main ID group admin ho to spare ki volume 200% lock hoti hai\n"
-        "• Headphone lagayein — echo/feedback khatam"
+        "• <b>Permission block</b> → address bar 🔒 → Microphone → Allow → reload\n"
+        "• <b>Telegram ke andar mic nahi chala</b> → <b>Chrome me kholein</b> dabao\n"
+        "• <b>“Mic se awaaz nahi aa rahi”</b> → Telegram app me apna VC mic MUTE / leave karo\n"
+        "• <b>Koi sun nahi raha</b> → bot ki ID group me mute to nahi? <code>.mic status</code>\n"
+        "• <b>Echo aa raha</b> → page par 🔊 <b>Speaker</b> mode\n"
+        "• <b>Link expire</b> → fresh <code>.mic on</code>"
     ),
     "vc": (
         "🎛️ <b>VC Control</b>\n\n"
@@ -226,7 +203,7 @@ SECTIONS = {
         "<code>.vcinfo</code> — status\n"
         "<code>.stop</code> — VC chhod dein\n"
         "<code>.myboost</code> — apni live mic ko boost karein\n"
-        "<code>.mic loud</code> — Live Mic (Bridge) ki awaaz badhayein"
+        "<code>.micmode loudest|clean</code> — Live Mic ki awaaz ka mode"
     ),
     "multi": (
         "👥 <b>Multi-User</b>\n\n"
@@ -246,8 +223,10 @@ SECTIONS = {
         "A. Group mein VC on hai? Aapka logged-in account us group ka "
         "member hai? chat ID negative hai?\n\n"
         "<b>Q. Aavaj kam lagti hai?</b>\n"
-        "A. Playback: <code>.max</code> ya Audio Controls → MAX. Live mic: <code>.mic loud</code> → 🚀 Drive badhao "
-        "ya <code>.mic loud fight</code>. Echo off rakhein, bass 0 rakhein.\n\n"
+        "A. Playback: <code>.tez</code> / <code>.max</code>. Live mic: page par <b>MIC BOOST</b> badhao, "
+        "earphone lagao, mic 3–5 cm door, mode ⚡ FIGHT.\n\n"
+        "<b>Q. Live mic ki awaaz phat rahi / khar-khar?</b>\n"
+        "A. MIC LEVEL red hai to MIC BOOST kam karo, ya ✨ CLEAN mode.\n\n"
         "<b>Q. Kisi ki aavaj mute kaise karun?</b>\n"
         "A. Bot ab kisi ki aavaj kam/mute nahi karta — by design.\n"
         "\n<b>Q. Source Code button ka URL kaise badlein?</b>\n"
@@ -266,7 +245,7 @@ SECTIONS = {
         "🎚️ <b>Sound</b>\n<blockquote><code>.volume</code> <code>.gain</code> <code>.bass</code> <code>.treble</code>\n"
         "<code>.voice</code> <code>.boost</code> <code>.echo</code> <code>.echolvl</code> <code>.reset</code></blockquote>\n"
         "🎤 <b>Live mic</b>\n<blockquote><code>.mic on|off|leave|status</code>\n"
-        "<code>.mic src</code> <code>.mic chat</code> <code>.mic loud</code> <code>.livegain</code>\n"
+        "<code>.mic chat</code> <code>.micmode</code> <code>.livegain</code>\n"
         "<code>.micaccount</code> <code>.spare join|mute|unmute|leave</code></blockquote>\n"
         "🔗 <b>Multi-ID</b>\n<blockquote><code>.syncplay</code></blockquote>\n"
         "🏷️ <b>Tags & Library</b>\n<blockquote><code>.tag</code> <code>.untag</code> <code>.tags</code> <code>.audio</code> <code>.saveaudio</code></blockquote>\n"
@@ -287,14 +266,14 @@ _video_file_id = None  # pehli upload ke baad file_id cache — dobara upload na
 
 VIDEO_CAPTION = (
     "🎬 <b>Live Mic — 1 minute tutorial</b>\n\n"
-    "1️⃣ 🔐 Login  2️⃣ 👥 Spare ID  3️⃣ ⚡ Auto private group\n"
-    "4️⃣ 🎯 Target group  5️⃣ 🟢 Mic ON — bas!\n\n"
-    "👇 Shuru karne ke liye <b>🎤 Live Mic setup</b> dabao."
+    "1️⃣ 🔐 Login  2️⃣ 🎯 <code>.mic chat -100…</code>\n"
+    "3️⃣ 🟢 <code>.mic on</code>  4️⃣ Chrome me 🎙 dabao — bas!\n\n"
+    "👇 Shuru karne ke liye <b>🎤 Live Mic</b> dabao."
 )
 
 
 def _video_kb() -> K:
-    return K([[B("🎤 Live Mic setup", callback_data="brc:loud", style="success")],
+    return K([[B("🎤 Live Mic", callback_data="mic:panel", style="success")],
               [B("📘 Madad", callback_data="tut:menu", style="primary"),
                B("🏠 Home", callback_data="menu:home", style="primary")]])
 

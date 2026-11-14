@@ -441,7 +441,12 @@ class LiveMicSession:
                         del self._buf[:size]
                         self._dropped_bytes += size
                 if self._pending:
+                    # v83: leftover bytes go FIRST, but this tick's frame still
+                    # plays (old code skipped it -> buffer crept up = delay).
                     chunk, self._pending = self._pending, b""
+                    if playing and len(self._buf) >= size:
+                        chunk += bytes(self._buf[:size])
+                        del self._buf[:size]
                 elif playing and len(self._buf) >= size:
                     chunk = bytes(self._buf[:size])
                     del self._buf[:size]
@@ -1209,7 +1214,23 @@ class LiveMicSession:
                         continue
                     if text.startswith("rate:"):
                         try:
-                            await self.ensure_pipeline(int(float(text[5:])))
+                            new_rate = int(float(text[5:]))
+                            if (self.ffmpeg_proc is not None and 8000 <= new_rate <= 192000
+                                    and new_rate != int(self.input_rate or 48000)):
+                                # v83 ROOT FIX: reconnected page with a new
+                                # AudioContext rate -> chipmunk/slow voice.
+                                logger.info("Live mic rate change %s -> %s for user %s",
+                                            self.input_rate, new_rate, self.user_id)
+                                self.input_rate = new_rate
+                                self._voice_gate = None
+                                saved = self._ffmpeg_restarts
+                                self._ffmpeg_restarts = 0
+                                try:
+                                    await self._restart_ffmpeg(max_attempts=1)
+                                finally:
+                                    self._ffmpeg_restarts = saved
+                                continue
+                            await self.ensure_pipeline(new_rate)
                         except Exception as exc:
                             logger.error("Pipeline start failed for user %s: %s",
                                          self.user_id, exc)
@@ -1367,7 +1388,7 @@ def _default_pregain() -> int:
     try:
         return int(max(0, min(36, float(os.environ.get("LIVE_PREGAIN_DB", "") or 28))))
     except (TypeError, ValueError):
-        return 10
+        return 28
 
 
 def get_session(user_id: int) -> Optional[LiveMicSession]:
@@ -1661,6 +1682,9 @@ footer{margin-top:auto;padding-top:22px;color:#4b5064;font-size:.72rem;letter-sp
   <h3>MIC LEVEL</h3>
   <div class="vu"><i id="vuBar"></i></div>
   <div class="vurow"><span id="vuDb">-- dB</span><span id="vuHint">Mic band hai</span></div>
+  <h3 style="margin-top:14px">MIC BOOST <b id="boostVal" style="float:right;color:var(--acc)">200%</b></h3>
+  <div class="ctl" style="margin-top:0;padding:10px 12px"><input type="range" id="boostR" min="0.5" max="4" step="0.25" value="2" oninput="setBoost(this.value)" aria-label="Mic boost">
+  <small>Level <b style="color:#4ade80">GREEN</b> rakho. RED / CLIP = boost kam. Dheemi = boost zyada. Mic ON rehte hi turant lagta hai.</small></div>
   <h3 style="margin-top:14px">AWAAZ MODE</h3>
   <div class="chips">
     <button class="chip" id="mFight" onclick="setMode('boost','')">&#9889; FIGHT<small>Sabse tez</small></button>
@@ -1715,6 +1739,13 @@ try{localStorage.removeItem('vcfyt_mic');}catch(e){}
 ['loudR','crunchR'].forEach(function(id){var e=document.getElementById(id);
   if(e){var c=e.closest('.ctl,.row,label,div')||e;c.style.display='none';}});
 function syncCtl(st){}
+// v83 MIC BOOST: phone par hi live badlo (server restart nahi, gap nahi).
+function micBoost(){let v=2.0;try{const x=parseFloat(localStorage.getItem('vcfyt_boost'));if(x>=0.5&&x<=4)v=x;}catch(e){}return v;}
+function setBoost(v){v=Math.max(0.5,Math.min(4,parseFloat(v)||2));try{localStorage.setItem('vcfyt_boost',String(v));}catch(e){}
+  const b=document.getElementById('boostVal');if(b)b.textContent=Math.round(v*100)+'%';
+  if(nPre&&audioCtx){try{nPre.gain.setTargetAtTime(v,audioCtx.currentTime,0.05);}catch(e){nPre.gain.value=v;}}}
+function initBoost(){const r=document.getElementById('boostR');if(r){r.value=micBoost();setBoost(r.value);}}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initBoost);else initBoost();
 function sendCtl(){}
 
 // decoration: stars + eq bars
@@ -2098,7 +2129,10 @@ async function toggleMic() {
     // waiting for the socket first made some Android browsers refuse the mic.
     pending=[]; retries=0; firstFrameSeen=false;
     try {
-        audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+        const AC = window.AudioContext||window.webkitAudioContext;
+        // v83: 48 kHz = Telegram ka native rate (no resample = saaf awaaz).
+        try { audioCtx = new AC({ sampleRate: 48000, latencyHint: 'interactive' }); }
+        catch(e) { audioCtx = new AC(); }
         try { await audioCtx.resume(); } catch(e){}
         // Strict constraints (sampleRate/sampleSize) make some Android phones
         // throw OverconstrainedError, which looked like "permission denied".
@@ -2145,17 +2179,23 @@ async function toggleMic() {
             const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=FIGHT?150:80; hp.Q.value=0.707;
             const mud = audioCtx.createBiquadFilter(); mud.type='peaking'; mud.frequency.value=300; mud.Q.value=1; mud.gain.value=FIGHT?-3:0;
             const pres = audioCtx.createBiquadFilter(); pres.type='peaking'; pres.frequency.value=2700; pres.Q.value=1; pres.gain.value=FIGHT?6:0;
-            const pre = audioCtx.createGain(); pre.gain.value = FIGHT?4.0:2.0;
+            const pre = audioCtx.createGain(); pre.gain.value = micBoost();
             const comp = audioCtx.createDynamicsCompressor();
             comp.threshold.value=FIGHT?-22:0; comp.knee.value=6; comp.ratio.value=FIGHT?6:1;
             comp.attack.value=0.003; comp.release.value=0.12;
             const lim = audioCtx.createDynamicsCompressor();
             lim.threshold.value=-1; lim.knee.value=0; lim.ratio.value=20;
             lim.attack.value=0.001; lim.release.value=0.05;
+            // v83: soft-clip guard - DynamicsCompressor brick-wall nahi hota,
+            // peaks int16 me hard-clip hote the (phone par hi 'khar khar').
+            const sc = audioCtx.createWaveShaper();
+            const N=2048, curve=new Float32Array(N);
+            for(let i=0;i<N;i++){const x=i/(N-1)*2-1; curve[i]=Math.tanh(1.25*x)/Math.tanh(1.25)*0.95;}
+            sc.curve=curve; sc.oversample='4x';
             source.connect(hp); hp.connect(mud); mud.connect(pres); pres.connect(pre);
-            pre.connect(comp); comp.connect(lim);
+            pre.connect(comp); comp.connect(lim); lim.connect(sc);
             nPre = pre; nComp = lim;
-            source = lim;
+            source = sc;
         } catch(e){ nComp=nPre=null; }
     } catch (e) {
         const friendly = micErrorText(e);
@@ -2167,6 +2207,10 @@ async function toggleMic() {
 
     function useScriptProcessor(){
         if (scriptNode || !audioCtx || !source) return;
+        // v83 ROOT FIX: worklet + ScriptProcessor dono chal rahe the =
+        // har frame DO baar server ko jaata tha (atak/garbled, latency).
+        // Fallback lene se pehle worklet ko poori tarah hatao.
+        if (workletNode) { try{ workletNode.port.onmessage=null; workletNode.disconnect(); }catch(e){} workletNode=null; }
         scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
         scriptNode.onaudioprocess = (event) => {
             const input = event.inputBuffer.getChannelData(0);
@@ -2192,7 +2236,7 @@ async function toggleMic() {
             await audioCtx.audioWorklet.addModule(
                 URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' })));
             workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
-            workletNode.port.onmessage = (e) => push(e.data, myAttempt);
+            workletNode.port.onmessage = (e) => { if (!scriptNode) push(e.data, myAttempt); };
             source.connect(workletNode);
             workletNode.connect(silentSink);
             worklet = true;

@@ -13,18 +13,19 @@ def _reset_mode():
     v79._mode = old
 
 
-def test_live_mic_default_is_loudest_phone_band():
+def test_live_mic_default_is_loudest_clear_chain():
+    # v83: loudest = one soft-clip + brick-wall at -1.5 dBFS (no double tanh).
     v79._mode = None
     chain = ap.build_live_mic_filter(-0.3, loud=120)
     assert v79.get_mode() == "loudest"
-    assert "highpass=f=170" in chain and "lowpass=f=5200" in chain
-    assert "equalizer=f=2700:t=q:w=1:g=8" in chain
+    assert chain.count("asoftclip") <= 1
+    assert "limit=0.8400" in chain
 
 
-def test_clean_mode_uses_old_chain():
+def test_clean_mode_has_no_softclip():
     v79.set_mode("clean")
     chain = ap.build_live_mic_filter(-0.3, loud=120)
-    assert "highpass=f=170" not in chain
+    assert "asoftclip" not in chain and "alimiter" in chain
 
 
 def test_bad_mode_rejected():

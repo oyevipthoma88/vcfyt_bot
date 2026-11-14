@@ -9,7 +9,8 @@ def test_browser_disables_phone_processing():
 def test_fight_prechain_default_on():
     h = live_mic.LIVE_MIC_HTML
     assert 'get("boost") !== "clean"' in h
-    assert "pres.gain.value=FIGHT?6:0" in h and "pre.gain.value = FIGHT?4.0:2.0" in h
+    # v83: pre-amp = user MIC BOOST slider (default 2x) + soft-clip guard
+    assert "pres.gain.value=FIGHT?6:0" in h and "pre.gain.value = micBoost()" in h
 
 
 def test_mic_command_uses_web_mic():

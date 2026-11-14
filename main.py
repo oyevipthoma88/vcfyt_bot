@@ -201,6 +201,11 @@ async def main():
         await load_base_url()
     except Exception:
         pass
+    try:
+        from helpers.live_mic_v79 import load_mode as _load_mic_mode
+        await _load_mic_mode()
+    except Exception:
+        pass
 
     stored_source = await db.get_app_value("source_code_url")
     if stored_source is not None:

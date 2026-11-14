@@ -1392,6 +1392,7 @@ async def cb_mic(bot: Client, cq):
             try:
                 from helpers import live_mic_v79 as v79
                 v79.set_mode(rest[0])
+                await db.set_app_value("live_mic_loud_mode", rest[0])
                 await v79.restart_live_sessions()
             except Exception:
                 pass

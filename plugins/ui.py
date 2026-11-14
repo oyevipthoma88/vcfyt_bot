@@ -1,3 +1,4 @@
+import html as _html
 
 from enum import Enum
 from urllib.parse import urlparse
@@ -243,10 +244,10 @@ def _live_mic_on() -> bool:
 
 def home_text(name: str, logged_in: bool) -> str:
     mic = _live_mic_on()
-    feats = "🔊 Ultra-loud audio  ·  " + ("🎤 Live mic  ·  " if mic else "") + "🔗 Sync play"
+    feats = "🔊 Ultra-loud + clear  ·  " + ("🎤 Web live mic  ·  " if mic else "") + "🔗 Sync play"
     if logged_in:
         status = "🟢 <b>Connected</b>  ·  ready to fight"
-        last = ("🎤 <b>Live Mic</b> dabao ya audio pe reply → <code>.play</code>"
+        last = ("🎤 <b>Live Mic</b> dabao (Chrome me bolo) ya audio pe reply → <code>.play</code>"
                 if mic else "Audio pe reply karke <code>.play</code> bhejo")
         steps = (
             "<b>⚡ Quick start</b>\n"
@@ -265,7 +266,7 @@ def home_text(name: str, logged_in: bool) -> str:
     return (
         "🎧 <b>A P E X  ·  V C  F I G H T</b>\n"
         f"<code>{RULE}</code>\n"
-        f"<blockquote>👋 Hey <b>{name}</b>, welcome back!\n{feats}</blockquote>\n"
+        f"<blockquote>👋 Hey <b>{_html.escape(str(name))}</b>, welcome!\n{feats}</blockquote>\n"
         f"<b>Status</b>  {status}\n\n"
         f"{steps}\n"
         f"<code>{RULE}</code>\n"

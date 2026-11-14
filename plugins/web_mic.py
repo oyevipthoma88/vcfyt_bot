@@ -20,13 +20,14 @@ HELP = (
     "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
     "• <code>.mic off</code> — band  •  <code>.mic leave</code> — band + VC se bahar\n"
     "• <code>.mic status</code>  •  <code>.micmode loudest|clean</code>\n\n"
-    "<b>Sabse tez awaaz ke liye:</b>\n"
+    "<b>Sabse tez + saaf awaaz ke liye:</b>\n"
+    "• Page par <b>MIC BOOST</b> slider — MIC LEVEL green rakho\n"
     "• <b>Earphone/headset</b> lagao — VC ki awaaz mic me wapas nahi aati, boost full lagta hai\n"
     "• Phone mic muh se 3–5 cm door rakho\n"
     "• Page ko screen par khula rakho (lock mat karo)\n"
     "• Kisi ID ko group admin banao → 200% sabke liye\n"
     "<i>Echo aaye (speaker par) to link ke end me <code>&aec=1</code> jodo. "
-    "Phati lage to <code>&boost=clean</code>.</i>")
+    "Phati lage to page par ✨ CLEAN dabao ya MIC BOOST kam karo.</i>")
 
 
 async def _target(msg, uid):
@@ -121,25 +122,27 @@ async def web_mic_panel(uid: int):
         mm = "loudest"
     state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
         "🟡 Link khula, mic band" if s else "⚪ OFF")
-    text = ("🎤 <b>LIVE MIC — Web Browser</b>\n"
+    text = ("🎤 <b>LIVE MIC  ·  Web Browser</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
             f"Status : {state}\n"
-            f"🎯 Group : <code>{tgt or 'set nahi'}</code>\n"
-            f"🔊 Server mode : <b>{str(mm).upper()}</b>\n"
+            f"🎯 Group : <code>{tgt or 'set nahi — .mic chat -100…'}</code>\n"
+            f"🔊 Mode : <b>{'⚡ FIGHT (loudest)' if mm == 'loudest' else '✨ CLEAN'}</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "🎧 Earphone + mic 3–5 cm = sabse tez\n"
-            "📊 Page par MIC LEVEL green rakho")
+            "<b>Tez + saaf ke 3 rules</b>\n"
+            "🎧 Earphone lagao  ·  📏 mic 3–5 cm\n"
+            "📊 Page par MIC LEVEL <b>green</b> — MIC BOOST slider se set karo")
     rows = []
     if s or live:
         rows.append([B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
                      B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
     else:
         rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
-    rows.append([B("⚡ Mic LOUDEST", callback_data="mic:wmode:loudest",
+    rows.append([B("⚡ FIGHT (loudest)", callback_data="mic:wmode:loudest",
                    style="success" if mm == "loudest" else "primary"),
-                 B("✨ Mic CLEAN", callback_data="mic:wmode:clean",
+                 B("✨ CLEAN", callback_data="mic:wmode:clean",
                    style="success" if mm == "clean" else "primary")])
     rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
+                 B("📘 Tutorial", callback_data="tut:livemic", style="primary"),
                  B("❓ Help", callback_data="mic:whelp", style="primary")])
     rows.append([B("🌉 Old VC Bridge", callback_data="mic:bridge", style="primary"),
                  B("🏠 Home", callback_data="menu:home", style="primary")])

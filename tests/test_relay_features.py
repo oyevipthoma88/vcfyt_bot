@@ -175,8 +175,8 @@ class RelayFeatureTests(unittest.TestCase):
             out = os.path.join(d, "live.wav")
             subprocess.run(
                 ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-                 "-i", "anoisesrc=c=pink:d=5:a=0.05", "-af",
-                 "tremolo=f=3:d=0.9,lowpass=4000", "-ar", "48000", "-ac", "1", src],
+                 "-i", "aevalsrc='(0.5*sin(2*PI*150*t)+0.3*sin(2*PI*300*t)+0.15*sin(2*PI*900*t)+0.1*sin(2*PI*2500*t))*0.2':s=48000:d=5", "-af",
+                 "tremolo=f=3:d=0.9", "-ar", "48000", "-ac", "1", src],
                 check=True)
             subprocess.run(
                 ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src,
