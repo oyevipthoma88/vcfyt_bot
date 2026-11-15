@@ -14,6 +14,7 @@ Run:  python tests/test_live_mic_relay.py
 """
 
 import asyncio
+import json
 import math
 import os
 import re
@@ -124,6 +125,9 @@ class FakeState:
         self.live_relay = False
         self.recent_live_mic = False
         self.live_volume = 20000
+        self.hand_raised = False
+        self.ss_on = False
+        self.ss_error = ""
 
 
 class FakeCalls:
@@ -169,6 +173,23 @@ class FakeUVC:
 
     async def _peer(self, _chat_id):
         return object()
+
+    async def release_other_chats(self, _keep_chat_id):
+        return None
+
+    async def raise_hand(self, chat_id, raised=True):
+        self.state(chat_id).hand_raised = bool(raised)
+        return True
+
+    def ss_busy(self, _chat_id):
+        return False
+
+    async def set_screen_share(self, chat_id, on, image_path=None):
+        self.state(chat_id).ss_on = bool(on)
+        return True
+
+    async def send_vc_message(self, chat_id, text):
+        self.last_vc_message = (chat_id, text)
 
 
 vc_manager = types.ModuleType("helpers.vc_manager")
@@ -286,6 +307,7 @@ async def main():
     base = "http://127.0.0.1:8799"
 
     token = await lm.generate_token(USER_ID, CHAT_ID)
+    private_link_token = token
     session = aiohttp.ClientSession()
     try:
         # 1 --- first connection ------------------------------------------
@@ -355,14 +377,80 @@ async def main():
         check("still same session after settings change",
               lm.get_session(USER_ID) is live and not live._closed)
 
-        # 6 --- .mic off ----------------------------------------------------
-        await lm.stop_session(USER_ID)
+        # 6 --- authenticated browser controls -----------------------------
+        async def control(action, **payload):
+            await sock2.send_str("control:" + json.dumps({"action": action, **payload}))
+            for _ in range(10):
+                reply = await asyncio.wait_for(sock2.receive(), 5)
+                if isinstance(reply.data, str) and reply.data.startswith("control:"):
+                    return json.loads(reply.data[8:])
+            return {}
+
+        hand = await control("hand")
+        check("browser hand-raise control works",
+              hand.get("ok") and uvc.state(CHAT_ID).hand_raised)
+        screen = await control("screen")
+        check("browser screen-share control works",
+              screen.get("ok") and uvc.state(CHAT_ID).ss_on)
+        chat = await control("chat", text="Hello from live mic")
+        check("browser VC chat control works",
+              chat.get("ok") and uvc.last_vc_message == (CHAT_ID, "Hello from live mic"))
+        invalid_chat = await control("chat", text="   ")
+        check("empty VC chat is rejected", not invalid_chat.get("ok"))
+
+        # 7 --- intentional browser stop preserves the private link ----------
+        await sock2.send_str("stop")
         await asyncio.sleep(0.5)
-        check("session stopped", lm.get_session(USER_ID) is None)
-        check("token burned",
-              await database.db.get_app_value(f"live_mic_token_{USER_ID}") is None)
-        check("mic flag cleared", not uvc.chats[CHAT_ID].mic_enabled)
+        stopped = lm.get_session(USER_ID)
+        check("intentional browser stop closes the live session",
+              stopped is None or stopped._closed)
+        check("intentional browser stop keeps the link reusable",
+              await database.db.get_app_value(f"live_mic_token_{USER_ID}")
+              == f"{CHAT_ID}:{private_link_token.split(':', 2)[2]}")
         await sock2.close()
+        if stopped is not None:
+            await lm.stop_session(USER_ID)
+
+        sock3 = await session.ws_connect(f"{base}/ws/mic?token={private_link_token}")
+        reconnect_ready = await sock3.receive()
+        check("same private link starts a fresh live-mic session",
+              reconnect_ready.data == "ready")
+        await sock3.receive()  # settings
+        await sock3.send_str("stop")
+        for _ in range(30):
+            await asyncio.sleep(0.1)
+            if lm.get_session(USER_ID) is None or lm.get_session(USER_ID)._closed:
+                break
+        await sock3.close()
+        check("fresh session can also stop cleanly",
+              lm.get_session(USER_ID) is None or lm.get_session(USER_ID)._closed)
+        if lm.get_session(USER_ID) is not None:
+            await lm.stop_session(USER_ID)
+        check("browser stop still does not burn token",
+              await database.db.get_app_value(f"live_mic_token_{USER_ID}")
+              == f"{CHAT_ID}:{private_link_token.split(':', 2)[2]}")
+
+        # 8 --- explicit LEAVE cleans an active and a stale session ---------
+        # LEAVE must also work when the main user account is the relay.
+        active = lm.LiveMicSession(USER_ID, uvc, CHAT_ID, {}, relay=uvc)
+        lm._sessions[USER_ID] = active
+        uvc.state(CHAT_ID)
+        left_before = len(getattr(uvc.calls, "left", []))
+        check("active shared-account LEAVE reports a session",
+              await lm.stop_session(USER_ID, leave_vc=True))
+        check("active shared-account LEAVE exits the VC",
+              len(getattr(uvc.calls, "left", [])) == left_before + 1
+              and CHAT_ID not in uvc.chats)
+
+        # A worker restart loses the in-memory session but not VC membership.
+        uvc.state(CHAT_ID)
+        await database.db.set_app_value(f"mic_chat_{USER_ID}", str(CHAT_ID))
+        left_before = len(getattr(uvc.calls, "left", []))
+        check("LEAVE repairs stale VC membership without a session",
+              await lm.stop_session(USER_ID, leave_vc=True)
+              and len(getattr(uvc.calls, "left", [])) == left_before + 1)
+        check("stale LEAVE leaves the configured target VC", CHAT_ID not in uvc.chats)
+        await database.db.delete_app_value(f"live_mic_token_{USER_ID}")
 
         for reader in uvc.calls.readers:
             try:

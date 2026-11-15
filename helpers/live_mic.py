@@ -98,6 +98,9 @@ class LiveMicSession:
         self.ffmpeg_proc: Optional[asyncio.subprocess.Process] = None
         self._stderr_task: Optional[asyncio.Task] = None
         self._closed = False
+        self._stop_task: Optional[asyncio.Task] = None
+        self._leave_vc_requested = False
+        self._intentional_stop = False
         self._restarting = False
         self.created_vc = False
         self._received_bytes = 0
@@ -1242,7 +1245,15 @@ class LiveMicSession:
                             break
                         continue
                     if text == "stop":
+                        self._intentional_stop = True
                         break
+                    if text.startswith("control:"):
+                        try:
+                            payload = json.loads(text[len("control:"):])
+                        except (TypeError, ValueError):
+                            payload = None
+                        await self._handle_web_control(payload)
+                        continue
                     if text.startswith("settings:"):
                         try:
                             payload = json.loads(text[len("settings:"):])
@@ -1266,27 +1277,44 @@ class LiveMicSession:
             logger.error("WS loop error for user %s: %s", self.user_id, exc)
             self._chan_log("LIVE_MIC_WS_ERROR", {"Error": f"{type(exc).__name__}: {exc}"})
 
-    async def stop(self, leave_vc: bool = False):
-        """Stop the live mic relay and clean up all resources."""
-        if self._closed:
-            return
-        self._closed = True
+    async def stop(self, leave_vc: bool = False, revoke_token: bool = True):
+        """Stop once; concurrent OFF/LEAVE calls share cleanup and LEAVE escalates."""
+        if leave_vc:
+            self._leave_vc_requested = True
+        if self._stop_task is None:
+            if self._closed:
+                # A partially failed earlier cleanup must not make LEAVE a no-op.
+                if leave_vc and not self.shared_account:
+                    await unpark_relay(self.relay, self.chat_id)
+                return
+            self._closed = True
+            self._stop_task = asyncio.create_task(self._stop_impl(revoke_token))
+        try:
+            await asyncio.shield(self._stop_task)
+        finally:
+            # A LEAVE arriving after the stop task has already parked the relay
+            # still wins; never let the earlier OFF decision strand it in VC.
+            if leave_vc and not self.shared_account:
+                await unpark_relay(self.relay, self.chat_id)
+
+    async def _stop_impl(self, revoke_token: bool):
         logger.info("Live mic stopping user=%s chat=%s stats=%s",
                     self.user_id, self.chat_id, self._stats())
         self._chan_log("LIVE_MIC_STOPPED", {**self._stats(),
-                       "Left VC": "Yes" if leave_vc else "No"})
+                       "Left VC": "Yes" if self._leave_vc_requested else "No"})
 
-        st = self.uvc.chats.get(self.chat_id)
-        if st:
-            st.mic_enabled = False
-            st.mic_boost_user_id = None
-            st.live_relay = False
-            # Only reset is_playing/source_name if the live mic actually started.
-            # If it failed during init (0 bytes), preserve the current song/stream state!
-            if self._received_bytes > 0:
-                st.is_playing = False
-                st.source_name = "—"
-                st.recent_live_mic = True
+        # Clear both sides of a spare-account relay. Previously the browser
+        # session used to clear only the owner's state, leaving the relay UI stale.
+        for owner in {id(self.uvc): self.uvc, id(self.relay): self.relay}.values():
+            st = getattr(owner, "chats", {}).get(self.chat_id)
+            if st:
+                st.mic_enabled = False
+                st.mic_boost_user_id = None
+                st.live_relay = False
+                if self._received_bytes > 0:
+                    st.is_playing = False
+                    st.source_name = "—"
+                    st.recent_live_mic = True
 
         if self.ws and not self.ws.closed:
             try:
@@ -1295,33 +1323,79 @@ class LiveMicSession:
                 pass
 
         task = _grace_tasks.pop(self.user_id, None)
-        if task and not task.done():
+        if task and task is not asyncio.current_task() and not task.done():
             task.cancel()
 
-        # The one-time link dies with the session, so a stale page cannot
-        # silently re-open the mic later.
-        try:
-            from helpers.database import db
-            await db.delete_app_value(f"live_mic_token_{self.user_id}")
-        except Exception:
-            pass
+        # Burn only the token that created this session. A late cleanup from an
+        # old socket must never invalidate a newer .mic on link.
+        if revoke_token and self.token_secret:
+            try:
+                from helpers.database import db
+                key = f"live_mic_token_{self.user_id}"
+                if await db.get_app_value(key) == f"{self.chat_id}:{self.token_secret}":
+                    await db.delete_app_value(key)
+            except Exception:
+                pass
 
         await self._cleanup_resources()
 
-        # Spare account ko VC me hi baitha rehne do (mic icon OFF, silence
-        # stream) taaki wo normal user jaisa lage, bot jaisa aana-jaana nahi.
-        if not self.shared_account and self.relay.calls is not None:
-            if RELAY_STAY_IN_VC and not leave_vc:
+        # An explicit LEAVE must leave the selected VC even when the user's
+        # own account is also the relay. Previously the shared-account path
+        # skipped this branch, so the browser stopped but the account stayed.
+        if self.relay.calls is not None:
+            if self._leave_vc_requested:
+                await unpark_relay(self.relay, self.chat_id)
+            elif not self.shared_account and RELAY_STAY_IN_VC:
                 if not await park_relay(self.relay, self.chat_id):
                     logger.info("park failed, relay left VC %s", self.chat_id)
-            else:
-                await unpark_relay(self.relay, self.chat_id)
 
-        # Multi-spare: extra spare sessions are not registered here — never
-        # pop the user's main session when an extra one stops.
         if _sessions.get(self.user_id) is self:
             _sessions.pop(self.user_id, None)
         logger.info("Live mic session stopped for user %s", self.user_id)
+
+    async def _handle_web_control(self, payload):
+        """Authenticated controls carried on this session's token-validated socket."""
+        if not isinstance(payload, dict) or self._closed or not self.ws or self.ws.closed:
+            return
+        action = str(payload.get("action", ""))[:20]
+        result = {"action": action, "ok": False, "message": "Action not available"}
+        try:
+            if action == "hand":
+                state = self.relay.state(self.chat_id)
+                raised = not bool(getattr(state, "hand_raised", False))
+                fn = getattr(self.relay, "raise_hand", None)
+                ok = bool(fn and await fn(self.chat_id, raised))
+                result.update(ok=ok, on=bool(getattr(state, "hand_raised", False)),
+                              message=("Hand raised" if raised else "Hand lowered") if ok
+                              else "Could not change hand raise")
+            elif action == "screen":
+                state = self.relay.state(self.chat_id)
+                busy = getattr(self.relay, "ss_busy", None)
+                if busy and busy(self.chat_id):
+                    result["message"] = "Screen share is switching; try again shortly"
+                else:
+                    want = not bool(getattr(state, "ss_on", False))
+                    fn = getattr(self.relay, "set_screen_share", None)
+                    ok = bool(fn and await fn(self.chat_id, want, image_path="" if want else None))
+                    result.update(ok=ok, on=bool(getattr(state, "ss_on", False)),
+                                  message=("Screen share ON" if want else "Screen share OFF")
+                                  if ok else (getattr(state, "ss_error", "") or "Screen share failed"))
+            elif action == "chat":
+                text = payload.get("text", "")
+                text = "".join(ch for ch in str(text) if ch >= " " or ch in "\n\t").strip()
+                if not text:
+                    result["message"] = "Type a message first"
+                elif len(text) > 400:
+                    result["message"] = "Keep VC chat under 400 characters"
+                else:
+                    await self.relay.send_vc_message(self.chat_id, text)
+                    result.update(ok=True, message="Sent to VC chat")
+        except Exception as exc:
+            result["message"] = str(exc)[:180] or type(exc).__name__
+        try:
+            await self.ws.send_str("control:" + json.dumps(result))
+        except Exception:
+            pass
 
     async def _cleanup_resources(self):
         """Close only the live source; keep the userbot in the group VC."""
@@ -1470,7 +1544,7 @@ def _schedule_grace_stop(session: "LiveMicSession",
             return  # browser came back
         logger.info("Live mic reconnect window over for user %s — stopping",
                     session.user_id)
-        await session.stop()
+        await session.stop(revoke_token=False)
 
     old = _grace_tasks.pop(session.user_id, None)
     if old and not old.done():
@@ -1504,12 +1578,32 @@ async def create_session(user_id: int, uvc, chat_id: int, settings: dict,
 
 
 async def stop_session(user_id: int, leave_vc: bool = False) -> bool:
-    """Stop the live mic. With leave_vc=True the spare ID also leaves the VC."""
+    """Stop a live mic; LEAVE also repairs the target VC if the session is stale."""
     session = _sessions.get(user_id)
-    if not session:
+    if session:
+        await session.stop(leave_vc=leave_vc)
+        return True
+    if not leave_vc:
         return False
-    await session.stop(leave_vc=leave_vc)
-    return True
+
+    # A worker restart or failed websocket cleanup can leave the Telegram
+    # account in its target VC after the in-memory session has disappeared.
+    # The explicit LEAVE command is the recovery path for that stale state.
+    try:
+        from helpers.database import db
+        from helpers.vc_manager import session_manager
+        raw_chat_id = await db.get_app_value(f"mic_chat_{user_id}")
+        chat_id = int(raw_chat_id) if raw_chat_id else 0
+        relay = await session_manager.get_relay(user_id)
+        if relay is None:
+            relay = await session_manager.get(user_id)
+        if not chat_id or relay is None or getattr(relay, "calls", None) is None:
+            return False
+        return await unpark_relay(relay, chat_id)
+    except Exception as exc:
+        logger.warning("Stale live-mic LEAVE cleanup failed for user %s: %r",
+                       user_id, exc)
+        return False
 
 
 async def stop_all_for_chat(chat_id: int):
@@ -1678,6 +1772,14 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border:none;border-ra
 .btn{width:100%;padding:14px;border-radius:16px;border:1px solid var(--line2);background:var(--card);color:var(--text);font-weight:800;font-size:.9rem;cursor:pointer;
  display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .12s}
 .btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.web-controls{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.web-controls .btn{min-height:48px;padding:10px 8px;font-size:.8rem}
+.web-chat{display:flex;gap:8px;margin-top:10px}
+.web-chat input{flex:1;min-width:0;border:1px solid var(--line2);border-radius:13px;padding:12px;background:rgba(0,0,0,.35);color:var(--text);font:600 .86rem var(--body);outline:none}
+.web-chat input:focus{border-color:var(--acc)}
+.web-chat .btn{width:auto;padding:0 16px;min-height:44px}
+.control-note{margin-top:9px;color:var(--muted);font-size:.74rem;line-height:1.45;text-align:center}
 .btn.warn{margin-top:12px;background:var(--amber);border-color:transparent;color:#1a1000}
 .help{display:none;width:100%;margin-top:12px;padding:13px 14px;border-radius:16px;background:rgba(255,182,39,.07);border:1px solid rgba(255,182,39,.4);
  color:#ffd98a;font-size:.84rem;line-height:1.65;text-align:left}
@@ -1740,6 +1842,21 @@ footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:7
   <input type="range" id="boostR" min="0.5" max="4" step="0.25" value="2" oninput="setBoost(this.value)" aria-label="Mic boost">
   <div class="ticks"><span>50%</span><span>100%</span><span>200%</span><span>300%</span><span>400%</span></div>
   <p class="note">Level <b class="g">GREEN</b> rakho. <b class="r">RED / CLIP</b> = boost kam. Dheemi = boost zyada. Mic ON rehte hi turant lagta hai.</p>
+</section>
+
+<section class="card">
+  <div class="card-h"><h3>Live VC Controls</h3><span class="val" style="font-size:.75rem">LIVE</span></div>
+  <div class="web-controls">
+    <button id="handBtn" class="btn" onclick="sendControl('hand')" disabled>✋ Raise hand</button>
+    <button id="screenBtn" class="btn" onclick="sendControl('screen')" disabled>🖥 Live screen</button>
+    <button class="btn" onclick="sendControl('chat',{text:'❤️'})" disabled>❤️ React</button>
+    <button class="btn" onclick="sendControl('chat',{text:'👏'})" disabled>👏 React</button>
+  </div>
+  <form class="web-chat" onsubmit="sendChat(event)">
+    <input id="vcChatInput" maxlength="400" autocomplete="off" placeholder="Message in live VC chat" aria-label="Message in live VC chat" disabled>
+    <button id="chatSendBtn" class="btn" type="submit" disabled>Send</button>
+  </form>
+  <p id="controlNote" class="control-note" role="status" aria-live="polite">Connect mic to use VC controls.</p>
 </section>
 
 <section class="card">
@@ -1810,6 +1927,15 @@ function setBoost(v){v=Math.max(0.5,Math.min(4,parseFloat(v)||2));try{localStora
 function initBoost(){const r=document.getElementById('boostR');if(r){r.value=micBoost();setBoost(r.value);}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initBoost);else initBoost();
 function sendCtl(){}
+const controlEls=[...document.querySelectorAll('.web-controls button'),document.getElementById('vcChatInput'),document.getElementById('chatSendBtn')];
+function enableControls(on){controlEls.forEach(el=>{if(el)el.disabled=!on;});}
+function sendControl(action,extra={}){
+  if(!ws||ws.readyState!==1||!sendReady){controlNote('Reconnect to use VC controls.');return false;}
+  try{ws.send('control:'+JSON.stringify({action,...extra}));return true;}catch(e){controlNote('Could not send VC control.');return false;}
+}
+function sendChat(ev){ev.preventDefault();const input=document.getElementById('vcChatInput');const text=(input.value||'').trim();if(!text)return;
+  if(sendControl('chat',{text}))input.value='';}
+function controlNote(text){const el=document.getElementById('controlNote');if(el)el.textContent=text;}
 
 // decoration: stars + eq bars
 (function(){const s=document.getElementById('stars');for(let i=0;i<28;i++){const d=document.createElement('i');d.className='star';
@@ -1843,6 +1969,7 @@ function setStatus(t,c){statusEl.textContent=t;statusEl.className='status '+c;
 function closeSocket(sendStop){
   if(window._wsPingInterval){clearInterval(window._wsPingInterval);window._wsPingInterval=null;}
   const oldWs=ws; ws=null; sendReady=false;
+  enableControls(false);
   if(oldWs){
     oldWs.onclose=null; oldWs.onerror=null; oldWs.onmessage=null; oldWs.onopen=null;
     try{if(sendStop&&oldWs.readyState===1)oldWs.send('stop');}catch(e){}
@@ -2055,6 +2182,8 @@ function connectSocket(myAttempt){
             lastReadyAt = Date.now();
             while (pending.length) { try { socket.send(pending.shift()); } catch(e){ break; } }
             setStatus('LIVE - Mic ON', 'on');
+            enableControls(true);
+            controlNote('Hand raise, live screen, VC chat and reactions are ready.');
             // Do not send settings automatically on connect.  The server-side
             // settings path rebuilds FFmpeg; doing that after first audio used
             // to create an audible gap and could make the relay look dead on
@@ -2063,6 +2192,12 @@ function connectSocket(myAttempt){
             try { const st=JSON.parse(ev.data.slice(9)); syncCtl(st); } catch(e){}
         } else if (ev.data.startsWith('settings_failed:')) {
             /* ignored */
+        } else if (ev.data.startsWith('control:')) {
+            try{
+              const r=JSON.parse(ev.data.slice(8));controlNote(r.message||'Done');
+              if(r.action==='hand'&&r.ok){const b=document.getElementById('handBtn');b.textContent=r.on?'✋ Lower hand':'✋ Raise hand';}
+              if(r.action==='screen'&&r.ok){const b=document.getElementById('screenBtn');b.textContent=r.on?'🖥 Stop live screen':'🖥 Live screen';}
+            }catch(e){}
         } else if (ev.data.startsWith('warn:')) {
             setStatus(ev.data.slice(5), 'err');      // keep streaming
         } else if (ev.data.startsWith('ok:')) {
@@ -2079,6 +2214,7 @@ function connectSocket(myAttempt){
         if (attemptId!==myAttempt || socket!==ws || socket._fatal) return;
         if (window._wsPingInterval) { clearInterval(window._wsPingInterval); window._wsPingInterval=null; }
         sendReady = false;
+        enableControls(false);
         if (!isOn) return;
         // A socket that stayed up for a while is a healthy one: don't let
         // earlier blips count towards the give-up limit.
@@ -2428,20 +2564,37 @@ async def clear_stale_session(user_id: int) -> bool:
 
 
 async def reset_mic_state(uvc, user_id: int) -> None:
-    """Clear leftover mic flags (stale `mic_enabled` used to block `.mic on`)."""
+    """Clear owner and spare-relay mic flags left by a stale session."""
     await clear_stale_session(user_id)
-    for cid, st in list(getattr(uvc, "chats", {}).items()):
-        if not st.mic_enabled:
-            continue
-        if st.mic_boost_user_id and st.mic_boost_user_id != user_id:
-            continue
-        try:
-            await uvc.stop_mic_boost(cid)
-        except Exception:
-            pass
-        st.mic_enabled = False
-        st.mic_boost_user_id = None
-        st.live_relay = False
+    engines = [uvc]
+    try:
+        from helpers.vc_manager import session_manager
+        relay = await session_manager.get_relay(user_id)
+        if relay is not None and relay is not uvc:
+            engines.append(relay)
+    except Exception:
+        pass
+
+    seen = set()
+    for engine in engines:
+        for cid, st in list(getattr(engine, "chats", {}).items()):
+            if id(st) in seen:
+                continue
+            seen.add(id(st))
+            if not (getattr(st, "mic_enabled", False)
+                    or getattr(st, "live_relay", False)):
+                continue
+            boost_user = getattr(st, "mic_boost_user_id", None)
+            if boost_user and boost_user != user_id:
+                continue
+            if getattr(st, "mic_enabled", False):
+                try:
+                    await engine.stop_mic_boost(cid)
+                except Exception:
+                    pass
+            st.mic_enabled = False
+            st.mic_boost_user_id = None
+            st.live_relay = False
 
 
 async def _handle_index(request: web.Request) -> web.Response:
@@ -2539,13 +2692,16 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
             task.cancel()
         existing.ws = ws
         existing.token_secret = secret
+        existing._intentional_stop = False
         logger.info("Live mic socket reconnected for user %s", user_id)
         try:
             await ws.send_str("ready")
             await ws.send_str("settings:" + json.dumps(existing.public_settings()))
             await existing.run_ws_loop()
         finally:
-            if not existing._closed:
+            if existing._intentional_stop:
+                await existing.stop(revoke_token=False)
+            elif not existing._closed:
                 _schedule_grace_stop(existing)
             if not ws.closed:
                 await ws.close()
@@ -2558,6 +2714,7 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
         session = await create_session(user_id, uvc, chat_id, settings, relay=relay)
         session.ws = ws
         session.token_secret = secret
+        session._intentional_stop = False
         # "ready" goes out immediately so the browser can ask for the mic while
         # the user's tap is still fresh; FFmpeg starts when the browser reports
         # its real sample rate (rate:<hz>) or sends its first PCM frame.
@@ -2599,12 +2756,16 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
         if play_task and not play_task.done():
             play_task.cancel()
             await asyncio.gather(play_task, return_exceptions=True)
-        if session and session._started and session._received_bytes:
-            # Keep the relay (and the userbot's VC seat) alive for a short
-            # while so a dropped browser can simply reconnect.
+        if session and session._intentional_stop:
+            # Browser OFF is a clean pause, not revocation: the same private link
+            # can start a fresh session when the user taps ON again.
+            await session.stop(revoke_token=False)
+        elif session and session._started and session._received_bytes:
+            # A dropped page gets a reconnect window; after cleanup the same
+            # private link remains valid unless Telegram explicitly revoked it.
             _schedule_grace_stop(session)
         elif session:
-            await session.stop()
+            await session.stop(revoke_token=False)
         if not ws.closed:
             await ws.close()
     return ws
