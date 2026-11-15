@@ -18,6 +18,7 @@ def test_three_server_modes_have_safe_limiter_and_distinct_filters():
     assert "limit=0.7499" in chains["loudest"]
     assert "limit=0.7499" in chains["clean"]
     assert "limit=0.7499" in chains["warm"]
+    assert "volume=20dB" in chains["warm"]
     assert "speechnorm=e=25" in chains["loudest"]
     assert chains["clean"] != chains["loudest"]
     assert chains["warm"] != chains["clean"]

@@ -41,7 +41,7 @@ def _mode():
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg needed")
-@pytest.mark.parametrize("mode", ["loudest", "clean"])
+@pytest.mark.parametrize("mode", ["loudest", "clean", "warm"])
 def test_live_mic_loud_clear_and_opus_safe(mode):
     v79.set_mode(mode)
     lufs, tp, clip = _measure(ap.build_live_mic_filter())

@@ -105,7 +105,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
                     "equalizer=f=300:t=q:w=1:g=-2",
                     "equalizer=f=2500:t=q:w=1:g=3",
                     "equalizer=f=4200:t=q:w=1:g=1",
-                    "lowpass=f=9000", "volume=8dB",
+                    "lowpass=f=9000", "volume=20dB",
                     f"alimiter=level_in=1:level_out=1:limit={limit:.4f}:attack=1:release=50:level=false"]
         if ap._has_filter("asetnsamples"):
             filters.append(f"asetnsamples=n={ap.AUDIO_FRAME_SAMPLES}:p=0")
