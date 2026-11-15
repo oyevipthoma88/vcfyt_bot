@@ -156,7 +156,7 @@ SECTIONS = {
         f"{LINE}\n\n"
         "🎤 <b>Web Live Mic</b> ki awaaz:\n"
         "• Mic page par <b>MIC BOOST</b> slider (50–400%) — turant lagta hai\n"
-        "• <code>.micmode loudest</code> (default, sabse tez) / <code>.micmode clean</code>\n"
+        "• <code>.micmode loudest</code> (default) / <code>phone</code> / <code>bass</code>\n"
         "• Level <b>green</b> rakho = tez + saaf"
     ),
     "livemic": (
@@ -203,7 +203,7 @@ SECTIONS = {
         "<code>.vcinfo</code> — status\n"
         "<code>.stop</code> — VC chhod dein\n"
         "<code>.myboost</code> — apni live mic ko boost karein\n"
-        "<code>.micmode loudest|clean</code> — Live Mic ki awaaz ka mode"
+        "<code>.micmode loudest|phone|bass</code> — Live Mic ki awaaz ka mode"
     ),
     "multi": (
         "👥 <b>Multi-User</b>\n\n"

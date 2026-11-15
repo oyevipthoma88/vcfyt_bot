@@ -165,6 +165,6 @@ def test_mic_on_never_sends_unverified_link():
 
 def test_new_page_keeps_mic_controls():
     h = live_mic.LIVE_MIC_HTML
-    for el in ('id="toggleBtn"', 'id="vuBar"', 'id="boostR"', 'id="mFight"', 'id="mSpk"',
+    for el in ('id="toggleBtn"', 'id="vuBar"', 'id="boostR"', 'id="modeSeg"', 'id="mSpk"',
                'id="liveTimer"', 'id="tgBar"', 'id="permHelp"', 'id="retryBtn"'):
         assert el in h

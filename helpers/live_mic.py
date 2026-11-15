@@ -132,6 +132,12 @@ class LiveMicSession:
         self._underruns = 0
         self._jitter_target_ms = JITTER_TARGET_MS
         self._last_health_log = time.monotonic()
+        # v90: per-user sound mode (loudest|phone|bass, same as playback)
+        # and the browser screen / camera share feed (helpers.web_studio).
+        self.mic_mode: Optional[str] = None
+        self.screen_feed = None
+        self._chat_cache = None
+        self._vc_cache = None
 
     def _chan_log(self, event: str, details: Optional[dict] = None):
         """Live mic event -> console + LOG_CHANNEL (never raises)."""
@@ -169,7 +175,17 @@ class LiveMicSession:
             "clarity": int(s.get("clarity", 14) if s.get("clarity") is not None else 14),
             "loud": int(s.get("loud") or 120),
             "crunch": int(s.get("crunch", 0) or 0),
+            "mode": self.current_mode(),
+            "screen": (self.screen_feed.kind if self.screen_feed is not None
+                       and self.screen_feed.alive else ""),
         }
+
+    def current_mode(self) -> str:
+        try:
+            from helpers import live_mic_v79 as v79
+            return v79.normalize_mode(self.mic_mode or "") or v79.get_mode()
+        except Exception:
+            return "loudest"
 
     @staticmethod
     def sanitize_settings(data: dict) -> dict:
@@ -194,9 +210,13 @@ class LiveMicSession:
         # Fixed chain — no sliders, presets or saved settings can change it.
         from helpers.audio_processor import build_live_mic_filter
         self._pipeline_ceiling = self._ceiling_db()
-        return build_live_mic_filter(self._pipeline_ceiling,
-                                     loud=int(self.settings.get("loud") or 120),
-                                     crunch=int(self.settings.get("crunch", 0) or 0))
+        loud = int(self.settings.get("loud") or 120)
+        try:
+            return build_live_mic_filter(self._pipeline_ceiling, loud=loud,
+                                         crunch=int(self.settings.get("crunch", 0) or 0),
+                                         mode=self.current_mode())
+        except TypeError:   # older patched builder without `mode`
+            return build_live_mic_filter(self._pipeline_ceiling, loud=loud)
 
     def _ceiling_db(self) -> float:
         """Loudest clip-safe output peak for the current Telegram volume.
@@ -785,6 +805,24 @@ class LiveMicSession:
     async def _attach_stream(self):
         from pytgcalls.types import GroupCallConfig
         stream = self._media_stream()
+        # v90: browser screen / camera share from the mic page wins over the
+        # bot's rendered screen.  It rides the same call as the mic audio.
+        feed = getattr(self, "screen_feed", None)
+        if feed is not None and feed.alive:
+            from pytgcalls.types.raw import Stream
+            video = feed.video_stream()
+            kw = {"camera": video} if feed.kind == "camera" else {"screen": video}
+            try:
+                await self.relay.calls.play(
+                    self.chat_id, Stream(microphone=stream.microphone, **kw),
+                    GroupCallConfig(auto_start=False),
+                )
+                return
+            except Exception as exc:
+                logger.warning("live mic + browser %s refused (%r); audio only",
+                               feed.kind, exc)
+                self.screen_feed = None
+                feed.close()
         # SS FIX: starting the live mic replaced the whole call stream with a
         # mic-only one, so an active `.ss on` screen share silently vanished.
         # Keep the fake screen attached when it is ON for this chat.
@@ -1076,12 +1114,18 @@ class LiveMicSession:
         swaps FFmpeg on the same processed FIFO, so the VC stream stays alive
         (a ~0.2s blip at most).  The page only sends on slider release.
         """
-        # v41: chain is FIXED in code — users cannot change loudness.
-        return True
-        live = {}
+        # v90: only PUSH (`loud`) is live-tunable; everything else is fixed.
+        live = {k: v for k, v in changes.items() if k == "loud"}
+        if not live:
+            return True
         if all(int(self.settings.get(k, 0) or 0) == v for k, v in live.items()):
             return True
         self.settings.update(live)
+        try:
+            from helpers.database import db
+            await db.set_app_value(f"mic_push_{self.user_id}", str(live["loud"]))
+        except Exception:
+            pass
         if self._closed or self.ffmpeg_proc is None:
             return True
         saved = self._ffmpeg_restarts
@@ -1090,6 +1134,92 @@ class LiveMicSession:
             return await self._restart_ffmpeg(max_attempts=1)
         finally:
             self._ffmpeg_restarts = saved
+
+    async def set_mode(self, mode: str) -> str:
+        """Switch loudest/phone/bass for this user; FFmpeg swaps, VC stays."""
+        from helpers import live_mic_v79 as v79
+        m = v79.normalize_mode(mode)
+        if not m:
+            raise ValueError(mode)
+        changed = m != self.current_mode()
+        self.mic_mode = m
+        try:
+            from helpers.database import db
+            await db.set_app_value(f"mic_mode_{self.user_id}", m)
+        except Exception:
+            pass
+        if changed and not self._closed and self.ffmpeg_proc is not None:
+            saved = self._ffmpeg_restarts
+            self._ffmpeg_restarts = 0
+            try:
+                await self._restart_ffmpeg(max_attempts=1)
+            finally:
+                self._ffmpeg_restarts = saved
+        return m
+
+    async def set_screen_feed(self, feed) -> None:
+        """Attach a browser screen/camera feed to the live call stream."""
+        old = self.screen_feed
+        self.screen_feed = feed
+        try:
+            await self._attach_stream()
+        finally:
+            if old is not None and old is not feed:
+                old.close()
+
+    async def clear_screen_feed(self, feed=None) -> None:
+        cur = self.screen_feed
+        if cur is None or (feed is not None and cur is not feed):
+            if feed is not None:
+                feed.close()
+            return
+        self.screen_feed = None
+        try:
+            if not self._closed and self._started:
+                await self._attach_stream()
+        except Exception as exc:
+            logger.warning("live mic: audio-only re-attach failed: %r", exc)
+        finally:
+            cur.close()
+
+    async def _send(self, text: str) -> None:
+        try:
+            if self.ws is not None and not self.ws.closed:
+                await self.ws.send_str(text)
+        except Exception:
+            pass
+
+    async def _handle_studio(self, text: str) -> bool:
+        """Mic page extras: mode, chat, VC members.  True = handled."""
+        from helpers import web_studio
+        if text.startswith("mode:"):
+            try:
+                m = await self.set_mode(text[5:])
+                await self._send("mode:" + m)
+            except ValueError:
+                await self._send("mode:" + self.current_mode())
+            return True
+        if text.startswith("chat:"):
+            try:
+                await web_studio.send_chat(self, text[5:])
+                await self._send("chatok")
+                await self._send("chatlog:" + json.dumps(await web_studio.chat_history(self)))
+            except Exception as exc:
+                await self._send("chaterr:" + (str(exc) or type(exc).__name__)[:160])
+            return True
+        if text == "chatpull":
+            try:
+                await self._send("chatlog:" + json.dumps(await web_studio.chat_history(self)))
+            except Exception as exc:
+                await self._send("chaterr:" + (str(exc) or type(exc).__name__)[:160])
+            return True
+        if text == "vcpull":
+            try:
+                await self._send("vc:" + json.dumps(await web_studio.vc_members(self)))
+            except Exception:
+                await self._send("vc:[]")
+            return True
+        return False
 
     async def _restart_ffmpeg(self, max_attempts: int = 3) -> bool:
         """Relaunch FFmpeg after an unexpected exit, keeping the VC stream alive."""
@@ -1243,6 +1373,8 @@ class LiveMicSession:
                         continue
                     if text == "stop":
                         break
+                    if await self._handle_studio(text):
+                        continue
                     if text.startswith("settings:"):
                         try:
                             payload = json.loads(text[len("settings:"):])
@@ -1305,6 +1437,10 @@ class LiveMicSession:
             await db.delete_app_value(f"live_mic_token_{self.user_id}")
         except Exception:
             pass
+
+        feed, self.screen_feed = self.screen_feed, None
+        if feed is not None:
+            feed.close()
 
         await self._cleanup_resources()
 
@@ -1499,6 +1635,16 @@ async def create_session(user_id: int, uvc, chat_id: int, settings: dict,
             if _sessions.get(user_id) is existing:
                 _sessions.pop(user_id, None)
         session = LiveMicSession(user_id, uvc, chat_id, settings, relay=relay)
+        try:
+            from helpers.database import db
+            from helpers import live_mic_v79 as v79
+            session.mic_mode = v79.normalize_mode(
+                await db.get_app_value(f"mic_mode_{user_id}") or "") or None
+            push = await db.get_app_value(f"mic_push_{user_id}")
+            if push not in (None, ""):
+                session.settings["loud"] = max(0, min(200, int(float(push))))
+        except Exception:
+            pass
         _sessions[user_id] = session
         return session
 
@@ -1533,856 +1679,14 @@ _app: Optional[web.Application] = None
 _runner: Optional[web.AppRunner] = None
 
 
-LIVE_MIC_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#07080c">
-<meta name="robots" content="noindex,nofollow">
-<meta name="referrer" content="no-referrer">
-<title>Live Mic - Apex VC Fyt</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-:root{
- --bg:#07080c;--card:rgba(255,255,255,.035);--card2:rgba(255,255,255,.07);
- --line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.15);
- --text:#f4f5f8;--muted:#8d92a6;--dim:#50556a;
- --acc:#c6ff3d;--acc-ink:#0c1400;--acc-soft:rgba(198,255,61,.12);
- --live:#ff3b4f;--live-soft:rgba(255,59,79,.13);
- --amber:#ffb627;--amber-soft:rgba(255,182,39,.13);--cyan:#3de0ff;
- --display:'Unbounded',system-ui,sans-serif;
- --body:'Manrope',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
- --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
- --lvl:0}
-html,body{min-height:100%}
-body{font-family:var(--body);background:var(--bg);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased}
-button{font-family:inherit}
-/* backdrop */
-.bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
- background:radial-gradient(120% 60% at 50% -12%,#171c2a 0%,transparent 62%),radial-gradient(90% 50% at 50% 112%,#121c06 0%,transparent 62%),var(--bg)}
-.grid{position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.075) 1px,transparent 1.2px);background-size:22px 22px;
- mask-image:radial-gradient(ellipse at 50% 28%,#000 8%,transparent 68%);-webkit-mask-image:radial-gradient(ellipse at 50% 28%,#000 8%,transparent 68%)}
-.ambient-mic-blur{position:absolute;top:30%;left:50%;width:560px;height:560px;border-radius:50%;transform:translate(-50%,-50%);
- background:radial-gradient(circle,rgba(198,255,61,.11),rgba(61,224,255,.06) 42%,transparent 70%);
- filter:blur(60px);-webkit-filter:blur(60px);animation:amb 8s ease-in-out infinite alternate;transition:background .6s}
-body.live .ambient-mic-blur{background:radial-gradient(circle,rgba(255,59,79,.2),rgba(198,255,61,.09) 46%,transparent 72%)}
-@keyframes amb{from{opacity:.6;transform:translate(-50%,-50%) scale(.9)}to{opacity:1;transform:translate(-50%,-50%) scale(1.08)}}
-.star{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:0;animation:tw 5s infinite}
-@keyframes tw{50%{opacity:.5}}
-.wrap{position:relative;z-index:1;max-width:440px;margin:0 auto;display:flex;flex-direction:column;gap:14px;min-height:100vh;
- padding:calc(14px + env(safe-area-inset-top)) 16px calc(26px + env(safe-area-inset-bottom))}
-/* top bar */
-.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.brand{display:flex;align-items:center;gap:10px;min-width:0}
-.logo{flex:none;width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:var(--acc);color:var(--acc-ink);
- box-shadow:0 0 0 1px rgba(255,255,255,.12),0 8px 24px rgba(198,255,61,.22)}
-.logo svg{width:18px;height:18px;fill:currentColor}
-.brand b{display:block;font:800 .8rem var(--display);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
-.brand small{display:block;color:var(--muted);font-size:.72rem;font-weight:600;letter-spacing:.04em}
-.badge{flex:none;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:99px;border:1px solid var(--line2);
- background:var(--card);font:700 .66rem/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);transition:all .3s}
-.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
-body.busy .badge{color:var(--amber);border-color:rgba(255,182,39,.45);background:var(--amber-soft)}
-body.busy .badge .dot{background:var(--amber);animation:blink .8s infinite}
-body.live .badge{color:#fff;border-color:var(--live);background:var(--live);box-shadow:0 0 22px rgba(255,59,79,.45)}
-body.live .badge .dot{background:#fff;animation:blink 1s infinite}
-@keyframes blink{50%{opacity:.2}}
-.tgbar{display:none;align-items:center;gap:10px;padding:12px 12px 12px 14px;border-radius:16px;background:var(--amber-soft);
- border:1px solid rgba(255,182,39,.45);color:var(--amber);font-size:.84rem;font-weight:700;line-height:1.35}
-.tgbar.show{display:flex}.tgbar span{flex:1}
-.tgbar button{flex:none;border:0;border-radius:11px;padding:9px 12px;background:var(--amber);color:#1a1000;font-weight:800;font-size:.8rem;cursor:pointer}
-/* stage */
-.hero{position:relative;border-radius:30px;border:1px solid var(--line);padding:16px 14px 16px;display:flex;flex-direction:column;align-items:center;overflow:hidden;
- background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012))}
-.hero-top{width:100%;display:flex;justify-content:space-between;align-items:center;font:700 .68rem var(--mono);letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
-.timer{font:700 .8rem var(--mono);letter-spacing:.18em;color:var(--dim);transition:color .3s}
-body.live .timer{color:var(--live)}
-.stage{position:relative;width:min(300px,76vw);aspect-ratio:1/1;display:grid;place-items:center;margin:4px 0 2px}
-.mic-blur-bg{position:absolute;inset:20%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(198,255,61,.22),transparent 70%);
- filter:blur(30px);-webkit-filter:blur(30px);transform:scale(calc(1 + var(--lvl)*.55));transition:transform .12s,background .5s}
-body.live .mic-blur-bg{background:radial-gradient(circle,rgba(255,59,79,.5),rgba(198,255,61,.1) 60%,transparent 76%)}
-canvas#viz{position:absolute;inset:0;width:100%;height:100%}
-.ring{position:absolute;inset:3%;border-radius:50%;
- background:repeating-conic-gradient(rgba(255,255,255,.22) 0 .9deg,transparent .9deg 7.5deg);
- mask:radial-gradient(closest-side,transparent 93%,#000 94%,#000 99%,transparent 100%);
- -webkit-mask:radial-gradient(closest-side,transparent 93%,#000 94%,#000 99%,transparent 100%)}
-.ring.r2{inset:21%;background:none;border:1px dashed rgba(255,255,255,.1);mask:none;-webkit-mask:none;animation:spin 36s linear infinite}
-.ring.r3{inset:12%;background:none;border:1px solid rgba(255,255,255,.05);mask:none;-webkit-mask:none}
-@keyframes spin{to{transform:rotate(360deg)}}
-.pulse{position:absolute;inset:28%;border-radius:50%;border:2px solid var(--live);opacity:0;pointer-events:none}
-body.live .pulse{animation:pulse 2.4s ease-out infinite}
-body.live .pulse.p2{animation-delay:.8s}body.live .pulse.p3{animation-delay:1.6s}
-@keyframes pulse{0%{transform:scale(1);opacity:.65}100%{transform:scale(1.85);opacity:0}}
-.orb{position:relative;width:44%;aspect-ratio:1/1;border-radius:50%;border:none;cursor:pointer;display:grid;place-items:center;color:var(--text);
- background:radial-gradient(circle at 50% 28%,#2c3140,#12151d 72%);
- box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -12px 26px rgba(0,0,0,.55),0 0 0 9px rgba(255,255,255,.035),0 26px 60px rgba(0,0,0,.7);
- transition:transform .15s,background .35s,box-shadow .35s;transform:scale(calc(1 + var(--lvl)*.08))}
-.orb:active{transform:scale(.93)}
-.orb:focus-visible{outline:2px solid var(--acc);outline-offset:6px}
-.orb-glow{position:absolute;inset:-12px;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .4s;
- background:conic-gradient(from 0deg,transparent 0 55%,rgba(198,255,61,.75) 80%,transparent 100%);
- mask:radial-gradient(closest-side,transparent 86%,#000 88%,#000 100%);-webkit-mask:radial-gradient(closest-side,transparent 86%,#000 88%,#000 100%)}
-body:not(.live):not(.busy) .orb-glow{opacity:1;animation:spin 3.2s linear infinite}
-body.live .orb-glow{opacity:1;background:radial-gradient(closest-side,transparent 80%,rgba(255,255,255,.55));animation:none}
-.orb svg{position:relative;width:36%;height:36%;fill:currentColor}
-body.live .orb{background:radial-gradient(circle at 50% 28%,#ff7381,#d8122a 72%);color:#fff;
- box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 0 0 9px rgba(255,59,79,.16),0 0 calc(30px + var(--lvl)*90px) rgba(255,59,79,.62)}
-body.busy .orb{background:radial-gradient(circle at 50% 28%,#ffd677,#e08700 72%);color:#1a1000;animation:breathe 1.2s ease-in-out infinite}
-@keyframes breathe{50%{box-shadow:0 0 0 12px rgba(255,182,39,.16),0 0 60px rgba(255,182,39,.5)}}
-.tap{font:800 .7rem var(--display);letter-spacing:.26em;text-transform:uppercase;color:var(--muted);margin-top:4px}
-body.live .tap{color:#ff8b97}
-.status{margin-top:14px;width:100%;padding:12px 14px;border-radius:16px;font-weight:700;font-size:.93rem;text-align:center;line-height:1.4;transition:all .25s}
-.status.off{background:var(--card);color:var(--muted);border:1px solid var(--line)}
-.status.on{background:var(--acc-soft);color:var(--acc);border:1px solid rgba(198,255,61,.42)}
-.status.err{background:var(--live-soft);color:#ff8d99;border:1px solid rgba(255,59,79,.5)}
-.status.connecting{background:var(--amber-soft);color:var(--amber);border:1px solid rgba(255,182,39,.45)}
-.save{font-size:.78rem;font-weight:700;color:var(--acc);min-height:14px;text-align:center;margin-top:6px}
-/* cards */
-.card{border-radius:22px;border:1px solid var(--line);background:var(--card);padding:16px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-.card-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
-.card-h h3{font:800 .64rem var(--display);letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
-.card-h .val{font:700 1.15rem var(--mono);color:var(--acc)}
-.vu{position:relative;height:20px;border-radius:7px;background:rgba(255,255,255,.05);overflow:hidden}
-.vu i{position:absolute;left:0;top:0;bottom:0;width:0;transition:width .06s;
- background:linear-gradient(90deg,var(--acc) 0%,var(--acc) 62%,var(--amber) 80%,var(--live) 100%);background-size:min(406px,calc(100vw - 66px)) 100%}
-.vu::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 8px,rgba(7,8,12,.9) 8px 11px)}
-.vurow{display:flex;justify-content:space-between;gap:10px;margin-top:9px;font:700 .8rem var(--mono)}
-#vuDb{color:var(--text)}#vuHint{color:var(--muted);text-align:right}
-#vuHint.q{color:var(--amber)}#vuHint.g{color:var(--acc)}#vuHint.c{color:var(--live)}
-.eq{display:flex;gap:3px;align-items:flex-end;height:30px;margin-top:12px}
-.eq i{flex:1;display:block;border-radius:2px;height:4px;background:linear-gradient(var(--cyan),var(--acc));opacity:.85;transition:height .08s}
-input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:99px;outline:none;margin:6px 0 2px;
- background:linear-gradient(90deg,var(--acc) 0 var(--fill,43%),rgba(255,255,255,.09) var(--fill,43%) 100%)}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:#fff;cursor:pointer;
- box-shadow:0 0 0 5px rgba(198,255,61,.22),0 4px 12px rgba(0,0,0,.6)}
-input[type=range]::-moz-range-thumb{width:28px;height:28px;border:none;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 0 5px rgba(198,255,61,.22)}
-.ticks{display:flex;justify-content:space-between;margin-top:8px;font:600 .66rem var(--mono);color:var(--dim)}
-.note{margin-top:12px;font-size:.8rem;line-height:1.55;color:var(--muted)}
-.note b{color:var(--text)}.note .g{color:var(--acc)}.note .r{color:var(--live)}
-.seg-label{font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 8px}
-.seg-label+.seg{margin-bottom:14px}.seg:last-child{margin-bottom:0}
-.seg{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:5px;border-radius:17px;background:rgba(0,0,0,.38);border:1px solid var(--line)}
-.chip{border:0;border-radius:13px;padding:11px 6px;background:transparent;color:var(--muted);font-weight:800;font-size:.92rem;cursor:pointer;
- display:flex;flex-direction:column;align-items:center;gap:2px;transition:background .2s,color .2s,box-shadow .2s}
-.chip small{font-weight:600;font-size:.7rem;color:var(--dim)}
-.chip.act{background:var(--card2);color:var(--text);box-shadow:inset 0 0 0 1px var(--line2),0 6px 16px rgba(0,0,0,.35)}
-.chip.act small{color:var(--acc)}
-.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.f{border-radius:16px;border:1px solid var(--line);background:var(--card);padding:12px 6px;text-align:center}
-.f b{display:block;font:700 .9rem var(--mono);color:var(--text)}
-.f small{display:block;margin-top:2px;color:var(--muted);font-size:.68rem;font-weight:600}
-.btn{width:100%;padding:14px;border-radius:16px;border:1px solid var(--line2);background:var(--card);color:var(--text);font-weight:800;font-size:.9rem;cursor:pointer;
- display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .12s}
-.btn:active{transform:scale(.97)}
-.btn.warn{margin-top:12px;background:var(--amber);border-color:transparent;color:#1a1000}
-.help{display:none;width:100%;margin-top:12px;padding:13px 14px;border-radius:16px;background:rgba(255,182,39,.07);border:1px solid rgba(255,182,39,.4);
- color:#ffd98a;font-size:.84rem;line-height:1.65;text-align:left}
-.help.show{display:block}.help b{color:#fff}.help ol{margin:6px 0 0 18px}.help li{margin:3px 0}
-.help code{font-family:var(--mono);font-size:.8rem;color:#fff}
-details{border-radius:20px;border:1px solid var(--line);background:var(--card);padding:14px 16px}
-summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:.92rem}
-summary::-webkit-details-marker{display:none}
-summary::after{content:"+";font:700 1.1rem var(--mono);color:var(--muted);transition:transform .2s}
-details[open] summary::after{transform:rotate(45deg)}
-.steps{list-style:none;counter-reset:s;margin-top:12px;display:flex;flex-direction:column;gap:10px}
-.steps li{counter-increment:s;display:flex;gap:10px;font-size:.86rem;line-height:1.5;color:var(--muted)}
-.steps li::before{content:counter(s);flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--card2);color:var(--acc);font:700 .72rem var(--mono)}
-.steps b{color:var(--text)}
-footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:700 .64rem var(--mono);letter-spacing:.2em;text-transform:uppercase}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-</style>
-</head>
-<body>
-<div class="bg"><div class="grid"></div><div class="ambient-mic-blur"></div><div id="stars"></div></div>
-<main class="wrap">
-<header class="top">
-  <div class="brand">
-    <div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></div>
-    <div><b>Apex VC Fyt</b><small>Live Mic Studio</small></div>
-  </div>
-  <span class="badge"><span class="dot"></span><span id="badgeTxt">Offline</span></span>
-</header>
+def _load_page() -> str:
+    """v90 Web Studio page (mic + screen/camera share + VC chat + members)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_mic_page.html")
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
 
-<div id="tgBar" class="tgbar"><span>Telegram ka browser mic block karta hai. Chrome me kholein.</span><button onclick="openInChrome()">Chrome</button></div>
 
-<section class="hero">
-  <div class="hero-top"><span>VC Relay</span><span class="timer" id="liveTimer">00:00</span></div>
-  <div class="stage">
-    <div class="mic-blur-bg"></div>
-    <canvas id="viz" width="580" height="580"></canvas>
-    <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
-    <div class="pulse"></div><div class="pulse p2"></div><div class="pulse p3"></div>
-    <button id="toggleBtn" class="orb" onclick="toggleMic()" aria-label="Mic ON / OFF">
-      <div class="orb-glow"></div>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
-    </button>
-  </div>
-  <div class="tap" id="tapTxt">Tap to go live</div>
-  <div id="status" class="status off" role="status" aria-live="polite">Mic OFF</div>
-  <div class="save" id="saveNote"></div>
-  <button id="retryBtn" class="btn warn" style="display:none" onclick="retryMic()">Permission dene ke baad - Dobara try karein</button>
-  <div id="permHelp" class="help"></div>
-</section>
-
-<section class="card">
-  <div class="card-h"><h3>Mic Level</h3><span id="vuDb" class="val">-- dB</span></div>
-  <div class="vu"><i id="vuBar"></i></div>
-  <div class="vurow"><span>-50</span><span id="vuHint">Mic band hai</span></div>
-  <div class="eq" id="eq"></div>
-</section>
-
-<section class="card">
-  <div class="card-h"><h3>Mic Boost</h3><b id="boostVal" class="val">200%</b></div>
-  <input type="range" id="boostR" min="0.5" max="4" step="0.25" value="2" oninput="setBoost(this.value)" aria-label="Mic boost">
-  <div class="ticks"><span>50%</span><span>100%</span><span>200%</span><span>300%</span><span>400%</span></div>
-  <p class="note">Level <b class="g">GREEN</b> rakho. <b class="r">RED / CLIP</b> = boost kam. Dheemi = boost zyada. Mic ON rehte hi turant lagta hai.</p>
-</section>
-
-<section class="card">
-  <div class="card-h"><h3>Awaaz Mode</h3></div>
-  <p class="seg-label">Sound</p>
-  <div class="seg">
-    <button class="chip" id="mFight" onclick="setMode('boost','')">&#9889; FIGHT<small>Sabse tez</small></button>
-    <button class="chip" id="mClean" onclick="setMode('boost','clean')">&#10024; CLEAN<small>Phate to</small></button>
-  </div>
-  <p class="seg-label">Output</p>
-  <div class="seg">
-    <button class="chip" id="mEar" onclick="setMode('aec','')">&#127911; Earphone<small>Max loud</small></button>
-    <button class="chip" id="mSpk" onclick="setMode('aec','1')">&#128266; Speaker<small>Echo band</small></button>
-  </div>
-</section>
-
-<div class="feat">
-  <div class="f"><b>48k</b><small>Native rate</small></div>
-  <div class="f"><b>20ms</b><small>Low latency</small></div>
-  <div class="f"><b>MAX</b><small>Ultra loud</small></div>
-</div>
-
-<button id="chromeBtn" class="btn" onclick="openInChrome()">Chrome me kholein (link copy ho jayega)</button>
-
-<details>
-  <summary>Kaise use karein</summary>
-  <ol class="steps">
-    <li><span>Group me pehle <b>Voice Chat start</b> karein.</span></li>
-    <li><span>Telegram me <b>.mic on</b> bhejein aur link <b>Chrome</b> me kholein.</span></li>
-    <li><span>Beech wala <b>mic button</b> dabayein aur permission <b>Allow</b> karein.</span></li>
-    <li><span>Telegram app ka apna mic <b>mute</b> rakhein - awaaz isi page se jaati hai.</span></li>
-    <li><span><b>MIC LEVEL</b> green rahe to best. Red = phat rahi, <b>CLEAN</b> dabao.</span></li>
-    <li><span>Rokne ke liye mic button dobara dabayein ya <b>.mic off</b> bhejein.</span></li>
-  </ol>
-</details>
-<footer>Private link &bull; Share mat karna</footer>
-</main>
-
-<script>
-let ws=null, audioCtx=null, mediaStream=null, source=null, workletNode=null,
-    scriptNode=null, analyser=null, silentSink=null;
-let isOn=false, readyTimer=null, firstFrameTimer=null, retryTimer=null;
-// No controls: the phone sends a clean signal, the server makes it loud+clear.
-let nComp=null, nPre=null;
-const CTL_VERSION = 25;
-let attemptId=0, firstFrameSeen=false, pending=[], sendReady=false,
-    retries=0, captureRate=48000;
-const MAX_RETRIES=600;          // ~30+ min of retrying instead of giving up
-let lastFrameAt=0, wakeLock=null, watchdogTimer=null, lastReadyAt=0;
-const statusEl=document.getElementById('status');
-const btnEl=document.getElementById('toggleBtn');
-const noteEl=document.getElementById('saveNote');
-const tapEl=document.getElementById('tapTxt');
-const badgeEl=document.getElementById('badgeTxt');
-const TOKEN=new URLSearchParams(location.search).get('token');
-try{localStorage.removeItem('vcfyt_ctl');}catch(e){}
-try{localStorage.removeItem('vcfyt_mic');}catch(e){}
-// v41: loudness FIXED in code — sliders hidden, nothing sent.
-['loudR','crunchR'].forEach(function(id){var e=document.getElementById(id);
-  if(e){var c=e.closest('.ctl,.row,label,div')||e;c.style.display='none';}});
-function syncCtl(st){}
-// v83 MIC BOOST: phone par hi live badlo (server restart nahi, gap nahi).
-function micBoost(){let v=2.0;try{const x=parseFloat(localStorage.getItem('vcfyt_boost'));if(x>=0.5&&x<=4)v=x;}catch(e){}return v;}
-function setBoost(v){v=Math.max(0.5,Math.min(4,parseFloat(v)||2));try{localStorage.setItem('vcfyt_boost',String(v));}catch(e){}
-  const b=document.getElementById('boostVal');if(b)b.textContent=Math.round(v*100)+'%';
-  const rr=document.getElementById('boostR');if(rr)rr.style.setProperty('--fill',((v-0.5)/3.5*100).toFixed(1)+'%');
-  if(nPre&&audioCtx){try{nPre.gain.setTargetAtTime(v,audioCtx.currentTime,0.05);}catch(e){nPre.gain.value=v;}}}
-function initBoost(){const r=document.getElementById('boostR');if(r){r.value=micBoost();setBoost(r.value);}}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initBoost);else initBoost();
-function sendCtl(){}
-
-// decoration: stars + eq bars
-(function(){const s=document.getElementById('stars');for(let i=0;i<28;i++){const d=document.createElement('i');d.className='star';
-d.style.left=Math.random()*100+'%';d.style.top=Math.random()*100+'%';d.style.animationDelay=(Math.random()*4)+'s';s.appendChild(d);}
-const eq=document.getElementById('eq');for(let i=0;i<24;i++)eq.appendChild(document.createElement('i'));})();
-const eqBars=[...document.querySelectorAll('#eq i')];
-const viz=document.getElementById('viz'), vctx=viz.getContext('2d');
-function drawViz(data){
-  const W=viz.width,H=viz.height,cx=W/2,cy=H/2;vctx.clearRect(0,0,W,H);
-  const n=64,r0=160;
-  for(let i=0;i<n;i++){
-    const v=data?data[i%data.length]/255:0;const a=i/n*Math.PI*2;const len=6+v*110;
-    const x1=cx+Math.cos(a)*r0,y1=cy+Math.sin(a)*r0,x2=cx+Math.cos(a)*(r0+len),y2=cy+Math.sin(a)*(r0+len);
-    const g=vctx.createLinearGradient(x1,y1,x2,y2);g.addColorStop(0,'rgba(198,255,61,.95)');g.addColorStop(1,v>.7?'#ff3b4f':'#3de0ff');
-    vctx.strokeStyle=g;vctx.lineWidth=5;vctx.lineCap='round';vctx.beginPath();vctx.moveTo(x1,y1);vctx.lineTo(x2,y2);vctx.stroke();
-  }
-}
-drawViz(null);
-
-let liveSince=0, liveTick=null;
-function paintTimer(){const el=document.getElementById('liveTimer');if(!el)return;
-  const s=liveSince?Math.floor((Date.now()-liveSince)/1000):0;
-  el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
-function stopTimer(){liveSince=0;if(liveTick){clearInterval(liveTick);liveTick=null;}paintTimer();}
-function setStatus(t,c){statusEl.textContent=t;statusEl.className='status '+c;
-  document.body.classList.toggle('live',c==='on');document.body.classList.toggle('busy',c==='connecting');
-  badgeEl.textContent=c==='on'?'On Air':(c==='connecting'?'Connecting':'Offline');
-  if(c==='on'&&!liveSince){liveSince=Date.now();clearInterval(liveTick);liveTick=setInterval(paintTimer,1000);paintTimer();
-    try{if(navigator.vibrate)navigator.vibrate(18);}catch(e){}}}
-
-function closeSocket(sendStop){
-  if(window._wsPingInterval){clearInterval(window._wsPingInterval);window._wsPingInterval=null;}
-  const oldWs=ws; ws=null; sendReady=false;
-  if(oldWs){
-    oldWs.onclose=null; oldWs.onerror=null; oldWs.onmessage=null; oldWs.onopen=null;
-    try{if(sendStop&&oldWs.readyState===1)oldWs.send('stop');}catch(e){}
-    try{oldWs.close();}catch(e){}
-  }
-}
-
-function resetAudioState(message='Mic OFF', cls='off', sendStop=true){
-  attemptId++;
-  if(typeof watchdogTimer!=='undefined'&&watchdogTimer){clearInterval(watchdogTimer);watchdogTimer=null;}
-  try{releaseWakeLock();}catch(e){}
-  clearTimeout(readyTimer); clearTimeout(firstFrameTimer); clearTimeout(retryTimer);
-  readyTimer=firstFrameTimer=retryTimer=null;
-  closeSocket(sendStop);
-  if(workletNode){try{workletNode.disconnect();}catch(e){} try{workletNode.port.onmessage=null;}catch(e){} workletNode=null;}
-  if(scriptNode){try{scriptNode.disconnect();}catch(e){} scriptNode.onaudioprocess=null; scriptNode=null;}
-  if(silentSink){try{silentSink.disconnect();}catch(e){} silentSink=null;}
-  if(analyser){try{analyser.disconnect();}catch(e){} analyser=null;}
-  if(source){try{source.disconnect();}catch(e){} source=null;}
-  nComp=nPre=null;
-  if(mediaStream){mediaStream.getTracks().forEach(t=>{try{t.stop();}catch(e){}});mediaStream=null;}
-  if(audioCtx){try{audioCtx.close();}catch(e){} audioCtx=null;}
-  isOn=false; firstFrameSeen=false; pending=[]; retries=0;
-  document.documentElement.style.setProperty('--lvl',0); eqBars.forEach(b=>b.style.height='4px'); drawViz(null);
-  stopTimer(); setStatus(message,cls); tapEl.textContent='Tap to go live'; btnEl.disabled=false;
-}
-const helpEl=document.getElementById('permHelp');
-const retryEl=document.getElementById('retryBtn');
-const IS_ANDROID=/Android/i.test(navigator.userAgent);
-const IN_TELEGRAM=/Telegram/i.test(navigator.userAgent)||!!window.TelegramWebview||!!window.TelegramWebviewProxy;
-if(IN_TELEGRAM){const tb=document.getElementById('tgBar');if(tb)tb.classList.add('show');}
-
-function showHelp(html){helpEl.innerHTML=html;helpEl.classList.add('show');retryEl.style.display='block';}
-function hideHelp(){helpEl.classList.remove('show');helpEl.innerHTML='';retryEl.style.display='none';}
-
-const DENIED_HELP=
-  '<b>Mic permission block ho gayi hai.</b> Browser dobara nahi poochega — manually allow karein:'
-  +'<ol>'
-  +'<li>Address bar me <b>lock / (i) icon</b> dabayein.</li>'
-  +'<li><b>Permissions</b> (ya "Site settings") kholein.</li>'
-  +'<li><b>Microphone</b> par <b>Allow</b> chunein.</li>'
-  +'<li>Page <b>reload</b> karein, phir mic button dabayein.</li>'
-  +'</ol>'
-  +'Phone Settings: <b>Apps → (browser) → Permissions → Microphone → Allow</b>.';
-
-const TG_HELP=
-  '<b>Telegram ka andar wala browser mic block karta hai.</b><br>'
-  +'<b>"Chrome me kholein"</b> dabayein aur wahan <b>Allow</b> karein.';
-
-function micErrorText(e){
-  const name=(e&&e.name)||'';
-  const msg=(e&&e.message)||String(e||'');
-  if(name==='NotAllowedError'||name==='SecurityError'||/denied|dismiss/i.test(msg)){
-    showHelp(DENIED_HELP+(IN_TELEGRAM?'<br><br>'+TG_HELP:''));
-    return 'Mic permission block hai — niche steps follow karein';
-  }
-  if(name==='NotFoundError'||name==='OverconstrainedError'){
-    showHelp('<b>Mic mila nahi.</b> Headset nikaal kar dobara try karein, ya doosre browser me kholein.');
-    return 'Mic device nahi mila';
-  }
-  if(name==='NotReadableError'||name==='AbortError'){
-    showHelp('<b>Mic doosri app use kar rahi hai.</b> Call/recorder band karein, VC me apna mic <b>mute</b> rakhein, phir try karein.');
-    return 'Mic busy hai (doosri app use kar rahi hai)';
-  }
-  if(/timeout/i.test(msg)){
-    showHelp('<b>Permission popup ka reply nahi mila.</b> Page reload karke <b>Allow</b> dabayein.'+(IN_TELEGRAM?'<br><br>'+TG_HELP:''));
-    return 'Permission timeout — dobara try karein';
-  }
-  showHelp('<b>Mic start nahi hua:</b> '+msg+'<br>Page reload karein ya Chrome me kholein.');
-  return 'Mic error: '+msg;
-}
-
-function retryMic(){hideHelp();toggleMic();}
-function friendlyErr(code){
-  const c=String(code||'');
-  if(c.indexOf('not_logged_in')===0) return 'Bot me aapka login nahi hai - Telegram me /login karein, phir .mic on';
-  if(c.indexOf('token_missing')===0||c.indexOf('token_invalid')===0) return 'Link adhoora hai - Telegram me fresh .mic on karein';
-  if(c.indexOf('token_expired')===0) return 'Link purana ho gaya - Telegram me fresh .mic on karein';
-  if(c.indexOf('already_active')===0) return 'Mic doosre tab me chal raha hai - wo tab band karein';
-  return c;
-}
-
-function openInChrome(){
-  const url=location.href;
-  try{navigator.clipboard.writeText(url);}catch(e){}
-  try{
-    const ta=document.createElement('textarea');ta.value=url;document.body.appendChild(ta);
-    ta.select();document.execCommand('copy');document.body.removeChild(ta);
-  }catch(e){}
-  noteEl.textContent='Link copy ho gaya';
-  setTimeout(()=>{noteEl.textContent='';},2000);
-  if(IS_ANDROID){
-    const bare=url.replace(/^https?:[/][/]/,'');
-    location.href='intent://'+bare+'#Intent;scheme=https;package=com.android.chrome;end';
-  }else{
-    window.open(url,'_blank');
-  }
-}
-
-async function checkPermissionUpfront(){
-  if(!window.isSecureContext){
-    setStatus('Ye page https par kholein — warna mic allowed nahi hoga','err');
-    showHelp('<b>Secure (https) page zaroori hai.</b> Telegram me <code>.mic on</code> se mila link hi kholein.');
-    return;
-  }
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    setStatus('Is browser me mic support nahi hai','err');
-    showHelp('<b>Is browser me mic capture support nahi hai.</b> Link <b>Chrome</b> me kholein.');
-    return;
-  }
-  try{
-    if(navigator.permissions&&navigator.permissions.query){
-      const st=await navigator.permissions.query({name:'microphone'});
-      if(st.state==='denied'){
-        setStatus('Mic permission pehle se blocked hai','err');
-        showHelp(DENIED_HELP+(IN_TELEGRAM?'<br><br>'+TG_HELP:''));
-      }
-      st.onchange=()=>{ if(st.state!=='denied'&&!isOn){hideHelp();setStatus('Mic OFF','off');} };
-    }
-  }catch(e){}
-}
-
-(function init(){
-  if(!TOKEN) setStatus('Token missing — Telegram me .mic on karein','err');
-  else checkPermissionUpfront();
-})();
-
-const PCM_WORKLET = `
-class PCMP extends AudioWorkletProcessor {
-    constructor(){
-        super();
-        // Emit one 20 ms packet at the device's actual sample rate.  The old
-        // fixed 1024 samples was ~21.3 ms at 48 kHz while the server paced 20
-        // ms frames, creating continuous jitter/latency drift.
-        this.size = Math.max(128, Math.round(sampleRate * 0.02));
-        this.buf = new Int16Array(this.size);
-        this.n = 0;
-    }
-    process(inputs) {
-        const input = inputs[0];
-        if (!input || !input[0]) return true;
-        const ch0 = input[0];
-        for (let i = 0; i < ch0.length; i++) {
-            let s = ch0[i];
-            s = s > 1 ? 1 : (s < -1 ? -1 : s);
-            this.buf[this.n++] = Math.round(s < 0 ? s * 32768 : s * 32767);
-            if (this.n >= this.size) {
-                const out = this.buf.buffer;
-                this.port.postMessage(out, [out]);
-                this.buf = new Int16Array(this.size);
-                this.n = 0;
-            }
-        }
-        return true;
-    }
-}
-registerProcessor('pcm-processor', PCMP);
-`;
-
-function push(buf, myAttempt){
-    if (attemptId!==myAttempt) return;
-    firstFrameSeen = true;
-    lastFrameAt = Date.now();
-    trackMicLevel(buf);
-    if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer=null; }
-    if (!ws || ws.readyState!==1 || !sendReady) {
-        // Buffer ~1s while the socket (re)connects, then drop the oldest.
-        pending.push(buf);
-        if (pending.length > 25) pending.shift();
-        return;
-    }
-    try { ws.send(buf); } catch(e){}
-}
-
-function connectSocket(myAttempt){
-    if (attemptId!==myAttempt) return;
-    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const socket = new WebSocket(proto + location.host + '/ws/mic?token=' + encodeURIComponent(TOKEN));
-    ws = socket;
-    sendReady = false;
-    socket.binaryType = 'arraybuffer';
-
-    clearTimeout(readyTimer);
-    readyTimer = setTimeout(()=>{
-        if (attemptId===myAttempt && !sendReady && ws===socket) {
-            try{socket.close();}catch(e){}
-        }
-    }, 20000);
-
-    socket.onopen = () => {
-        if (window._wsPingInterval) clearInterval(window._wsPingInterval);
-        window._wsPingInterval = setInterval(() => {
-            if (ws && ws.readyState === 1) { try { ws.send('ping'); } catch(e){} }
-            else clearInterval(window._wsPingInterval);
-        }, 15000);
-    };
-
-    socket.onmessage = (ev) => {
-        if (typeof ev.data !== 'string') return;
-        if (ev.data === 'pong') return;
-        if (ev.data === 'ready') {
-            clearTimeout(readyTimer); readyTimer=null;
-            if (attemptId!==myAttempt || socket!==ws) return;
-            retries = 0;
-            // Only the capture rate goes out on connect.  Sending settings here
-            // restarted FFmpeg one second into every session, which is what
-            // knocked the bot out of the voice chat.
-            try { socket.send('rate:' + captureRate); } catch(e){}
-            sendReady = true;
-            lastReadyAt = Date.now();
-            while (pending.length) { try { socket.send(pending.shift()); } catch(e){ break; } }
-            setStatus('LIVE - Mic ON', 'on');
-            // Do not send settings automatically on connect.  The server-side
-            // settings path rebuilds FFmpeg; doing that after first audio used
-            // to create an audible gap and could make the relay look dead on
-            // slower phones. Explicit preset/reset actions still send changes.
-        } else if (ev.data.startsWith('settings:')) {
-            try { const st=JSON.parse(ev.data.slice(9)); syncCtl(st); } catch(e){}
-        } else if (ev.data.startsWith('settings_failed:')) {
-            /* ignored */
-        } else if (ev.data.startsWith('warn:')) {
-            setStatus(ev.data.slice(5), 'err');      // keep streaming
-        } else if (ev.data.startsWith('ok:')) {
-            setStatus(ev.data.slice(3), 'on');
-        } else if (ev.data.startsWith('error:')) {
-            socket._fatal = true;
-            resetAudioState(friendlyErr(ev.data.slice(6)), 'err');
-        }
-    };
-
-    socket.onerror = () => {};
-
-    socket.onclose = () => {
-        if (attemptId!==myAttempt || socket!==ws || socket._fatal) return;
-        if (window._wsPingInterval) { clearInterval(window._wsPingInterval); window._wsPingInterval=null; }
-        sendReady = false;
-        if (!isOn) return;
-        // A socket that stayed up for a while is a healthy one: don't let
-        // earlier blips count towards the give-up limit.
-        if (lastReadyAt && (Date.now()-lastReadyAt) > 30000) retries = 0;
-        if (retries >= MAX_RETRIES) {
-            resetAudioState('Connection tut gaya — Telegram me fresh .mic on karein','err',false);
-            return;
-        }
-        retries++;
-        setStatus('Dobara jud rahe hain… ('+retries+')','connecting');
-        clearTimeout(retryTimer);
-        // Fast first retries (most drops are a 1-2 s blip), then back off.
-        retryTimer = setTimeout(()=>connectSocket(myAttempt),
-                                Math.min(3000, 250 + 250*retries));
-    };
-}
-
-const USE_AEC = new URLSearchParams(location.search).get("aec") === "1";
-function setMode(k,v){const u=new URL(location.href);if(v)u.searchParams.set(k,v);else u.searchParams.delete(k);
- if(u.href===location.href)return; if(isOn&&!confirm('Mode badalne ke liye page reload hoga. Phir mic dobara dabana.'))return; location.href=u.href;}
-function paintModes(){const q=new URLSearchParams(location.search);const c=q.get('boost')==='clean',a=q.get('aec')==='1';
- const t=(id,on)=>{const e=document.getElementById(id);if(e)e.classList.toggle('act',on);};
- t('mFight',!c);t('mClean',c);t('mEar',!a);t('mSpk',a);}
-let vuPeak=0;
-function vuUpdate(td){let pk=0,ss=0;for(let i=0;i<td.length;i++){const x=Math.abs(td[i]-128)/128;if(x>pk)pk=x;ss+=x*x;}
- const rms=Math.sqrt(ss/td.length),db=rms>0?20*Math.log10(rms):-90;vuPeak=Math.max(pk,vuPeak*0.92);
- const w=Math.max(0,Math.min(100,(db+50)*2));const b=document.getElementById('vuBar');if(b)b.style.width=w+'%';
- const d=document.getElementById('vuDb');if(d)d.textContent=(db<-89?'--':db.toFixed(0))+' dB';
- const h=document.getElementById('vuHint');if(!h)return;
- if(vuPeak>0.985){h.textContent='CLIP — thoda door / CLEAN';h.className='c';}
- else if(db<-32){h.textContent='Dheemi — mic paas lao';h.className='q';}
- else{h.textContent='PERFECT — full tez';h.className='g';}}
-document.addEventListener('DOMContentLoaded',paintModes);setTimeout(paintModes,0);
-const FIGHT = new URLSearchParams(location.search).get("boost") !== "clean";
-// SILENT-MIC DETECTOR: Android gives the browser pure silence while another
-// app (Telegram in the VC, a call) holds the microphone.  Warn the user
-// instead of streaming silence for the whole fight.
-let micPeak = 0, silentSince = 0, silentWarned = false;
-function trackMicLevel(buf){
-    try{
-        const v = new Int16Array(buf); let pk = 0;
-        for (let i=0;i<v.length;i+=8){ const a = v[i]<0?-v[i]:v[i]; if(a>pk) pk=a; }
-        micPeak = pk;
-        const now = Date.now();
-        if (pk < 40) {                    // < -58 dBFS = no mic signal at all
-            if (!silentSince) silentSince = now;
-            if (!silentWarned && now - silentSince > 6000) {
-                silentWarned = true;
-                setStatus('Mic se awaaz nahi aa rahi! Telegram app me VC se mic MUTE/leave karein (Telegram mic pakad leta hai), phir yahan dobara tap karein','err');
-            }
-        } else {
-            if (silentWarned) setStatus('Mic chalu — awaaz ja rahi hai','on');
-            silentSince = 0; silentWarned = false;
-        }
-    }catch(e){}
-}
-
-async function requestWakeLock(){
-    // Screen-off is the #1 reason the mic "ruk jata hai" mid-stream.
-    try{
-        if ('wakeLock' in navigator && !wakeLock) {
-            wakeLock = await navigator.wakeLock.request('screen');
-            wakeLock.addEventListener('release', ()=>{ wakeLock=null; });
-        }
-    }catch(e){ wakeLock=null; }
-}
-function releaseWakeLock(){ try{ if(wakeLock) wakeLock.release(); }catch(e){} wakeLock=null; }
-
-function keepContextAlive(){
-    // A silent oscillator keeps the AudioContext from being suspended when the
-    // page goes to the background on Android/Chrome.
-    try{
-        if(!audioCtx || !silentSink) return;
-        const osc=audioCtx.createOscillator();
-        const g=audioCtx.createGain(); g.gain.value=0.00001;
-        osc.frequency.value=30; osc.connect(g); g.connect(silentSink);
-        osc.start();
-    }catch(e){}
-}
-
-function startWatchdog(myAttempt){
-    clearInterval(watchdogTimer);
-    watchdogTimer = setInterval(()=>{
-        if (attemptId!==myAttempt || !isOn) { clearInterval(watchdogTimer); watchdogTimer=null; return; }
-        // 1. AudioContext suspended (screen lock / background) -> resume.
-        if (audioCtx && audioCtx.state !== 'running') { audioCtx.resume().catch(()=>{}); }
-        // 2. Mic track died or got muted by the OS (incoming call, other app).
-        try{
-            const t = mediaStream && mediaStream.getAudioTracks()[0];
-            if (t && (t.readyState === 'ended')) {
-                resetAudioState('Mic band ho gaya — dobara tap karein','err');
-                return;
-            }
-        }catch(e){}
-        // 3. Capture graph stopped producing frames -> fall back / restart it.
-        if (firstFrameSeen && lastFrameAt && (Date.now()-lastFrameAt) > 4000) {
-            if (audioCtx) audioCtx.resume().catch(()=>{});
-            try{ if(!scriptNode) useScriptProcessorRef && useScriptProcessorRef(); }catch(e){}
-            lastFrameAt = Date.now();
-        }
-        // 4. Socket gone and no retry pending -> reconnect now.
-        if ((!ws || ws.readyState===3) && !retryTimer) {
-            setStatus('Dobara jud rahe hain…','connecting');
-            connectSocket(myAttempt);
-        }
-        // 5. Wake lock lost after a tab switch -> take it again.
-        if (!wakeLock && !document.hidden) requestWakeLock();
-    }, 2000);
-}
-let useScriptProcessorRef=null;
-
-async function toggleMic() {
-    if (isOn) { stopMic(); return; }
-    const myAttempt=++attemptId;
-    btnEl.disabled = true;
-    hideHelp();
-    setStatus('Mic permission maang rahe hain...', 'connecting');
-
-    if (!TOKEN) { setStatus('Token missing', 'err'); btnEl.disabled=false; return; }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        btnEl.disabled=false;
-        setStatus(micErrorText({name:'NotSupported',message:'Is browser me mic support nahi hai'}),'err');
-        return;
-    }
-
-    // Mic + AudioContext are created right here, inside the tap handler —
-    // waiting for the socket first made some Android browsers refuse the mic.
-    pending=[]; retries=0; firstFrameSeen=false;
-    try {
-        const AC = window.AudioContext||window.webkitAudioContext;
-        // v83: 48 kHz = Telegram ka native rate (no resample = saaf awaaz).
-        try { audioCtx = new AC({ sampleRate: 48000, latencyHint: 'interactive' }); }
-        catch(e) { audioCtx = new AC(); }
-        try { await audioCtx.resume(); } catch(e){}
-        // Strict constraints (sampleRate/sampleSize) make some Android phones
-        // throw OverconstrainedError, which looked like "permission denied".
-        // Try the tuned request first, then a plain one.
-        const ask = (constraints) => Promise.race([
-            navigator.mediaDevices.getUserMedia(constraints),
-            new Promise((_,reject)=>setTimeout(()=>reject(new Error('Microphone permission timeout')),25000))
-        ]);
-        try {
-            mediaStream = await ask({
-                // Echo-cancel ON (stops the VC sound from the speaker feeding
-                // back into the mic).  Phone noise-suppression and auto-gain
-                // OFF: they muffle the voice and pump the level up and down;
-                // the server does clean denoise + levelling instead.
-                // record_20 ROOT FIX: echo-cancel is now OFF by default.
-                // In a fight the VC never stops talking; phone AEC treats
-                // that as permanent "double talk" and ducks/cancels YOUR
-                // voice (others came through, our voice ~0%).  The server
-                // gate + limiter handle feedback.  Add ?aec=1 to the link
-                // only if you use the phone speaker and hear echo.
-                audio: { echoCancellation: USE_AEC, noiseSuppression: false,
-                         autoGainControl: false, channelCount: 1 },
-            });
-        } catch (firstErr) {
-            const n = firstErr && firstErr.name;
-            if (n === 'NotAllowedError' || n === 'SecurityError' || /timeout/i.test(String(firstErr&&firstErr.message))) throw firstErr;
-            mediaStream = await ask({ audio: true });
-        }
-        if (attemptId!==myAttempt) return;
-        try { await audioCtx.resume(); } catch(e){}
-        source = audioCtx.createMediaStreamSource(mediaStream);
-        // CLEAN CAPTURE (root fix).  The old phone chain was x10 pre-amp ->
-        // 2 compressors (each with automatic make-up gain) -> x6 post gain,
-        // which hard-clipped the voice into a square wave ON THE PHONE —
-        // loud-ish but torn and unclear, and no server chain can repair it.
-        // Now: rumble cut -> +6 dB -> transparent peak limiter.  Nothing
-        // ever reaches the int16 clip; all loudness is made server-side.
-        try {
-            // v81 FIGHT pre-chain (?boost=clean = old +6 dB only).
-            // rumble cut 150 Hz -> body cut 300 Hz -> presence +6 dB @2.7 kHz
-            // -> 12 dB pre-amp -> 6:1 comp (dheemi awaaz upar) -> brick-wall
-            // limiter at -1 dBFS.  Phone ka AGC/NS/AEC OFF hai, isliye full
-            // raw mic yahi se tez + saaf hoke server tak jata hai.
-            const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=FIGHT?150:80; hp.Q.value=0.707;
-            const mud = audioCtx.createBiquadFilter(); mud.type='peaking'; mud.frequency.value=300; mud.Q.value=1; mud.gain.value=FIGHT?-3:0;
-            const pres = audioCtx.createBiquadFilter(); pres.type='peaking'; pres.frequency.value=2700; pres.Q.value=1; pres.gain.value=FIGHT?6:0;
-            const pre = audioCtx.createGain(); pre.gain.value = micBoost();
-            const comp = audioCtx.createDynamicsCompressor();
-            comp.threshold.value=FIGHT?-22:0; comp.knee.value=6; comp.ratio.value=FIGHT?6:1;
-            comp.attack.value=0.003; comp.release.value=0.12;
-            const lim = audioCtx.createDynamicsCompressor();
-            lim.threshold.value=-1; lim.knee.value=0; lim.ratio.value=20;
-            lim.attack.value=0.001; lim.release.value=0.05;
-            // v83: soft-clip guard - DynamicsCompressor brick-wall nahi hota,
-            // peaks int16 me hard-clip hote the (phone par hi 'khar khar').
-            const sc = audioCtx.createWaveShaper();
-            const N=2048, curve=new Float32Array(N);
-            for(let i=0;i<N;i++){const x=i/(N-1)*2-1; curve[i]=Math.tanh(1.25*x)/Math.tanh(1.25)*0.95;}
-            sc.curve=curve; sc.oversample='4x';
-            source.connect(hp); hp.connect(mud); mud.connect(pres); pres.connect(pre);
-            pre.connect(comp); comp.connect(lim); lim.connect(sc);
-            nPre = pre; nComp = lim;
-            source = sc;
-        } catch(e){ nComp=nPre=null; }
-    } catch (e) {
-        const friendly = micErrorText(e);
-        resetAudioState(friendly, 'err');
-        return;
-    }
-
-    captureRate = Math.round(audioCtx.sampleRate || 48000);
-
-    function useScriptProcessor(){
-        if (scriptNode || !audioCtx || !source) return;
-        // v83 ROOT FIX: worklet + ScriptProcessor dono chal rahe the =
-        // har frame DO baar server ko jaata tha (atak/garbled, latency).
-        // Fallback lene se pehle worklet ko poori tarah hatao.
-        if (workletNode) { try{ workletNode.port.onmessage=null; workletNode.disconnect(); }catch(e){} workletNode=null; }
-        scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
-        scriptNode.onaudioprocess = (event) => {
-            const input = event.inputBuffer.getChannelData(0);
-            const out = new ArrayBuffer(input.length * 2);
-            const view = new DataView(out);
-            for (let i = 0; i < input.length; i++) {
-                const v = Math.max(-1, Math.min(1, input[i]));
-                view.setInt16(i * 2, v * 32767, true);
-            }
-            push(out, myAttempt);
-        };
-        source.connect(scriptNode);
-        scriptNode.connect(silentSink);
-    }
-
-    silentSink = audioCtx.createGain();
-    silentSink.gain.value = 0;
-    silentSink.connect(audioCtx.destination);
-
-    let worklet = false;
-    if (audioCtx.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
-        try {
-            await audioCtx.audioWorklet.addModule(
-                URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' })));
-            workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
-            workletNode.port.onmessage = (e) => { if (!scriptNode) push(e.data, myAttempt); };
-            source.connect(workletNode);
-            workletNode.connect(silentSink);
-            worklet = true;
-        } catch (err) { console.warn('AudioWorkletNode unavailable; using ScriptProcessor', err); }
-    }
-    useScriptProcessorRef = useScriptProcessor;
-    if (!worklet) useScriptProcessor();
-    keepContextAlive();
-    setTimeout(()=>{ if (attemptId===myAttempt && !firstFrameSeen) useScriptProcessor(); }, 1200);
-
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tdata = new Uint8Array(analyser.fftSize);
-    function updateMeter() {
-        if (!isOn || !analyser) return;
-        analyser.getByteFrequencyData(data);
-        try{ analyser.getByteTimeDomainData(tdata); vuUpdate(tdata);}catch(e){}
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) sum += data[i];
-        const lvl = Math.min(1, (sum / data.length) / 70);
-        document.documentElement.style.setProperty('--lvl', lvl.toFixed(3));
-        for (let i = 0; i < eqBars.length; i++) eqBars[i].style.height = (4 + (data[i*2+2]||0)/255*30) + 'px';
-        drawViz(data);
-        requestAnimationFrame(updateMeter);
-    }
-
-    isOn = true;
-    lastFrameAt = Date.now();
-    hideHelp();
-    requestWakeLock();
-    startWatchdog(myAttempt);
-    updateMeter();
-    setStatus('Mic ready — server se jud rahe hain...', 'connecting');
-    tapEl.textContent = 'Tap to stop';
-    btnEl.disabled = false;
-
-    firstFrameTimer = setTimeout(()=>{
-        if (attemptId===myAttempt && !firstFrameSeen)
-            resetAudioState('Browser audio frames nahi bhej raha — page foreground mein rakhein','err');
-    }, 20000);
-
-    connectSocket(myAttempt);
-}
-
-// Screen lock / tab switch suspends the AudioContext on many phones.
-function revive(){
-    if (!isOn) return;
-    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(()=>{});
-    if (!document.hidden) requestWakeLock();
-    if ((!ws || ws.readyState===3) && !retryTimer) connectSocket(attemptId);
-}
-document.addEventListener('visibilitychange', revive);
-window.addEventListener('pageshow', revive);
-window.addEventListener('focus', revive);
-window.addEventListener('online', revive);
-
-function stopMic() {
-    hideHelp();
-    clearInterval(watchdogTimer); watchdogTimer=null;
-    releaseWakeLock();
-    resetAudioState('Mic OFF', 'off');
-}
-</script>
-</body>
-</html>"""
+LIVE_MIC_HTML = _load_page()
 
 
 # v85: public mic URL now lives in helpers/mic_url.py — every candidate is
@@ -2449,7 +1753,7 @@ async def _handle_index(request: web.Request) -> web.Response:
     return web.Response(text=LIVE_MIC_HTML, content_type="text/html",
                         headers={"Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer",
-                                 "Permissions-Policy": "microphone=(self)"})
+                                 "Permissions-Policy": "microphone=(self), camera=(self), display-capture=(self)"})
 
 
 async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
@@ -2610,6 +1914,87 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def _token_owner(token: str):
+    """(user_id, chat_id) for a valid live mic token, else None."""
+    parts = (token or "").split(":")
+    if len(parts) < 3:
+        return None
+    try:
+        user_id, chat_id = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    from helpers.database import db
+    stored = await db.get_app_value(f"live_mic_token_{user_id}")
+    if not stored or stored != f"{chat_id}:{':'.join(parts[2:])}":
+        return None
+    return user_id, chat_id
+
+
+async def _handle_screen_ws(request: web.Request) -> web.WebSocketResponse:
+    """Browser screen / camera share -> VC video (needs the mic to be live)."""
+    ws = web.WebSocketResponse(max_msg_size=4 * 1024 * 1024, heartbeat=20.0)
+    await ws.prepare(request)
+    owner = await _token_owner(request.query.get("token", ""))
+    if not owner:
+        await ws.send_str("error:Link expire ho gaya — Telegram me fresh .mic on karein")
+        await ws.close()
+        return ws
+    user_id, chat_id = owner
+    from helpers import web_studio
+    feed = None
+    session = None
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                text = msg.data or ""
+                if text == "ping":
+                    await ws.send_str("pong")
+                elif text.startswith("cfg:"):
+                    session = _sessions.get(user_id)
+                    if (not session or session._closed or session.chat_id != chat_id
+                            or not session._started):
+                        await ws.send_str("error:Pehle Mic tab me mic ON karo, phir share karo")
+                        continue
+                    try:
+                        cfg = json.loads(text[4:] or "{}")
+                    except Exception:
+                        cfg = {}
+                    w, h, fps, kind = web_studio.clamp_cfg(cfg)
+                    if feed is not None:
+                        await session.clear_screen_feed(feed)
+                    feed = web_studio.ScreenFeed(w, h, fps, kind).start()
+                    try:
+                        await session.set_screen_feed(feed)
+                    except Exception as exc:
+                        feed.close()
+                        feed = None
+                        await ws.send_str(f"error:VC ne video accept nahi kiya: {exc}")
+                        continue
+                    if session.screen_feed is not feed:
+                        feed = None
+                        await ws.send_str("error:VC ne video accept nahi kiya (audio chalu hai)")
+                        continue
+                    await ws.send_str(f"ok:{kind}:{w}x{h}@{fps}")
+                    session._chan_log("LIVE_SCREEN_STARTED", {"Kind": kind, "Size": f"{w}x{h}@{fps}"})
+                elif text == "stop":
+                    break
+            elif msg.type == WSMsgType.BINARY and feed is not None:
+                await feed.push_image(msg.data)
+            elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED, WSMsgType.ERROR):
+                break
+    except Exception as exc:
+        logger.warning("screen ws error for user %s: %r", user_id, exc)
+    finally:
+        if feed is not None:
+            if session is not None:
+                await session.clear_screen_feed(feed)
+            else:
+                feed.close()
+        if not ws.closed:
+            await ws.close()
+    return ws
+
+
 async def _handle_health(request: web.Request) -> web.Response:
     _remember_base_url(request)
     return web.Response(text=_mic_url.health_text(), content_type="text/plain",
@@ -2621,6 +2006,7 @@ def create_app() -> web.Application:
     app.router.add_get("/", _handle_index)
     app.router.add_get("/health", _handle_health)
     app.router.add_get("/ws/mic", _handle_ws)
+    app.router.add_get("/ws/screen", _handle_screen_ws)
     return app
 
 

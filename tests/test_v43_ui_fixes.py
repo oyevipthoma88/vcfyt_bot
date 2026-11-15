@@ -72,6 +72,7 @@ def test_telegram_live_screen_render():
 
 def test_live_mic_html_blur_elements():
     from helpers.live_mic import LIVE_MIC_HTML
-    assert 'mic-blur-bg' in LIVE_MIC_HTML
-    assert 'ambient-mic-blur' in LIVE_MIC_HTML
-    assert 'orb-glow' in LIVE_MIC_HTML
+    # v90 Web Studio: glowing mic orb + 4 tabs
+    assert 'orb' in LIVE_MIC_HTML
+    for tab in ("mic", "screen", "chat", "vc"):
+        assert f'data-tab="{tab}"' in LIVE_MIC_HTML

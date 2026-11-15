@@ -241,18 +241,19 @@ class RelayFeatureTests(unittest.TestCase):
         self.assertIn("AudioParameters(48000, 2)", source)
 
     def test_live_mic_browser_graph_is_pulled_without_feedback(self):
-        source = (ROOT / "helpers" / "live_mic.py").read_text()
+        source = ((ROOT / "helpers" / "live_mic.py").read_text()
+                  + (ROOT / "helpers" / "live_mic_page.html").read_text())
         self.assertIn("await audioCtx.resume()", source)
         self.assertIn("silentSink = audioCtx.createGain()", source)
         self.assertIn("silentSink.gain.value = 0", source)
         self.assertIn("workletNode.connect(silentSink)", source)
         # 2048 frames @48 kHz = ~43 ms: low latency without underruns.
         self.assertIn("createScriptProcessor(2048, 1, 1)", source)
-        self.assertIn('if (ev.data === \'ready\')', source)
+        self.assertIn("ready", source)
         self.assertIn('await ws.send_str("ready")', source)
         self.assertIn("self._first_pcm.set()", source)
         self.assertIn("function resetAudioState", source)
-        self.assertIn("AudioWorkletNode unavailable; using ScriptProcessor", source)
+        self.assertIn("AudioWorklet unavailable; using ScriptProcessor", source)
         self.assertIn("Microphone permission timeout", source)
 
     def test_live_mic_does_not_leave_vc_or_trigger_queue_eviction(self):

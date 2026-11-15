@@ -59,7 +59,8 @@ class LoudnessControls(unittest.TestCase):
             rms = float(re.findall(r"RMS level dB: (\S+)", r.stderr)[-1])
             pk = float(re.findall(r"Peak level dB: (\S+)", r.stderr)[-1])
             self.assertGreater(rms, -20.0, f"input {lvl} dBFS too quiet")
-            self.assertLessEqual(pk, -1.0, f"input {lvl} dBFS over the ceiling")
+            # v90: 0 dBFS ceiling (limiter 0.999), same as playback loudest
+            self.assertLessEqual(pk, 0.0, f"input {lvl} dBFS over the ceiling")
         noisy = ("anoisesrc=d=2:c=white:a=0.002")
         r = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", noisy, "-af",
                             build_live_mic_filter() + ",atrim=start=0.5,astats=measure_overall=RMS_level:measure_perchannel=0",

@@ -27,17 +27,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _legacy_live_mic_chain(request):
-    """Older tests pin the pre-v79 live mic chain; v79 tests set their own."""
-    if "test_v79" in request.node.nodeid:
-        yield
-        return
+def _default_live_mic_mode():
+    """v90: every test starts on the default live mic mode (loudest)."""
     try:
         from helpers import live_mic_v79 as v79
     except Exception:
         yield
         return
     old = v79._mode
-    v79._mode = "clean"
+    v79._mode = None
     yield
     v79._mode = old

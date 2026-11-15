@@ -1,4 +1,4 @@
-"""Activate playback-only improvements without changing live/bridge audio."""
+"""Activate playback improvements + the live mic sound engine."""
 from .playback_v56 import install as _install_playback
 from .playback_v57 import install as _install_playback_v57
 
@@ -84,16 +84,6 @@ _install_playback_v75()
 from .playback_v77 import install as _install_playback_v77
 _install_playback_v77()
 
-# v79 (last): BRIDGE PHONE-FIGHT - VC bridge voice was ~8 dB quieter than
-# played audio (v62 mcompand squashed 0 dB -> -8 dB). Phone-band fight chain.
-from .playback_v79 import install as _install_playback_v79
-_install_playback_v79()
-
-# v80 (last): BRIDGE ULTRA - RNNoise speech denoise first, 330 Hz-4.3 kHz
-# phone band, 3-band squash + exciter + 2-stage drive (bridge only).
-from .playback_v80 import install as _install_playback_v80
-_install_playback_v80()
-
-# v79: LIVE-LOUDEST live mic chain (phone band, hard levelling, tanh drive).
+# v90: live mic = same 3 modes as playback (loudest/phone/bass), 0 dBFS.
 from .live_mic_v79 import install as _install_live_mic_v79
 _install_live_mic_v79()

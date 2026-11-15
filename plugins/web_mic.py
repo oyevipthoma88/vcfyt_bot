@@ -1,9 +1,7 @@
-"""v81 Live Mic = WEB BROWSER MIC (VC Bridge hata diya).
+"""Live Mic = Web Studio (browser mic + screen/camera share + VC chat).
 
-`.mic on` -> private link.  Phone Chrome me kholo, 🎙 dabao, bolo.
-Browser: echo-cancel / noise-suppression / auto-gain OFF (phone awaaz nahi
-dabata) + FIGHT pre-chain (presence +6 dB @2.7 kHz, 12 dB pre-amp, 6:1
-comp, brick-wall limiter).  Server: live_mic_v79 LOUDEST chain -> VC.
+`.mic on` -> private Studio link.  Chrome me kholo, 🎙 dabao, bolo.
+Sound: same 3 modes as audio playback (loudest | phone | bass), 0 dBFS.
 """
 import html as _html
 
@@ -14,21 +12,22 @@ from helpers.vc_manager import session_manager
 from plugins.ui import B
 
 HELP = (
-    "🎤 <b>Live Mic (Web Browser) — ULTRA LOUD</b>\n\n"
-    "1. <code>.mic chat -100xxx</code> — target group set karo (ek baar)\n"
-    "2. <code>.mic on</code> — private link milega\n"
-    "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
-    "• <code>.mic off</code> — band  •  <code>.mic leave</code> — band + VC se bahar\n"
-    "• <code>.mic status</code>  •  <code>.micmode loudest|clean</code>\n"
-    "• <code>.mic url https://your-app.herokuapp.com</code> — (owner) mic link ka address set karo\n\n"
-    "<b>Sabse tez + saaf awaaz ke liye:</b>\n"
-    "• Page par <b>MIC BOOST</b> slider — MIC LEVEL green rakho\n"
-    "• <b>Earphone/headset</b> lagao — VC ki awaaz mic me wapas nahi aati, boost full lagta hai\n"
-    "• Phone mic muh se 3–5 cm door rakho\n"
-    "• Page ko screen par khula rakho (lock mat karo)\n"
-    "• Kisi ID ko group admin banao → 200% sabke liye\n"
-    "<i>Echo aaye (speaker par) to link ke end me <code>&aec=1</code> jodo. "
-    "Phati lage to page par ✨ CLEAN dabao ya MIC BOOST kam karo.</i>")
+    "🎤 <b>Live Mic · Web Studio</b>\n\n"
+    "<b>Start (3 step)</b>\n"
+    "1. <code>.mic chat -100xxx</code> — group set karo (ek baar)\n"
+    "2. <code>.mic on</code> — private Studio link aayega\n"
+    "3. Link <b>Chrome</b> me kholo → 🎙 dabao → bolo\n\n"
+    "<b>Studio page par</b>\n"
+    "🎙 <b>Mic</b> — Loudest / Phone / Bass mode, PUSH slider\n"
+    "🖥 <b>Screen</b> — screen share (PC) ya 📷 camera (phone) VC me\n"
+    "💬 <b>Chat</b> — group messages padho + bhejo\n"
+    "👥 <b>VC</b> — kaun VC me hai, kaun bol raha hai\n\n"
+    "<b>Commands</b>\n"
+    "<code>.mic off</code> · <code>.mic leave</code> · <code>.mic status</code>\n"
+    "<code>.micmode loudest|phone|bass</code>\n"
+    "<code>.mic url https://app.herokuapp.com</code> — (owner) link address\n\n"
+    "<b>Sabse tez awaaz</b>: 🎧 earphone lagao · mic 3–5 cm · Telegram app me apna mic mute · "
+    "kisi ID ko group admin banao (200% sabke liye).")
 
 
 def _url_line(base: str) -> str:
@@ -92,7 +91,7 @@ async def _target(msg, uid):
         return int(raw)
     if msg.chat and msg.chat.id < 0:
         try:
-            from plugins.vc_bridge import save_target
+            from helpers.mic_target import save_target
             await save_target(uid, msg.chat.id)
         except Exception:
             pass
@@ -153,7 +152,7 @@ async def run_web_mic(msg, action: str, args=()):
         return
     # Playing ID (spare if set, else main) ko group me pahunchao.
     try:
-        from plugins.vc_bridge import ensure_in_target, target_ref
+        from helpers.mic_target import ensure_in_target, target_ref
         ref, _ = await target_ref(uid, cid)
         relay = await session_manager.get_relay(uid)
         eng = relay or uvc
@@ -162,52 +161,84 @@ async def run_web_mic(msg, action: str, args=()):
         pass
     token = await live_mic.generate_token(uid, cid)
     url = f"{base.rstrip('/')}/?token={token}"
-    kb = K([[B("🎙 MIC KHOLO (Chrome)", url=url)],
-            [B("⏹ Mic OFF", callback_data="mic:off")]])
+    mode = await user_mode(uid)
+    ico, name, _ = MODE_INFO.get(mode, MODE_INFO["loudest"])
+    kb = K([[B("🎙 STUDIO KHOLO (Chrome)", url=url)],
+            [B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
+             B("🎛 Panel", callback_data="mic:panel", style="primary")]])
     await mic_notify(msg,
-                     "🎤 <b>Live Mic ready — ULTRA LOUD</b>\n\n"
-                     f"🎯 Group: <code>{cid}</code>\n\n"
+                     "🎤 <b>Live Mic ready</b>\n\n"
+                     f"🎯 Group <code>{cid}</code>  ·  {ico} <b>{name}</b> · 0 dBFS\n\n"
                      "👇 Button dabao → <b>Chrome</b> me khulega → 🎙 dabao → bolo.\n"
-                     "🎧 <b>Earphone lagao</b> = sabse tez + saaf.\n\n"
+                     "Page par 🖥 Screen share · 💬 Chat · 👥 VC bhi hai.\n\n"
                      f"<i>Link private hai, kisi ko mat bhejna.</i>\n<code>{_html.escape(url)}</code>",
                      reply_markup=kb, disable_web_page_preview=True)
 
 
+async def user_mode(uid: int) -> str:
+    from helpers import live_mic_v79 as v79
+    try:
+        return v79.normalize_mode(await db.get_app_value(f"mic_mode_{uid}") or "") or v79.get_mode()
+    except Exception:
+        return "loudest"
+
+
+async def set_user_mode(uid: int, mode: str) -> str:
+    """Per-user live mic mode; a running mic switches at once (VC stays)."""
+    from helpers import live_mic, live_mic_v79 as v79
+    m = v79.normalize_mode(mode)
+    if not m:
+        raise ValueError(mode)
+    s = live_mic.get_session(uid)
+    if s is not None and not s._closed:
+        await s.set_mode(m)
+    else:
+        await db.set_app_value(f"mic_mode_{uid}", m)
+    return m
+
+
+MODE_INFO = {
+    "loudest": ("⚡", "Loudest", "fight · sabse tez"),
+    "phone": ("📱", "Phone", "tez + saaf shabd"),
+    "bass": ("🔊", "Bass", "damdar · heavy"),
+}
+
+
 async def web_mic_panel(uid: int):
-    """v82: ek saaf Live Mic control panel (web browser mic)."""
+    """v90: ek saaf Live Mic panel (Web Studio)."""
     from helpers import live_mic
     s = live_mic.get_session(uid)
     live = live_mic.has_live_socket(uid)
     tgt = await db.get_app_value(f"mic_chat_{uid}")
-    try:
-        from helpers import live_mic_v79 as v79
-        mm = v79.get_mode()
-    except Exception:
-        mm = "loudest"
-    state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
-        "🟡 Link khula, mic band" if s else "⚪ OFF")
-    text = ("🎤 <b>LIVE MIC  ·  Web Browser</b>\n"
+    mm = await user_mode(uid)
+    ico, name, desc = MODE_INFO.get(mm, MODE_INFO["loudest"])
+    sharing = bool(s and getattr(s, "screen_feed", None) is not None)
+    state = ("🟢 <b>LIVE</b> — awaaz VC me ja rahi hai" + (" · 🖥 share ON" if sharing else "")
+             if live else ("🟡 Link khula hai, mic band" if s else "⚪ OFF"))
+    text = ("🎤 <b>LIVE MIC  ·  Web Studio</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            f"Status : {state}\n"
-            f"🎯 Group : <code>{tgt or 'set nahi — .mic chat -100…'}</code>\n"
-            f"🔊 Mode : <b>{'⚡ FIGHT (loudest)' if mm == 'loudest' else '✨ CLEAN'}</b>\n"
+            f"Status  {state}\n"
+            f"🎯 Group  <code>{tgt or 'set nahi'}</code>\n"
+            f"{ico} Mode  <b>{name}</b> · {desc} · 0 dBFS\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "<b>Tez + saaf ke 3 rules</b>\n"
-            "🎧 Earphone lagao  ·  📏 mic 3–5 cm\n"
-            "📊 Page par MIC LEVEL <b>green</b> — MIC BOOST slider se set karo")
+            "Studio page: 🎙 Mic · 🖥 Screen/Camera · 💬 Chat · 👥 VC\n"
+            "<i>🎧 Earphone + mic 3–5 cm = sabse tez + saaf</i>")
+
+    def mbtn(m):
+        i, n, _ = MODE_INFO[m]
+        return B(("✅ " if m == mm else i + " ") + n, callback_data=f"mic:wmode:{m}",
+                 style="success" if m == mm else "primary")
+
     rows = []
     if s or live:
         rows.append([B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
-                     B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
+                     B("🚪 OFF + Leave VC", callback_data="mic:wleave", style="danger")])
     else:
-        rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
-    rows.append([B("⚡ FIGHT (loudest)", callback_data="mic:wmode:loudest",
-                   style="success" if mm == "loudest" else "primary"),
-                 B("✨ CLEAN", callback_data="mic:wmode:clean",
-                   style="success" if mm == "clean" else "primary")])
-    rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
-                 B("📘 Tutorial", callback_data="tut:livemic", style="primary"),
+        rows.append([B("🎙 MIC ON — Studio link", callback_data="mic:won", style="success")])
+    rows.append([mbtn("loudest"), mbtn("phone"), mbtn("bass")])
+    rows.append([B("🎯 Group", callback_data="mic:wtgt", style="primary"),
+                 B("👥 Spare ID", callback_data="mic:acct", style="primary"),
                  B("❓ Help", callback_data="mic:whelp", style="primary")])
-    rows.append([B("🌉 Old VC Bridge", callback_data="mic:bridge", style="primary"),
+    rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
                  B("🏠 Home", callback_data="menu:home", style="primary")])
     return text, K(rows)

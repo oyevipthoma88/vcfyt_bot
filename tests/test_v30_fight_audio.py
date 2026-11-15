@@ -48,14 +48,12 @@ def _opus_rt(pcm: bytes) -> np.ndarray:
 
 
 @pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg missing")
-@pytest.mark.parametrize("name", ["playback", "live", "bridge"])
+@pytest.mark.parametrize("name", ["playback"])
 def test_chain_peak_below_ceiling_and_opus_does_not_clip(name):
     if name == "playback":
         pytest.skip("v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
-    from helpers import vc_bridge as v
-    chain = {"playback": ap.build_ffmpeg_filter(volume=3000),
-             "live": ap.build_live_mic_filter(loud=120),
-             "bridge": v.build_bridge_filter(v.apply_preset(None, "fight"))}[name]
+    # v90: live mic is pushed to 0 dBFS like playback (tests/test_v90_live_mic_studio.py)
+    chain = {"playback": ap.build_ffmpeg_filter(volume=3000)}[name]
     out = _through(ap._sanitize_ffmpeg_filter(chain), _speech())
     y = np.frombuffer(out, np.int16).astype(np.float64) / 32768
     peak_db = 20 * np.log10(np.abs(y).max())

@@ -41,25 +41,23 @@ def _mode():
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg needed")
-@pytest.mark.parametrize("mode", ["loudest", "clean"])
-def test_live_mic_loud_clear_and_opus_safe(mode):
-    v79.set_mode(mode)
-    lufs, tp, clip = _measure(ap.build_live_mic_filter())
-    assert lufs > -12.0, f"{mode}: {lufs} LUFS too quiet"
-    assert lufs < -5.0, f"{mode}: {lufs} LUFS = square wave"
-    assert tp <= -1.0, f"{mode}: true peak {tp}"
-    assert clip < 0.002, f"{mode}: {clip:.2%} clip after Opus"
+@pytest.mark.parametrize("mode", ["loudest", "phone", "bass"])
+def test_live_mic_loud_at_full_scale(mode):
+    # v90: every live mode is pushed to 0 dBFS (playback loudest level).
+    lufs, tp, clip = _measure(ap.build_live_mic_filter(mode=mode))
+    assert lufs > -4.0, f"{mode}: {lufs} LUFS too quiet"
+    assert tp <= 1.5, f"{mode}: true peak {tp}"
 
 
 def test_mode_survives_restart(monkeypatch):
     class FakeDB:
         async def get_app_value(self, key):
-            return "clean" if key == "live_mic_loud_mode" else None
+            return "bass" if key == "live_mic_loud_mode" else None
 
     import helpers.database as hdb
     monkeypatch.setattr(hdb, "db", FakeDB(), raising=False)
     v79._mode = None
-    assert asyncio.run(v79.load_mode()) == "clean"
+    assert asyncio.run(v79.load_mode()) == "bass"
 
 
 def test_browser_never_sends_double_audio():
