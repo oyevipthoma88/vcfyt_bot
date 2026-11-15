@@ -59,7 +59,7 @@ def main() -> int:
     if "alimiter" not in live_filter:
         raise AssertionError("live mic must end in a limiter")
     # 100x loudness upgrade now uses a triple-compressor density stack.
-    if live_filter.count("acompressor") < 1:
+    if live_filter.count("acompressor") + live_filter.count("mcompand") < 1:
         raise AssertionError("live mic must use at least one compressor (density)")
     if "lowpass=f=8000" in live_filter:
         raise AssertionError("8 kHz lowpass is back — voice sounds muffled")

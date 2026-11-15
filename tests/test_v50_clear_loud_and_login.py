@@ -35,6 +35,8 @@ def _measure(chain: str):
 def test_loud_clean_and_survives_opus(name):
     if name == "playback":
         pytest.skip("v53: playback is now pushed to 0.00 dBFS by design (see test_v53_full_scale_play)")
+    if name == "live":
+        pytest.skip("v90: live mic is pushed to 0 dBFS like playback (see test_v90_live_mic_studio)")
     chain = (_sanitize_ffmpeg_filter(build_ffmpeg_filter(volume=1000)) if name == "playback"
              else build_live_mic_filter())
     lufs, tp, clip = _measure(chain)

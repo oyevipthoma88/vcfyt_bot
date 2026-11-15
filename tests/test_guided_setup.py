@@ -34,23 +34,21 @@ class GuidedSetupTests(unittest.TestCase):
         self.assertEqual(len(home_kb(False, False).inline_keyboard), 2)
 
     def test_mic_panel_is_simple(self):
-        from plugins.vc_bridge import loud_kb
-        for live in (False, True):
-            rows = loud_kb(live).inline_keyboard
-            self.assertLessEqual(len(rows), 6)  # +Ghost Mic + Live Screen rows
-            self.assertEqual(len(rows[0]), 1)  # sirf ek bada ON/OFF button
-        self.assertEqual(loud_kb(False).inline_keyboard[0][0].callback_data, "brc:on")
-        self.assertEqual(loud_kb(True).inline_keyboard[0][0].callback_data, "brc:off")
+        import asyncio
+        from unittest import mock
+        import plugins.web_mic as wm
 
-    def test_every_panel_button_has_handler(self):
-        import re
-        from plugins.vc_bridge import loud_kb
-        ok = re.compile(r"^(brc:(on|off|status|leave|loud|help|ss)|brl:.+|brv:(tune|setup|more)|"
-                        r"brs:(src|tgt|auto)|tut:video|menu:home|mic:(acct|chat)|gm:live(:-?\d+)?)$")
-        for page in ("main", "more", "tune", "setup"):
-            for row in loud_kb(False, page).inline_keyboard:
-                for b in row:
-                    self.assertRegex(b.callback_data, ok)
+        class _DB:
+            async def get_app_value(self, k):
+                return None
+        with mock.patch.object(wm, "db", _DB()):
+            text, kb = asyncio.new_event_loop().run_until_complete(wm.web_mic_panel(1))
+        rows = kb.inline_keyboard
+        self.assertLessEqual(len(rows), 4)
+        self.assertEqual(rows[0][0].callback_data, "mic:won")
+        self.assertEqual([b.callback_data for b in rows[1]],
+                         ["mic:wmode:loudest", "mic:wmode:phone", "mic:wmode:bass"])
+        self.assertNotIn("bridge", " ".join(b.callback_data for r in rows for b in r))
 
 
 if __name__ == "__main__":

@@ -24,8 +24,7 @@ if getattr(ntgcalls, "__file__", None) is None:  # stubbed by another test file
 from pyrogram import raw  # noqa: E402
 
 from helpers import vc_manager as vm  # noqa: E402
-from helpers import vc_bridge as hb  # noqa: E402
-import plugins.vc_bridge as pb  # noqa: E402
+import helpers.mic_target as pb  # noqa: E402
 
 
 def run(coro):
@@ -100,38 +99,6 @@ def test_legacy_link_is_untrusted(monkeypatch):
     assert run(pb.target_ref(7, -1002222222222)) == ("https://t.me/+LEGACY", False)
 
 
-def test_setting_target_while_live_moves_the_stream(monkeypatch):
-    db = FakeDB()
-    monkeypatch.setattr(pb, "db", db)
-    moved = []
-
-    class B:
-        target_chat = -1001111111111
-        relay = types.SimpleNamespace(client=None)
-        extra_relays = []
-
-        async def retarget(self, cid):
-            moved.append(cid)
-            self.target_chat = cid
-
-    bridge = B()
-
-    async def fake_resolve(msg, ref, uid, kind):
-        return -1002222222222, None
-
-    async def no_join(*a, **k):
-        return None
-
-    monkeypatch.setattr(pb, "resolve_group", fake_resolve)
-    monkeypatch.setattr(pb, "ensure_in_target", no_join)
-    monkeypatch.setattr(hb, "get_bridge", lambda uid: bridge)
-    cid, text = run(pb.set_target(None, 7, "-1002222222222"))
-    assert cid == -1002222222222
-    assert moved == [-1002222222222]
-    assert db.d["mic_chat_7"] == "-1002222222222"
-    assert "🔁" in text
-
-
 class _Calls:
     def __init__(self):
         self.left = []
@@ -186,59 +153,7 @@ class _Session:
         self.started += 1
 
 
-def test_retarget_moves_running_bridge_out_of_old_vc():
-    async def go():
-        relay, uvc = _Relay(), _Uvc()
-        old, new = -1001111111111, -1002222222222
-        b = hb.VCBridge(1, uvc, relay, source_chat=-1009999999999, target_chat=old)
-        b.session = _Session(old)
-        await b.retarget(new)
-        await asyncio.sleep(0)
-        b._closed = True
-        for t in (b._vol_task,):
-            if t:
-                t.cancel()
-        return b, relay
-    b, relay = run(go())
-    assert b.target_chat == -1002222222222
-    assert b.session.chat_id == -1002222222222
-    assert b.session.played_in == [-1002222222222]
-    assert -1001111111111 in relay.calls.left
-    assert -1001111111111 not in relay.chats
-    assert b.session._admin_boost is False
-
-
-def test_retarget_refuses_private_source_group():
-    b = hb.VCBridge(1, _Uvc(), _Relay(), source_chat=-1009999999999, target_chat=-1001111111111)
-    b.session = _Session(-1001111111111)
-    with pytest.raises(RuntimeError):
-        run(b.retarget(-1009999999999))
-
-
 # --------------------------------------------------------------------- Bug 1
-def test_boost_status_reads_admin_200_percent():
-    b = hb.VCBridge(1, _Uvc(), _Relay(), source_chat=-1009, target_chat=-1001)
-
-    class S:
-        _closed = False
-
-        def __init__(self, p):
-            self.p = p
-
-        async def _relay_participant(self):
-            return self.p
-
-    b.session = S(types.SimpleNamespace(volume=20000, volume_by_admin=True))
-    run(b._check_boost())
-    assert b.boost_ok is True
-    b.session = S(types.SimpleNamespace(volume=20000, volume_by_admin=False))
-    run(b._check_boost())
-    assert b.boost_ok is False
-    b.session = S(types.SimpleNamespace(volume=None, volume_by_admin=True))  # 100 %
-    run(b._check_boost())
-    assert b.boost_ok is False
-
-
 def test_main_id_learns_unknown_spare_and_sets_200_percent(monkeypatch):
     """in-memory session: spare's peer unknown until the VC participant list
     is fetched -> volume must still be set to 20000 (= 200 %)."""

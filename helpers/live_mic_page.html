@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#08090d">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Apex Live Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bg:#08090d;--bg2:#0e1016;--card:#12141b;--card2:#191c25;--line:#232734;--line2:#2f3445;
+ --text:#f3f4f7;--muted:#8a90a3;--dim:#545a6d;--acc:#c6ff3d;--ink:#0b1300;--live:#ff3b4f;--amber:#ffb627;--cyan:#3de0ff;
+ --display:'Unbounded',system-ui,sans-serif;--body:'Manrope',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+ --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;--lvl:0;--tabh:64px}
+html,body{height:100%}
+body{font-family:var(--body);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+ background:radial-gradient(90% 45% at 50% -8%,rgba(198,255,61,.10),transparent 70%),radial-gradient(70% 40% at 50% 108%,rgba(61,224,255,.07),transparent 70%)}
+body.live::before{background:radial-gradient(90% 45% at 50% -8%,rgba(255,59,79,.16),transparent 70%),radial-gradient(70% 40% at 50% 108%,rgba(198,255,61,.07),transparent 70%)}
+button,input,select{font-family:inherit;color:inherit}
+.app{position:relative;z-index:1;max-width:480px;margin:0 auto;min-height:100%;
+ padding:calc(12px + env(safe-area-inset-top)) 14px calc(var(--tabh) + 22px + env(safe-area-inset-bottom))}
+/* header */
+.top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--acc);color:var(--ink);flex:none}
+.logo svg{width:17px;height:17px;fill:currentColor}
+.brand{flex:1;min-width:0}
+.brand b{display:block;font:800 .78rem var(--display);letter-spacing:.16em;text-transform:uppercase}
+.brand small{display:block;color:var(--muted);font-size:.7rem;font-weight:700}
+.pill{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:99px;border:1px solid var(--line2);
+ font:700 .62rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);background:var(--card)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+body.busy .pill{color:var(--amber);border-color:rgba(255,182,39,.5)}body.busy .pill i{background:var(--amber);animation:blink .8s infinite}
+body.live .pill{color:#fff;background:var(--live);border-color:var(--live)}body.live .pill i{background:#fff;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+.timer{font:700 .72rem var(--mono);color:var(--dim);letter-spacing:.12em;min-width:44px;text-align:right}
+body.live .timer{color:var(--live)}
+.banner{display:none;align-items:center;gap:10px;padding:11px 12px;border-radius:14px;margin-bottom:12px;
+ background:rgba(255,182,39,.1);border:1px solid rgba(255,182,39,.4);color:var(--amber);font-size:.82rem;font-weight:700;line-height:1.35}
+.banner.show{display:flex}.banner span{flex:1}
+.banner button{border:0;border-radius:10px;padding:8px 11px;background:var(--amber);color:#1a1000;font-weight:800;font-size:.76rem}
+/* panes */
+.pane{display:none;flex-direction:column;gap:12px;animation:fade .25s ease}
+.pane.on{display:flex}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.card{border:1px solid var(--line);background:var(--card);border-radius:20px;padding:14px}
+.h{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.h h3{font:800 .6rem var(--display);letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.h .v{font:700 .95rem var(--mono);color:var(--acc)}
+/* mic stage */
+.stage{position:relative;width:min(290px,74vw);aspect-ratio:1;margin:2px auto 0;display:grid;place-items:center}
+#viz{position:absolute;inset:0;width:100%;height:100%}
+.halo{position:absolute;inset:22%;border-radius:50%;background:radial-gradient(circle,rgba(198,255,61,.25),transparent 70%);
+ filter:blur(26px);transform:scale(calc(1 + var(--lvl)*.6));transition:transform .1s}
+body.live .halo{background:radial-gradient(circle,rgba(255,59,79,.55),transparent 72%)}
+.ring{position:absolute;inset:4%;border-radius:50%;border:1px solid var(--line)}
+.ring.r2{inset:15%;border-style:dashed;border-color:#1f2330;animation:spin 40s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.orb{position:relative;width:46%;aspect-ratio:1;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;
+ background:radial-gradient(circle at 50% 30%,#2b303e,#111319 72%);color:var(--text);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 0 8px rgba(255,255,255,.03),0 24px 50px rgba(0,0,0,.6);
+ transform:scale(calc(1 + var(--lvl)*.07));transition:background .3s,box-shadow .3s}
+.orb:active{transform:scale(.94)}
+.orb svg{width:36%;height:36%;fill:currentColor}
+body:not(.live):not(.busy) .orb{box-shadow:0 0 0 2px rgba(198,255,61,.55),0 0 0 8px rgba(198,255,61,.07),0 24px 50px rgba(0,0,0,.6)}
+body.live .orb{background:radial-gradient(circle at 50% 30%,#ff7482,#d5122a 72%);color:#fff;
+ box-shadow:0 0 0 8px rgba(255,59,79,.15),0 0 calc(26px + var(--lvl)*80px) rgba(255,59,79,.6)}
+body.busy .orb{background:radial-gradient(circle at 50% 30%,#ffd677,#df8600 72%);color:#1a1000;animation:breathe 1.2s infinite}
+@keyframes breathe{50%{box-shadow:0 0 0 12px rgba(255,182,39,.15),0 0 50px rgba(255,182,39,.45)}}
+.tap{text-align:center;font:800 .64rem var(--display);letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+body.live .tap{color:#ff8b97}
+.status{padding:11px 13px;border-radius:14px;text-align:center;font-weight:700;font-size:.88rem;line-height:1.4;border:1px solid var(--line);background:var(--card);color:var(--muted)}
+.status.on{color:var(--acc);border-color:rgba(198,255,61,.4);background:rgba(198,255,61,.07)}
+.status.err{color:#ff9aa5;border-color:rgba(255,59,79,.5);background:rgba(255,59,79,.08)}
+.status.connecting{color:var(--amber);border-color:rgba(255,182,39,.45);background:rgba(255,182,39,.08)}
+/* meter */
+.vu{position:relative;height:16px;border-radius:6px;background:#0b0c11;overflow:hidden;border:1px solid var(--line)}
+.vu i{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#3de0ff,#c6ff3d 62%,#ffb627 84%,#ff3b4f);transition:width .06s}
+.vuh{display:flex;justify-content:space-between;margin-top:7px;font:700 .7rem var(--mono);color:var(--muted)}
+#vuHint.g{color:var(--acc)}#vuHint.q{color:var(--amber)}#vuHint.c{color:var(--live)}
+/* segmented */
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:4px;border-radius:14px;background:#0b0c11;border:1px solid var(--line)}
+.seg button{border:0;border-radius:10px;padding:10px 4px;background:transparent;font-weight:800;font-size:.8rem;color:var(--muted);cursor:pointer;line-height:1.15}
+.seg button small{display:block;font-weight:600;font-size:.64rem;color:var(--dim);margin-top:2px}
+.seg button.act{background:var(--acc);color:var(--ink)}.seg button.act small{color:#2d3c00}
+/* sliders */
+.sl{margin-top:12px}
+.sl label{display:flex;justify-content:space-between;font-size:.78rem;font-weight:700;color:var(--muted);margin-bottom:8px}
+.sl label b{font-family:var(--mono);color:var(--text)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:99px;outline:none;
+ background:linear-gradient(90deg,var(--acc) var(--fill,50%),#262a36 var(--fill,50%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--acc);box-shadow:0 2px 8px rgba(0,0,0,.5)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--acc)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.chip{border:1px solid var(--line2);background:var(--card2);border-radius:12px;padding:10px 8px;font-weight:800;font-size:.78rem;cursor:pointer;text-align:center}
+.chip small{display:block;font-weight:600;font-size:.64rem;color:var(--muted);margin-top:2px}
+.chip.act{border-color:var(--acc);color:var(--acc);background:rgba(198,255,61,.07)}
+.btn{width:100%;border:0;border-radius:14px;padding:13px;font-weight:800;font-size:.9rem;cursor:pointer;background:var(--card2);border:1px solid var(--line2)}
+.btn.pri{background:var(--acc);color:var(--ink);border-color:var(--acc)}
+.btn.red{background:var(--live);border-color:var(--live);color:#fff}
+.btn:disabled{opacity:.45}
+.help{display:none;padding:12px 14px;border-radius:14px;background:rgba(255,59,79,.08);border:1px solid rgba(255,59,79,.4);color:#ffc0c7;font-size:.82rem;line-height:1.5}
+.help.show{display:block}.help ol{margin:6px 0 0 18px}
+#retryBtn{display:none}
+.tips{font-size:.8rem;color:var(--muted);line-height:1.6}.tips b{color:var(--text)}
+/* screen */
+.preview{position:relative;aspect-ratio:16/9;border-radius:16px;overflow:hidden;background:#05060a;border:1px solid var(--line);display:grid;place-items:center}
+.preview video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.preview .ph{color:var(--dim);font-weight:700;font-size:.82rem;text-align:center;padding:20px}
+.preview .tag{position:absolute;top:10px;left:10px;z-index:2;display:none;padding:5px 9px;border-radius:8px;background:var(--live);color:#fff;font:700 .6rem var(--mono);letter-spacing:.14em}
+body.sharing .preview .tag{display:block}
+.note{font-size:.76rem;color:var(--muted);line-height:1.5}
+/* chat */
+.chat{display:flex;flex-direction:column;gap:8px;max-height:56vh;min-height:40vh;overflow-y:auto;padding-right:2px}
+.msg{max-width:86%;padding:8px 11px;border-radius:14px 14px 14px 4px;background:var(--card2);border:1px solid var(--line);font-size:.86rem;line-height:1.4;word-wrap:break-word;align-self:flex-start}
+.msg.me{align-self:flex-end;border-radius:14px 14px 4px 14px;background:rgba(198,255,61,.1);border-color:rgba(198,255,61,.3)}
+.msg b{display:block;font-size:.7rem;color:var(--cyan);margin-bottom:2px}
+.msg.me b{color:var(--acc)}
+.msg time{display:block;text-align:right;font:600 .6rem var(--mono);color:var(--dim);margin-top:3px}
+.compose{display:flex;gap:8px}
+.compose input{flex:1;min-width:0;border-radius:14px;border:1px solid var(--line2);background:#0b0c11;padding:12px 14px;font-size:.9rem;outline:none}
+.compose input:focus{border-color:var(--acc)}
+.compose button{flex:none;width:48px;border-radius:14px;border:0;background:var(--acc);color:var(--ink);font-weight:800;cursor:pointer}
+.empty{color:var(--dim);font-size:.82rem;text-align:center;padding:26px 8px;font-weight:700}
+/* vc */
+.mem{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)}
+.mem:last-child{border-bottom:0}
+.av{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:.8rem;color:#0b0c11}
+.mem.sp .av{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--acc)}
+.mem .nm{flex:1;min-width:0;font-weight:700;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mem .nm small{display:block;font-weight:600;font-size:.68rem;color:var(--muted)}
+.mem .st{font:700 .64rem var(--mono);color:var(--dim)}
+.mem.sp .st{color:var(--acc)}
+/* tabs */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:rgba(10,11,16,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+ border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tabs div{max-width:480px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);height:var(--tabh)}
+.tabs button{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--dim);font-weight:800;font-size:.66rem;letter-spacing:.04em;cursor:pointer;position:relative}
+.tabs svg{width:21px;height:21px;fill:currentColor}
+.tabs button.act{color:var(--acc)}
+.tabs button .dot{position:absolute;top:10px;right:calc(50% - 16px);width:8px;height:8px;border-radius:50%;background:var(--live);display:none}
+.tabs button.badge .dot{display:block}
+.toast{position:fixed;left:50%;bottom:calc(var(--tabh) + 16px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);opacity:0;
+ z-index:9;padding:10px 14px;border-radius:12px;background:#f3f4f7;color:#0b0c11;font-weight:800;font-size:.8rem;transition:all .25s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="app">
+ <header class="top">
+  <div class="logo"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></div>
+  <div class="brand"><b>Apex Live</b><small>Web Studio · VC</small></div>
+  <span class="timer" id="liveTimer">00:00</span>
+  <span class="pill"><i></i><span id="badgeTxt">Offline</span></span>
+ </header>
+ <div class="banner" id="tgBar"><span>Telegram ka browser mic block karta hai — Chrome me kholo.</span><button onclick="openInChrome()">Chrome</button></div>
+
+ <!-- MIC -->
+ <section class="pane on" id="pane-mic">
+  <div class="stage">
+   <canvas id="viz" width="600" height="600"></canvas>
+   <div class="halo"></div><div class="ring"></div><div class="ring r2"></div>
+   <button class="orb" id="toggleBtn" onclick="toggleMic()" aria-label="Mic on/off">
+    <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+   </button>
+  </div>
+  <div class="tap" id="tapTxt">Tap to go live</div>
+  <div class="status off" id="status">Mic OFF</div>
+  <div class="help" id="permHelp"></div>
+  <button class="btn" id="retryBtn" onclick="location.reload()">Page reload karo</button>
+
+  <div class="card">
+   <div class="h"><h3>Mic level</h3><span class="v" id="vuDb">-- dB</span></div>
+   <div class="vu"><i id="vuBar"></i></div>
+   <div class="vuh"><span id="vuHint">Mic ON karo</span><span id="sendInfo">48 kHz · 20 ms</span></div>
+  </div>
+
+  <div class="card">
+   <div class="h"><h3>Sound mode</h3><span class="v" style="font-size:.7rem">0 dBFS</span></div>
+   <div class="seg" id="modeSeg">
+    <button data-mode="loudest" onclick="pickMode('loudest')">⚡ Loudest<small>Fight · sabse tez</small></button>
+    <button data-mode="phone" onclick="pickMode('phone')">📱 Phone<small>Tez + saaf</small></button>
+    <button data-mode="bass" onclick="pickMode('bass')">🔊 Bass<small>Damdar</small></button>
+   </div>
+   <div class="sl"><label>PUSH (server drive) <b id="pushVal">+0 dB</b></label>
+    <input type="range" id="pushR" min="0" max="200" step="10" value="120" oninput="paintPush(this.value)" onchange="sendPush(this.value)"></div>
+   <div class="sl"><label>MIC BOOST (phone) <b id="boostVal">150%</b></label>
+    <input type="range" id="boostR" min="0.5" max="4" step="0.1" value="1.5" oninput="setBoost(this.value)"></div>
+  </div>
+
+  <div class="card">
+   <div class="h"><h3>Kaise sun rahe ho</h3></div>
+   <div class="row2">
+    <button class="chip" id="mEar" onclick="setMode('aec','')">🎧 Earphone<small>Sabse tez (best)</small></button>
+    <button class="chip" id="mSpk" onclick="setMode('aec','1')">🔈 Speaker<small>Echo cancel ON</small></button>
+   </div>
+   <p class="tips" style="margin-top:10px">Telegram app me apna mic <b>mute</b> rakho · mic 3–5 cm door · page khula rakho.</p>
+  </div>
+ </section>
+
+ <!-- SCREEN -->
+ <section class="pane" id="pane-screen">
+  <div class="preview"><video id="ssVideo" playsinline muted autoplay></video><span class="tag">● LIVE IN VC</span>
+   <div class="ph" id="ssPh">Screen ya camera VC me live dikhao.<br>Pehle Mic tab me mic ON karo.</div></div>
+  <div class="status off" id="ssStatus">Share band hai</div>
+  <div class="row2">
+   <button class="btn pri" id="ssBtn" onclick="startShare('screen')">🖥 Screen share</button>
+   <button class="btn pri" id="camBtn" onclick="startShare('camera')">📷 Camera</button>
+  </div>
+  <div class="row2">
+   <button class="btn" id="flipBtn" onclick="flipCam()">🔄 Camera flip</button>
+   <button class="btn red" id="ssStop" onclick="stopShare(true)" disabled>⏹ Stop share</button>
+  </div>
+  <div class="card">
+   <div class="h"><h3>Quality</h3><span class="v" id="ssInfo" style="font-size:.7rem">—</span></div>
+   <div class="seg" id="qSeg">
+    <button data-q="360" onclick="pickQ('360')">360p<small>Data saver</small></button>
+    <button data-q="480" onclick="pickQ('480')">480p<small>Balanced</small></button>
+    <button data-q="720" onclick="pickQ('720')">720p<small>HD · WiFi</small></button>
+   </div>
+   <p class="note" style="margin-top:10px">Phone Chrome me screen share nahi milta to <b>Camera</b> use karo, ya computer Chrome se link kholo. Mic ki awaaz isi VC stream me chalti rehti hai.</p>
+  </div>
+ </section>
+
+ <!-- CHAT -->
+ <section class="pane" id="pane-chat">
+  <div class="card"><div class="h"><h3>Group chat</h3><span class="v" id="chatInfo" style="font-size:.7rem">—</span></div>
+   <div class="chat" id="chatList"><div class="empty">Mic ON karo — group ke messages yahan dikhenge</div></div></div>
+  <form class="compose" onsubmit="sendChat(event)">
+   <input id="chatIn" maxlength="4000" placeholder="Group me message bhejo…" autocomplete="off">
+   <button type="submit" aria-label="Send">➤</button>
+  </form>
+  <p class="note">Message aapke apne logged-in account se group me jaata hai.</p>
+ </section>
+
+ <!-- VC -->
+ <section class="pane" id="pane-vc">
+  <div class="card"><div class="h"><h3>Voice chat</h3><span class="v" id="vcCount">—</span></div>
+   <div id="vcList"><div class="empty">Mic ON karo — VC members yahan dikhenge</div></div></div>
+ </section>
+</div>
+
+<nav class="tabs"><div>
+ <button class="act" data-tab="mic" onclick="tab('mic')"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>Mic</button>
+ <button data-tab="screen" onclick="tab('screen')"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h7v2H8v2h8v-2h-2v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 13H3V5h18v11z"/></svg>Screen</button>
+ <button data-tab="chat" onclick="tab('chat')"><span class="dot"></span><svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>Chat</button>
+ <button data-tab="vc" onclick="tab('vc')"><svg viewBox="0 0 24 24"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05A4.2 4.2 0 0 1 17 16.5V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>VC</button>
+</div></nav>
+<div class="toast" id="toast"></div>
+
+<script>
+let ws=null, audioCtx=null, mediaStream=null, source=null, workletNode=null, scriptNode=null, analyser=null, silentSink=null;
+let isOn=false, readyTimer=null, firstFrameTimer=null, retryTimer=null, nPre=null;
+let attemptId=0, firstFrameSeen=false, pending=[], sendReady=false, retries=0, captureRate=48000;
+const MAX_RETRIES=600;
+let lastFrameAt=0, wakeLock=null, watchdogTimer=null, lastReadyAt=0;
+const $=id=>document.getElementById(id);
+const statusEl=$('status'), btnEl=$('toggleBtn'), tapEl=$('tapTxt'), badgeEl=$('badgeTxt');
+const Q=new URLSearchParams(location.search);
+const TOKEN=Q.get('token');
+const USE_AEC=Q.get('aec')==='1';
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:v;}catch(e){return d;}},set(k,v){try{localStorage.setItem(k,String(v));}catch(e){}}};
+let toastT=null;
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('show'),2600);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* ---------- tabs ---------- */
+let curTab='mic';
+function tab(t){curTab=t;document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+t));
+ document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('act',b.dataset.tab===t));
+ if(t==='chat'){document.querySelector('[data-tab=chat]').classList.remove('badge');pull('chatpull');setTimeout(()=>{const l=$('chatList');l.scrollTop=l.scrollHeight;},50);}
+ if(t==='vc')pull('vcpull');}
+
+/* ---------- sliders / modes ---------- */
+function fill(el,min,max){el.style.setProperty('--fill',((el.value-min)/(max-min)*100).toFixed(1)+'%');}
+function micBoost(){const x=parseFloat(LS.get('vcfyt_boost2','1.5'));return (x>=0.5&&x<=4)?x:1.5;}
+function setBoost(v){v=Math.max(0.5,Math.min(4,parseFloat(v)||1.5));LS.set('vcfyt_boost2',v);
+ $('boostVal').textContent=Math.round(v*100)+'%';const r=$('boostR');r.value=v;fill(r,0.5,4);
+ if(nPre&&audioCtx){try{nPre.gain.setTargetAtTime(v,audioCtx.currentTime,0.05);}catch(e){nPre.gain.value=v;}}}
+function paintPush(v){v=parseInt(v)||120;const db=(v-120)/10;$('pushVal').textContent=(db>=0?'+':'')+db.toFixed(0)+' dB';const r=$('pushR');r.value=v;fill(r,0,200);}
+function sendPush(v){v=parseInt(v)||120;if(ws&&sendReady){try{ws.send('settings:'+JSON.stringify({loud:v}));toast('PUSH '+$('pushVal').textContent);}catch(e){}}else{pendingPush=v;toast('Mic ON hote hi lagega');}}
+let curMode='loudest', pendingMode=null, pendingPush=null;
+function paintMode(m){curMode=m;document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('act',b.dataset.mode===m));}
+function pickMode(m){paintMode(m);if(ws&&sendReady){try{ws.send('mode:'+m);}catch(e){}}else pendingMode=m;}
+function setMode(k,v){const u=new URL(location.href);if(v)u.searchParams.set(k,v);else u.searchParams.delete(k);
+ if(u.href===location.href)return;if(isOn&&!confirm('Iske liye page reload hoga. Phir mic dobara dabana.'))return;location.href=u.href;}
+function paintAec(){$('mEar').classList.toggle('act',!USE_AEC);$('mSpk').classList.toggle('act',USE_AEC);}
+
+/* ---------- visual ---------- */
+const viz=$('viz'), vctx=viz.getContext('2d');
+function drawViz(data){const W=viz.width,H=viz.height,cx=W/2,cy=H/2;vctx.clearRect(0,0,W,H);const n=72,r0=168;
+ for(let i=0;i<n;i++){const v=data?data[(i*2)%data.length]/255:0;const a=i/n*Math.PI*2-Math.PI/2;const len=4+v*104;
+  vctx.strokeStyle=v>.72?'#ff3b4f':(v>.35?'#c6ff3d':'rgba(198,255,61,.35)');vctx.lineWidth=5;vctx.lineCap='round';
+  vctx.beginPath();vctx.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0);vctx.lineTo(cx+Math.cos(a)*(r0+len),cy+Math.sin(a)*(r0+len));vctx.stroke();}}
+drawViz(null);
+let vuPeak=0;
+function vuUpdate(td){let pk=0,ss=0;for(let i=0;i<td.length;i++){const x=Math.abs(td[i]-128)/128;if(x>pk)pk=x;ss+=x*x;}
+ const rms=Math.sqrt(ss/td.length),db=rms>0?20*Math.log10(rms):-90;vuPeak=Math.max(pk,vuPeak*0.92);
+ $('vuBar').style.width=Math.max(0,Math.min(100,(db+50)*2))+'%';$('vuDb').textContent=(db<-89?'--':db.toFixed(0))+' dB';
+ const h=$('vuHint');if(vuPeak>0.985){h.textContent='CLIP — BOOST kam karo';h.className='c';}
+ else if(db<-34){h.textContent='Dheemi — mic paas lao';h.className='q';}else{h.textContent='PERFECT — full tez';h.className='g';}}
+let liveSince=0, liveTick=null;
+function paintTimer(){const s=liveSince?Math.floor((Date.now()-liveSince)/1000):0;$('liveTimer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function stopTimer(){liveSince=0;if(liveTick){clearInterval(liveTick);liveTick=null;}paintTimer();}
+function setStatus(t,c){statusEl.textContent=t;statusEl.className='status '+(c==='warn'?'err':c);
+ if(c==='warn'){return;}   // warning while streaming: keep the ON AIR state
+ document.body.classList.toggle('live',c==='on');document.body.classList.toggle('busy',c==='connecting');
+ badgeEl.textContent=c==='on'?'On Air':(c==='connecting'?'Connecting':'Offline');
+ if(c==='on'&&!liveSince){liveSince=Date.now();clearInterval(liveTick);liveTick=setInterval(paintTimer,1000);paintTimer();try{navigator.vibrate&&navigator.vibrate(18);}catch(e){}}}
+
+/* ---------- errors / help ---------- */
+const helpEl=$('permHelp'), retryEl=$('retryBtn');
+const IS_ANDROID=/Android/i.test(navigator.userAgent);
+const IN_TELEGRAM=/Telegram/i.test(navigator.userAgent)||!!window.TelegramWebview||!!window.TelegramWebviewProxy;
+if(IN_TELEGRAM)$('tgBar').classList.add('show');
+function showHelp(h){helpEl.innerHTML=h;helpEl.classList.add('show');retryEl.style.display='block';}
+function hideHelp(){helpEl.classList.remove('show');helpEl.innerHTML='';retryEl.style.display='none';}
+const DENIED_HELP='<b>Mic permission block hai.</b> Manually allow karo:<ol><li>Address bar me <b>lock / (i)</b> dabao</li><li><b>Permissions → Microphone → Allow</b></li><li>Page reload karke mic dabao</li></ol>';
+const TG_HELP='<b>Telegram ka andar wala browser mic block karta hai.</b> Upar <b>Chrome</b> dabao.';
+function micErrorText(e){const name=(e&&e.name)||'';const msg=(e&&e.message)||String(e||'');
+ if(name==='NotAllowedError'||name==='SecurityError'||/denied|dismiss/i.test(msg)){showHelp(DENIED_HELP+(IN_TELEGRAM?'<br><br>'+TG_HELP:''));return 'Mic permission block hai';}
+ if(name==='NotFoundError'||name==='OverconstrainedError'){showHelp('<b>Mic nahi mila.</b> Headset nikaal ke dobara try karo.');return 'Mic device nahi mila';}
+ if(name==='NotReadableError'||name==='AbortError'){showHelp('<b>Mic doosri app use kar rahi hai.</b> Call / recorder band karo, Telegram VC me apna mic <b>mute</b> rakho.');return 'Mic busy hai';}
+ if(/timeout/i.test(msg)){showHelp('<b>Permission popup ka jawab nahi mila.</b> Page reload karke Allow dabao.');return 'Permission timeout';}
+ return 'Mic start nahi hua: '+msg;}
+function friendlyErr(m){m=String(m||'');
+ if(/token|expired|used/i.test(m))return 'Link expire ho gaya — Telegram me fresh .mic on karo';
+ if(/already_active/i.test(m))return 'Mic doosre tab me chal raha hai — wo band karo';
+ if(/not_logged_in/i.test(m))return 'Bot me login nahi hai — pehle /login';
+ return m;}
+function openInChrome(){const url=location.href;try{navigator.clipboard&&navigator.clipboard.writeText(url);}catch(e){}
+ if(IS_ANDROID){const bare=url.replace(/^https?:\/\//,'');location.href='intent://'+bare+'#Intent;scheme=https;package=com.android.chrome;end';}else window.open(url,'_blank');}
+function init(){
+ paintAec();setBoost(micBoost());paintPush(120);paintMode('loudest');pickQ(LS.get('vcfyt_q','480'),true);
+ if(!TOKEN){setStatus('Token missing — Telegram me .mic on karo','err');return;}
+ if(!window.isSecureContext){setStatus('Ye page https par kholo','err');return;}
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setStatus('Is browser me mic support nahi — Chrome use karo','err');return;}
+ try{if(navigator.permissions&&navigator.permissions.query){navigator.permissions.query({name:'microphone'}).then(st=>{
+  if(st.state==='denied'){setStatus('Mic permission pehle se blocked hai','err');showHelp(DENIED_HELP+(IN_TELEGRAM?'<br><br>'+TG_HELP:''));}
+  st.onchange=()=>{if(st.state!=='denied'&&!isOn){hideHelp();setStatus('Mic OFF','off');}};}).catch(()=>{});}}catch(e){}
+}
+
+/* ---------- capture ---------- */
+const PCM_WORKLET = `
+class PCMP extends AudioWorkletProcessor {
+    constructor(){ super(); this.size = Math.max(128, Math.round(sampleRate * 0.02)); this.buf = new Int16Array(this.size); this.n = 0; }
+    process(inputs) {
+        const input = inputs[0];
+        if (!input || !input[0]) return true;
+        const ch0 = input[0];
+        for (let i = 0; i < ch0.length; i++) {
+            let s = ch0[i];
+            s = s > 1 ? 1 : (s < -1 ? -1 : s);
+            this.buf[this.n++] = Math.round(s < 0 ? s * 32768 : s * 32767);
+            if (this.n >= this.size) { const out = this.buf.buffer; this.port.postMessage(out, [out]); this.buf = new Int16Array(this.size); this.n = 0; }
+        }
+        return true;
+    }
+}
+registerProcessor('pcm-processor', PCMP);
+`;
+let micPeak=0, silentSince=0, silentWarned=false;
+function trackMicLevel(buf){try{const v=new Int16Array(buf);let pk=0;for(let i=0;i<v.length;i+=8){const a=v[i]<0?-v[i]:v[i];if(a>pk)pk=a;}
+ micPeak=pk;const now=Date.now();
+ if(pk<40){if(!silentSince)silentSince=now;if(!silentWarned&&now-silentSince>6000){silentWarned=true;
+   setStatus('Mic se awaaz nahi aa rahi! Telegram VC me apna mic MUTE karo (Telegram mic pakad leta hai)','warn');}}
+ else{if(silentWarned)setStatus('LIVE — awaaz ja rahi hai','on');silentSince=0;silentWarned=false;}}catch(e){}}
+function push(buf, myAttempt){
+    if (attemptId!==myAttempt) return;
+    firstFrameSeen = true; lastFrameAt = Date.now(); trackMicLevel(buf);
+    if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer=null; }
+    shareTick();
+    if (!ws || ws.readyState!==1 || !sendReady) { pending.push(buf); if (pending.length > 25) pending.shift(); return; }
+    try { ws.send(buf); } catch(e){}
+}
+function closeSocket(sendStop){
+  if(window._wsPingInterval){clearInterval(window._wsPingInterval);window._wsPingInterval=null;}
+  const oldWs=ws; ws=null; sendReady=false;
+  if(oldWs){oldWs.onclose=null;oldWs.onerror=null;oldWs.onmessage=null;oldWs.onopen=null;
+    try{if(sendStop&&oldWs.readyState===1)oldWs.send('stop');}catch(e){} try{oldWs.close();}catch(e){}}
+}
+function resetAudioState(message='Mic OFF', cls='off', sendStop=true){
+  attemptId++;
+  stopShare(false);
+  if(watchdogTimer){clearInterval(watchdogTimer);watchdogTimer=null;}
+  releaseWakeLock();
+  clearTimeout(readyTimer); clearTimeout(firstFrameTimer); clearTimeout(retryTimer); readyTimer=firstFrameTimer=retryTimer=null;
+  closeSocket(sendStop);
+  if(workletNode){try{workletNode.disconnect();}catch(e){} try{workletNode.port.onmessage=null;}catch(e){} workletNode=null;}
+  if(scriptNode){try{scriptNode.disconnect();}catch(e){} scriptNode.onaudioprocess=null; scriptNode=null;}
+  if(silentSink){try{silentSink.disconnect();}catch(e){} silentSink=null;}
+  if(analyser){try{analyser.disconnect();}catch(e){} analyser=null;}
+  if(source){try{source.disconnect();}catch(e){} source=null;}
+  nPre=null;
+  if(mediaStream){mediaStream.getTracks().forEach(t=>{try{t.stop();}catch(e){}});mediaStream=null;}
+  if(audioCtx){try{audioCtx.close();}catch(e){} audioCtx=null;}
+  isOn=false; firstFrameSeen=false; pending=[]; retries=0;
+  document.documentElement.style.setProperty('--lvl',0); drawViz(null);
+  $('vuBar').style.width='0';$('vuDb').textContent='-- dB';$('vuHint').textContent='Mic ON karo';$('vuHint').className='';
+  stopTimer(); setStatus(message,cls); tapEl.textContent='Tap to go live'; btnEl.disabled=false;
+}
+function stopMic(){ resetAudioState('Mic OFF','off',true); }
+
+function onServerText(socket, myAttempt, d){
+    if (d === 'pong') return;
+    if (d === 'ready') {
+        clearTimeout(readyTimer); readyTimer=null;
+        if (attemptId!==myAttempt || socket!==ws) return;
+        retries = 0;
+        try { socket.send('rate:' + captureRate); } catch(e){}
+        sendReady = true; lastReadyAt = Date.now();
+        while (pending.length) { try { socket.send(pending.shift()); } catch(e){ break; } }
+        if (pendingMode) { try{ socket.send('mode:'+pendingMode); }catch(e){} pendingMode=null; }
+        if (pendingPush!==null) { try{ socket.send('settings:'+JSON.stringify({loud:pendingPush})); }catch(e){} pendingPush=null; }
+        setStatus('LIVE — awaaz VC me ja rahi hai', 'on');
+        if (curTab==='chat') pull('chatpull'); if (curTab==='vc') pull('vcpull');
+    } else if (d.startsWith('settings:')) {
+        try { const st=JSON.parse(d.slice(9)); if(st.mode&&!pendingMode)paintMode(st.mode); if(st.loud&&pendingPush===null)paintPush(st.loud); } catch(e){}
+    } else if (d.startsWith('mode:')) {
+        paintMode(d.slice(5)); toast('Mode: '+d.slice(5).toUpperCase()+' — 0 dBFS');
+    } else if (d.startsWith('chatlog:')) { try{ renderChat(JSON.parse(d.slice(8))); }catch(e){}
+    } else if (d === 'chatok') { $('chatIn').value='';
+    } else if (d.startsWith('chaterr:')) { toast('Message nahi gaya: '+d.slice(8));
+    } else if (d.startsWith('vc:')) { try{ renderVc(JSON.parse(d.slice(3))); }catch(e){}
+    } else if (d.startsWith('settings_failed:')) {
+    } else if (d.startsWith('warn:')) { setStatus(d.slice(5), 'warn');
+    } else if (d.startsWith('ok:')) { setStatus(d.slice(3), 'on');
+    } else if (d.startsWith('error:')) { socket._fatal = true; resetAudioState(friendlyErr(d.slice(6)), 'err'); }
+}
+function connectSocket(myAttempt){
+    if (attemptId!==myAttempt) return;
+    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const socket = new WebSocket(proto + location.host + '/ws/mic?token=' + encodeURIComponent(TOKEN));
+    ws = socket; sendReady = false; socket.binaryType = 'arraybuffer';
+    clearTimeout(readyTimer);
+    readyTimer = setTimeout(()=>{ if (attemptId===myAttempt && !sendReady && ws===socket) { try{socket.close();}catch(e){} } }, 20000);
+    socket.onopen = () => {
+        if (window._wsPingInterval) clearInterval(window._wsPingInterval);
+        window._wsPingInterval = setInterval(() => { if (ws && ws.readyState === 1) { try { ws.send('ping'); } catch(e){} } }, 15000);
+    };
+    socket.onmessage = (ev) => { if (typeof ev.data === 'string') onServerText(socket, myAttempt, ev.data); };
+    socket.onerror = () => {};
+    socket.onclose = () => {
+        if (attemptId!==myAttempt || socket!==ws || socket._fatal) return;
+        if (window._wsPingInterval) { clearInterval(window._wsPingInterval); window._wsPingInterval=null; }
+        sendReady = false;
+        if (!isOn) return;
+        if (lastReadyAt && (Date.now()-lastReadyAt) > 30000) retries = 0;
+        if (retries >= MAX_RETRIES) { resetAudioState('Connection tut gaya — Telegram me fresh .mic on karo','err',false); return; }
+        retries++;
+        setStatus('Dobara jud rahe hain… ('+retries+')','connecting');
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(()=>connectSocket(myAttempt), Math.min(3000, 250 + 250*retries));
+    };
+}
+async function requestWakeLock(){try{if('wakeLock' in navigator&&!wakeLock){wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>{wakeLock=null;});}}catch(e){wakeLock=null;}}
+function releaseWakeLock(){try{if(wakeLock)wakeLock.release();}catch(e){}wakeLock=null;}
+function keepContextAlive(){try{if(!audioCtx||!silentSink)return;const osc=audioCtx.createOscillator();const g=audioCtx.createGain();g.gain.value=0.00001;osc.frequency.value=30;osc.connect(g);g.connect(silentSink);osc.start();}catch(e){}}
+let useScriptProcessorRef=null;
+function startWatchdog(myAttempt){
+    clearInterval(watchdogTimer);
+    watchdogTimer = setInterval(()=>{
+        if (attemptId!==myAttempt || !isOn) { clearInterval(watchdogTimer); watchdogTimer=null; return; }
+        if (audioCtx && audioCtx.state !== 'running') { audioCtx.resume().catch(()=>{}); }
+        try{ const t = mediaStream && mediaStream.getAudioTracks()[0]; if (t && t.readyState === 'ended') { resetAudioState('Mic band ho gaya — dobara tap karo','err'); return; } }catch(e){}
+        if (firstFrameSeen && lastFrameAt && (Date.now()-lastFrameAt) > 4000) {
+            if (audioCtx) audioCtx.resume().catch(()=>{});
+            try{ if(!scriptNode) useScriptProcessorRef && useScriptProcessorRef(); }catch(e){}
+            lastFrameAt = Date.now();
+        }
+        if ((!ws || ws.readyState===3) && !retryTimer) { setStatus('Dobara jud rahe hain…','connecting'); connectSocket(myAttempt); }
+        if (!wakeLock && !document.hidden) requestWakeLock();
+        if (sendReady && curTab==='chat') pull('chatpull');
+        if (sendReady && curTab==='vc' && (Date.now()/2000|0)%2===0) pull('vcpull');
+        if (sendReady && curTab!=='chat' && (Date.now()/2000|0)%4===0) pull('chatpull');
+    }, 2000);
+}
+
+async function toggleMic() {
+    if (isOn) { stopMic(); return; }
+    const myAttempt=++attemptId;
+    btnEl.disabled = true; hideHelp();
+    setStatus('Mic permission maang rahe hain…', 'connecting');
+    if (!TOKEN) { setStatus('Token missing', 'err'); btnEl.disabled=false; return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { btnEl.disabled=false; setStatus(micErrorText({name:'NotSupported',message:'Is browser me mic support nahi hai'}),'err'); return; }
+    pending=[]; retries=0; firstFrameSeen=false;
+    try {
+        const AC = window.AudioContext||window.webkitAudioContext;
+        try { audioCtx = new AC({ sampleRate: 48000, latencyHint: 'interactive' }); } catch(e) { audioCtx = new AC(); }
+        try { await audioCtx.resume(); } catch(e){}
+        const ask = (constraints) => Promise.race([navigator.mediaDevices.getUserMedia(constraints),
+            new Promise((_,reject)=>setTimeout(()=>reject(new Error('Microphone permission timeout')),25000))]);
+        try {
+            // Phone processing OFF: AGC/NS duck and pump the voice; the server
+            // makes it loud (same 3 modes as playback, 0 dBFS).
+            mediaStream = await ask({ audio: { echoCancellation: USE_AEC, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+        } catch (firstErr) {
+            const n = firstErr && firstErr.name;
+            if (n === 'NotAllowedError' || n === 'SecurityError' || /timeout/i.test(String(firstErr&&firstErr.message))) throw firstErr;
+            mediaStream = await ask({ audio: true });
+        }
+        if (attemptId!==myAttempt) return;
+        try { await audioCtx.resume(); } catch(e){}
+        source = audioCtx.createMediaStreamSource(mediaStream);
+        // v90 CLEAN CAPTURE: rumble cut -> MIC BOOST -> transparent soft-clip
+        // guard.  No browser compressors (they pumped + auto-makeup); all
+        // loudness is made once on the server.
+        try {
+            const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; hp.Q.value=0.707;
+            const pre = audioCtx.createGain(); pre.gain.value = micBoost();
+            const sc = audioCtx.createWaveShaper(); const N=2048, curve=new Float32Array(N);
+            for(let i=0;i<N;i++){const x=i/(N-1)*2-1; const a=Math.abs(x); curve[i]=a<0.7?x:Math.sign(x)*(0.7+0.29*Math.tanh((a-0.7)/0.29));}
+            sc.curve=curve; sc.oversample='4x';
+            source.connect(hp); hp.connect(pre); pre.connect(sc);
+            nPre = pre; source = sc;
+        } catch(e){ nPre=null; }
+    } catch (e) { resetAudioState(micErrorText(e), 'err'); return; }
+
+    captureRate = Math.round(audioCtx.sampleRate || 48000);
+    $('sendInfo').textContent=(captureRate/1000).toFixed(captureRate%1000?1:0)+' kHz · 20 ms';
+    function useScriptProcessor(){
+        if (scriptNode || !audioCtx || !source) return;
+        if (workletNode) { try{ workletNode.port.onmessage=null; workletNode.disconnect(); }catch(e){} workletNode=null; }
+        scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
+        scriptNode.onaudioprocess = (event) => {
+            const input = event.inputBuffer.getChannelData(0);
+            const out = new ArrayBuffer(input.length * 2); const view = new DataView(out);
+            for (let i = 0; i < input.length; i++) { const v = Math.max(-1, Math.min(1, input[i])); view.setInt16(i * 2, v * 32767, true); }
+            push(out, myAttempt);
+        };
+        source.connect(scriptNode); scriptNode.connect(silentSink);
+    }
+    silentSink = audioCtx.createGain(); silentSink.gain.value = 0; silentSink.connect(audioCtx.destination);
+    let worklet = false;
+    if (audioCtx.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
+        try {
+            await audioCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' })));
+            workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
+            workletNode.port.onmessage = (e) => { if (!scriptNode) push(e.data, myAttempt); };
+            source.connect(workletNode); workletNode.connect(silentSink); worklet = true;
+        } catch (err) { console.warn('AudioWorklet unavailable; using ScriptProcessor', err); }
+    }
+    useScriptProcessorRef = useScriptProcessor;
+    if (!worklet) useScriptProcessor();
+    keepContextAlive();
+    setTimeout(()=>{ if (attemptId===myAttempt && !firstFrameSeen) useScriptProcessor(); }, 1200);
+    analyser = audioCtx.createAnalyser(); analyser.fftSize = 256; source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount), tdata = new Uint8Array(analyser.fftSize);
+    function updateMeter() {
+        if (!isOn || !analyser) return;
+        analyser.getByteFrequencyData(data); try{ analyser.getByteTimeDomainData(tdata); vuUpdate(tdata);}catch(e){}
+        let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
+        document.documentElement.style.setProperty('--lvl', Math.min(1, (sum / data.length) / 70).toFixed(3));
+        drawViz(data); requestAnimationFrame(updateMeter);
+    }
+    isOn = true; btnEl.disabled = false; tapEl.textContent = 'Tap to stop';
+    setStatus('Server se jud rahe hain…', 'connecting');
+    requestAnimationFrame(updateMeter);
+    requestWakeLock(); startWatchdog(myAttempt);
+    firstFrameTimer = setTimeout(()=>{ if (attemptId===myAttempt && !firstFrameSeen) setStatus('Mic se data nahi aa raha — page reload karo','err'); }, 6000);
+    connectSocket(myAttempt);
+}
+document.addEventListener('visibilitychange', ()=>{ if (!document.hidden && audioCtx && audioCtx.state!=='running') audioCtx.resume().catch(()=>{}); if(!document.hidden&&isOn)requestWakeLock(); });
+
+/* ---------- chat ---------- */
+let lastChatId=0;
+function pull(what){ if(ws&&sendReady){ try{ ws.send(what); }catch(e){} } }
+function renderChat(list){
+  const l=$('chatList'); if(!Array.isArray(list)) return;
+  const atBottom=l.scrollHeight-l.scrollTop-l.clientHeight<60;
+  if(!list.length){l.innerHTML='<div class="empty">Abhi koi message nahi</div>';return;}
+  l.innerHTML=list.map(m=>'<div class="msg'+(m.me?' me':'')+'"><b>'+esc(m.name)+'</b>'+esc(m.text)+'<time>'+esc(m.t)+'</time></div>').join('');
+  $('chatInfo').textContent=list.length+' msgs';
+  const top=list[list.length-1].id||0;
+  if(lastChatId&&top>lastChatId&&curTab!=='chat')document.querySelector('[data-tab=chat]').classList.add('badge');
+  lastChatId=top; if(atBottom||curTab!=='chat') l.scrollTop=l.scrollHeight;
+}
+function sendChat(ev){ev.preventDefault();const t=$('chatIn').value.trim();if(!t)return;
+  if(!ws||!sendReady){toast('Pehle Mic ON karo');return;} try{ws.send('chat:'+t);}catch(e){toast('Bheja nahi gaya');}}
+
+/* ---------- VC members ---------- */
+const AVC=['#e56763','#f79f50','#a87ce6','#66c46d','#54bac4','#529ae8','#e86ba0'];
+function renderVc(list){
+  const el=$('vcList'); if(!Array.isArray(list)) return;
+  $('vcCount').textContent=list.length+' live';
+  if(!list.length){el.innerHTML='<div class="empty">VC me koi nahi / VC band hai</div>';return;}
+  el.innerHTML=list.map((p,i)=>{const nm=String(p.name||'User');const ini=esc(nm.trim().slice(0,1).toUpperCase()||'U');
+   const st=p.speaking?'SPEAKING':(p.hand?'✋ HAND':(p.muted?'MUTED':'LISTENING'));
+   const sub=(p.mic?'🎙 Aapka mic · ':'')+(p.presenting?'🖥 Sharing · ':'')+p.volume+'%';
+   return '<div class="mem'+(p.speaking?' sp':'')+'"><div class="av" style="background:'+AVC[i%AVC.length]+'">'+ini+'</div><div class="nm">'+esc(nm)+'<small>'+esc(sub)+'</small></div><span class="st">'+st+'</span></div>';}).join('');
+}
+
+/* ---------- screen / camera share ---------- */
+const SIZES={'360':[640,360],'480':[848,480],'720':[1280,720]};
+let ssWs=null, ssStream=null, ssKind=null, ssQ='480', ssFps=12, ssLive=false, ssLast=0, ssBusy=false, camFacing='user';
+let ssCanvas=null, ssCtx=null, ssReader=null, ssFrame=null;
+const ssVideo=$('ssVideo');
+function pickQ(q,silent){if(!SIZES[q])q='480';ssQ=q;LS.set('vcfyt_q',q);ssFps=q==='720'?10:(q==='360'?12:12);
+  document.querySelectorAll('#qSeg button').forEach(b=>b.classList.toggle('act',b.dataset.q===q));
+  if(!silent&&ssKind){const k=ssKind;toast('Quality '+q+'p — share restart');restartShareSocket(k);}}
+function ssSet(t,c){const e=$('ssStatus');e.textContent=t;e.className='status '+c;}
+function canScreen(){return !!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);}
+if(!canScreen()){$('ssBtn').textContent='🖥 Screen (PC only)';}
+async function startShare(kind){
+  if(!isOn||!sendReady){toast('Pehle Mic tab me mic ON karo');tab('mic');return;}
+  if(kind==='screen'&&!canScreen()){toast('Is phone browser me screen share nahi — Camera use karo');return;}
+  stopShare(false);
+  try{
+    if(kind==='screen') ssStream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:30}},audio:false});
+    else ssStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:camFacing,width:{ideal:1280},height:{ideal:720},frameRate:{ideal:15}},audio:false});
+  }catch(e){ssSet(e&&e.name==='NotAllowedError'?'Permission nahi mili':'Start nahi hua: '+((e&&e.message)||e),'err');ssStream=null;return;}
+  ssKind=kind; const track=ssStream.getVideoTracks()[0];
+  if(track){track.onended=()=>stopShare(true);}
+  ssVideo.srcObject=ssStream; try{await ssVideo.play();}catch(e){}
+  $('ssPh').style.display='none';
+  if(track&&'MediaStreamTrackProcessor' in window){try{const proc=new MediaStreamTrackProcessor({track});ssReader=proc.readable.getReader();
+    (async()=>{try{while(ssReader){const r=await ssReader.read();if(r.done)break;if(ssFrame){try{ssFrame.close();}catch(e){}}ssFrame=r.value;}}catch(e){}})();}catch(e){ssReader=null;}}
+  $('ssStop').disabled=false; restartShareSocket(kind);
+}
+function restartShareSocket(kind){
+  if(ssWs){try{ssWs.onclose=null;ssWs.close();}catch(e){} ssWs=null;}
+  ssLive=false; const [w,h]=SIZES[ssQ];
+  ssCanvas=document.createElement('canvas'); ssCanvas.width=w; ssCanvas.height=h; ssCtx=ssCanvas.getContext('2d',{alpha:false});
+  ssSet('VC se jod rahe hain…','connecting');
+  const proto=location.protocol==='https:'?'wss://':'ws://';
+  const s=new WebSocket(proto+location.host+'/ws/screen?token='+encodeURIComponent(TOKEN)); s.binaryType='arraybuffer'; ssWs=s;
+  s.onopen=()=>{try{s.send('cfg:'+JSON.stringify({q:ssQ,fps:ssFps,kind:kind}));}catch(e){}};
+  s.onmessage=(ev)=>{if(typeof ev.data!=='string')return;const d=ev.data;
+    if(d.startsWith('ok:')){ssLive=true;document.body.classList.add('sharing');ssSet((kind==='camera'?'📷 Camera':'🖥 Screen')+' VC me LIVE hai','on');$('ssInfo').textContent=d.split(':').slice(2).join(':');}
+    else if(d.startsWith('error:')){ssSet(d.slice(6),'err');stopShare(false,true);}};
+  s.onclose=()=>{if(ssWs===s&&ssStream){ssLive=false;ssSet('Share connection tuta — dobara jud rahe hain…','connecting');setTimeout(()=>{if(ssWs===s&&ssStream)restartShareSocket(ssKind);},1500);}};
+}
+function shareTick(){
+  if(!ssLive||!ssWs||ssWs.readyState!==1||ssBusy)return;
+  const now=performance.now(); if(now-ssLast<1000/ssFps)return;
+  if(ssWs.bufferedAmount>700000)return;   // slow network: drop frames, never lag
+  ssLast=now; const W=ssCanvas.width,H=ssCanvas.height;
+  const src=ssFrame||ssVideo; const sw=ssFrame?ssFrame.displayWidth:ssVideo.videoWidth, sh=ssFrame?ssFrame.displayHeight:ssVideo.videoHeight;
+  if(!sw||!sh)return;
+  const k=Math.min(W/sw,H/sh), dw=Math.round(sw*k), dh=Math.round(sh*k);
+  try{ssCtx.fillStyle='#000';ssCtx.fillRect(0,0,W,H);ssCtx.drawImage(src,(W-dw)>>1,(H-dh)>>1,dw,dh);}catch(e){return;}
+  ssBusy=true; const s=ssWs;
+  ssCanvas.toBlob(b=>{ssBusy=false;if(b&&s===ssWs&&s.readyState===1){b.arrayBuffer().then(a=>{try{s.send(a);}catch(e){}});}},'image/jpeg',ssQ==='720'?0.6:0.66);
+}
+setInterval(()=>{ if(ssLive&&!isOn) stopShare(true); else if(ssLive && document.hidden===false && (!audioCtx||audioCtx.state!=='running')) shareTick(); },200);
+function stopShare(notify,keepMsg){
+  const was=!!ssStream; ssLive=false; document.body.classList.remove('sharing');
+  if(ssWs){const s=ssWs;ssWs=null;try{s.onclose=null;if(s.readyState===1)s.send('stop');s.close();}catch(e){}}
+  if(ssReader){try{ssReader.cancel();}catch(e){} ssReader=null;}
+  if(ssFrame){try{ssFrame.close();}catch(e){} ssFrame=null;}
+  if(ssStream){ssStream.getTracks().forEach(t=>{try{t.stop();}catch(e){}});ssStream=null;}
+  ssVideo.srcObject=null; $('ssPh').style.display=''; $('ssStop').disabled=true; $('ssInfo').textContent='—'; ssKind=null;
+  if(!keepMsg)ssSet('Share band hai','off'); if(notify&&was)toast('Share band');
+}
+function flipCam(){camFacing=camFacing==='user'?'environment':'user';toast(camFacing==='user'?'Front camera':'Back camera');if(ssKind==='camera')startShare('camera');}
+init();
+</script>
+</body>
+</html>

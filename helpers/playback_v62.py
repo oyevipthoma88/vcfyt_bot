@@ -137,27 +137,8 @@ def pro_max_master(drive_db: float = None, push_db: float = None,
     return out
 
 
-def bridge_loud_stage(cfg: dict, focus: bool = False) -> str:
-    from . import vc_bridge as vb
-    c = vb.clean_loud(cfg)
-    hp = 120 - c["bass"] * 3            # was 200 Hz double = thin, weak voice
-    if focus:
-        hp = max(hp, 180)
-    f = [f"highpass=f={hp}:p=2"]
-    if c["bass"]:
-        f.append(f"equalizer=f={hp + 40}:t=q:w=1:g={min(3.0, c['bass'] * 0.4):.1f}")
-    if c["presence"]:
-        f.append(f"equalizer=f=3200:t=q:w=1.2:g={min(4.0, c['presence'] * 0.4):.1f}")
-    if ap._has_filter("allpass"):        # phase rotator: lower crest = more level
-        f += ["allpass=f=180:t=q:w=0.7", "allpass=f=700:t=q:w=0.7"]
-    f += pro_max_master(drive_db=12.0 + min(4.0, vb.drive_db(c["drive"]) * 0.1))
-    return ",".join(f)
-
-
 def install_live():
     if getattr(ap, "_live_v62_installed", False):
         return
     ap._live_v62_installed = True
     ap.clear_loud_master = pro_max_master
-    from . import vc_bridge as vb
-    vb.loud_stage = bridge_loud_stage

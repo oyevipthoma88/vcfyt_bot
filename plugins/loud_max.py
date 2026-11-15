@@ -3,7 +3,7 @@
   .maxloud / .tez      -> phone-max mode + all play settings max + har logged-in
                           ID (main + spares) ko VC me 200% + admin try
   .loudmode            -> current mode dikhao
-  .micmode loudest|clean -> live mic ka chain
+  .micmode loudest|phone|bass -> apna live mic mode
   .loudmode phone|bass -> phone = phone speaker pe sabse tez + clear (default)
                           bass  = purana heavy-bass chain (headphones)
 """
@@ -56,9 +56,11 @@ async def do_maxloud(uid: int) -> list:
     """.tez / panel ⚡ TEZ button — dono yahi chalate hai."""
     v77.set_mode("loudest")
     await db.set_app_value("play_loud_mode", "loudest")
-    v79.set_mode("loudest")
-    await db.set_app_value("live_mic_loud_mode", "loudest")
-    await v79.restart_live_sessions()
+    try:   # this user's live mic -> loudest too (running mic switches at once)
+        from plugins.web_mic import set_user_mode
+        await set_user_mode(uid, "loudest")
+    except Exception:
+        pass
     await db.save_settings(uid, **MAX_PLAY)
     from plugins.start import apply_settings_live
     await apply_settings_live(uid)
@@ -104,18 +106,21 @@ async def do_maxloud(uid: int) -> list:
 @Client.on_message(HAS_USER & cmd_prefix(r"micmode\b", flags=re.IGNORECASE)
                    & (filters.group | filters.private))
 async def cmd_micmode(bot: Client, msg: Message):
+    """.micmode loudest|phone|bass — apna live mic mode (same as audio modes)."""
+    from plugins.web_mic import set_user_mode, user_mode
+    uid = msg.from_user.id
     parts = cmd_text(msg).split()
     if len(parts) < 2:
         await msg.reply_text(
-            f"🎙 <b>Live mic mode:</b> <code>{v79.get_mode()}</code>\n\n"
-            "<code>.micmode loudest</code> — live mic sabse tez, phone ke liye (default)\n"
-            "<code>.micmode clean</code> — purana saaf chain (agar awaaz phate)")
+            f"🎙 <b>Live mic mode:</b> <code>{await user_mode(uid)}</code>  ·  0 dBFS\n\n"
+            "<code>.micmode loudest</code> — fight, sabse tez (default)\n"
+            "<code>.micmode phone</code> — tez + saaf shabd\n"
+            "<code>.micmode bass</code> — damdar heavy awaaz\n\n"
+            "<i>Studio page par bhi 3 button hain — chalu mic turant badalta hai.</i>")
         return
     try:
-        mode = v79.set_mode(parts[1])
+        mode = await set_user_mode(uid, parts[1])
     except ValueError:
-        await msg.reply_text("❌ Sirf <code>loudest</code> ya <code>clean</code>.")
+        await msg.reply_text("❌ Sirf <code>loudest</code>, <code>phone</code> ya <code>bass</code>.")
         return
-    await db.set_app_value("live_mic_loud_mode", mode)
-    n = await v79.restart_live_sessions()
-    await msg.reply_text(f"✅ Live mic mode: <b>{mode}</b>" + (f" ({n} chalu mic update)" if n else ""))
+    await msg.reply_text(f"✅ Live mic mode: <b>{mode}</b> · 0 dBFS")

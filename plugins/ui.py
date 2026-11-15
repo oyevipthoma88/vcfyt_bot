@@ -297,37 +297,32 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
              B("🔗 Sync Play", callback_data="sync:menu", style="primary"),
              B("🎵 Library", callback_data="aud:menu", style="primary")],
             [B("💎 Premium", callback_data="pay:menu", style="success"),
-             B("🎟️ Redeem", callback_data="pay:coupon", style="success")],
-            [B("👤 Account", callback_data="menu:status", style="primary"),
-             B("☰ More", callback_data="menu:more", style="primary"),
+             B("👤 Account", callback_data="menu:status", style="primary"),
              B("📘 Help", callback_data="menu:tutorial", style="primary")],
+            [B("☰ More", callback_data="menu:more", style="primary")],
         ]
     if is_owner:
         rows.append([B("👑 Owner Panel", callback_data="adm_back", style="success")])
     rows.extend(source_button())
     return K(rows)
 
-MORE_TEXT = card("☰", "More options",
-                 "🎵 <b>Library</b> — saved audios\n"
-                 "👤 <b>Account</b> — login & plan info\n"
-                 "💎 <b>Premium</b> · 👥 <b>Refer & Earn</b>\n"
-                 "🔁 <b>Re-Login</b> · 🚪 <b>Logout</b>")
+MORE_TEXT = card("☰", "More",
+                 "🎟️ <b>Redeem</b> coupon · 👥 <b>Refer & Earn</b>\n"
+                 "🎬 <b>Video Guide</b> · 🔁 <b>Re-Login</b> · 🚪 <b>Logout</b>")
 
 def more_kb() -> K:
     return K([
-        [B("🎵 Library", callback_data="aud:menu", style="primary"),
-         B("👤 My Account", callback_data="menu:status", style="primary")],
+        [B("🎟️ Redeem", callback_data="pay:coupon", style="success"),
+         B("👥 Refer & Earn", callback_data="ref:menu", style="success")],
         [B("🎬 Video Guide", callback_data="tut:video", style="primary"),
-         B("📘 Help", callback_data="menu:tutorial", style="primary")],
-        [B("💎 Premium", callback_data="pay:menu", style="success"),
-         B("🎟️ Redeem", callback_data="pay:coupon", style="success")],
-        [B("👥 Refer & Earn", callback_data="ref:menu", style="success")],
-        [B("🔁 Re-Login", callback_data="menu:login", style="primary"),
-         B("🚪 Logout", callback_data="menu:logout", style="danger")],
-        [B("🏠 Home", callback_data="menu:home", style="primary")],
+         B("🔁 Re-Login", callback_data="menu:login", style="primary")],
+        [B("🚪 Logout", callback_data="menu:logout", style="danger"),
+         B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
 
 def back_kb(target: str = "menu:home") -> K:
+    if target == "menu:home":
+        return K([[B("🏠 Home", callback_data="menu:home", style="primary")]])
     return K([[B("⬅ Back", callback_data=target, style="primary"),
                B("🏠 Home", callback_data="menu:home", style="primary")]])
 
@@ -398,25 +393,15 @@ def settings_kb(s: dict = None) -> K:
 
 def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
              live_vol: int = None) -> str:
-    lv = live_vol if live_vol is not None else _g(s, "live_volume", Config.LIVE_BOOST_DEFAULT)
-    try:
-        lv = int(lv)
-    except (TypeError, ValueError):
-        lv = 0
-    pct = round(lv / 100)
+    """Short Live Mic card (the full panel is plugins.web_mic.web_mic_panel)."""
     status_line = ("🔴 <b>LIVE</b> · aapki awaaz VC me ja rahi hai" if mic_on
-                   else "⚫ <b>Mic OFF</b> · start karne ke liye 🎤 dabao")
+                   else "⚫ <b>Mic OFF</b> · 🎤 dabao, Studio link aayega")
     device_line = f"📱 Input: <b>{mic_title}</b>\n" if mic_title else ""
-    boost = int(_g(s, "boost", Config.DEFAULT_BOOST) or 0)
-    master_db = float(_g(s, "master_drive_db", 12.0) or 12.0)
     return card("🎤", "Live mic",
-        f"{status_line}\n{device_line}\n"
-        f"🔊 {meter('Mic', pct, 200, '%')}\n"
-        f"🎙️ <code>{'Master dB':<9}</code> <b>{master_db:+.1f} dB</b> (Mic/Bridge power)\n"
-        f"💥 {meter('Boost', boost, 10)}\n"
-        f"🔁 <code>{'Echo':<7}</code> {chip(_g(s, 'echo', 0))}",
-        "💡 <i>Tip: Agar live aawaz dabi lage to Master dB badhao!</i>\n"
-        "<b>①</b> 🎤 Mic ON  <b>②</b> ⚡ MAX ALL  <b>③</b> kuch badla? ✅ Apply")
+        f"{status_line}\n{device_line}"
+        "🔊 Loudest / Phone / Bass · 0 dBFS\n"
+        "🖥 Screen share · 💬 Chat · 👥 VC — sab Studio page par",
+        "<b>①</b> 🎤 Mic ON  <b>②</b> link Chrome me kholo  <b>③</b> bolo")
 
 def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K:
     if not logged_in:
@@ -427,21 +412,8 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K
     return K([
         [B("⏹ Mic OFF" if mic_on else "🎤 Mic ON",
            callback_data="mic:off" if mic_on else "mic:on",
-           style="danger" if mic_on else "success")],
-        [B(f"🖥 Live Screen: {'ON' if ss else 'OFF'}", callback_data="mic:ss",
-           style="success" if ss else "danger")],
-        [B("⚡ MAX ALL (sabse loud)", callback_data="mic:max", style="success")],
-        [B("🎙️ Master dB −", callback_data="set:masterdb:-2", style="primary"),
-         B("🎙️ Master dB +", callback_data="set:masterdb:2", style="primary")],
-        [B("🔉 Mic −", callback_data="mic:vol:-2000", style="primary"),
-         B("🔥 200%", callback_data="mic:vol:20000", style="success"),
-         B("🔊 Mic +", callback_data="mic:vol:2000", style="primary")],
-        [B("💥 Boost −", callback_data="mic:boost:-1", style="primary"),
-         B("💥 Boost +", callback_data="mic:boost:1", style="primary")],
-        [B("🎵 Bass −", callback_data="mic:bass:-5", style="primary"),
-         B("🎵 Bass +", callback_data="mic:bass:5", style="primary")],
-        [B("🔁 Echo", callback_data="mic:echo:toggle", style="primary"),
-         B("✅ Apply", callback_data="mic:apply", style="success")],
+           style="danger" if mic_on else "success"),
+         B("🎛 Panel", callback_data="mic:panel", style="primary")],
         [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
          B("💬 Spare Chat", callback_data="mic:chat", style="primary")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
