@@ -3,7 +3,7 @@ import asyncio
 from pathlib import Path
 
 from plugins import web_mic
-from plugins.vc_bridge import _await_chat, request_target_input
+from plugins.live_mic_target import _await_chat, request_target_input
 
 
 def test_live_mic_requires_an_explicit_saved_target(monkeypatch):
@@ -40,13 +40,13 @@ def test_target_prompts_have_separate_completion_modes():
 
 def test_target_setup_paths_are_connected_to_the_live_mic_ui():
     commands = Path("plugins/vc_commands.py").read_text()
-    bridge = Path("plugins/vc_bridge.py").read_text()
     panel = Path("plugins/web_mic.py").read_text()
     assert '"url", "cancel"' in commands
     assert 'callback_data="mic:wtarget"' in panel
     assert 'callback_data="mic:wsetup"' in panel
     assert 'surface="setgc"' in commands
-    assert 'if web_panel_after or chat_command or setgc_prompt:' in bridge
+    assert 'request_target_input(uid' in commands or 'request_target_input' in commands
+    assert not Path("plugins/vc_bridge.py").exists()
 
 
 def test_target_controls_work_without_a_logged_in_engine():

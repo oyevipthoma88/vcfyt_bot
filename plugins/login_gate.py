@@ -12,7 +12,7 @@ from pyrogram.types import InlineKeyboardMarkup as K
 from config import Config
 from plugins.ui import B, LINE, edit_screen, safe_answer
 
-_GATED = re.compile(r"^(vc:|vct:|mic:|set:|aud:|brc:|brl:|menu:settings$|menu:status$)")
+_GATED = re.compile(r"^(vc:|vct:|mic:|set:|aud:|menu:settings$|menu:status$)")
 
 
 def _gated(_, __, cq):
@@ -46,7 +46,7 @@ async def login_gate(bot, cq):
     if await _is_logged_in(user.id):
         return
     # Live Mic sirf Spare ID se bhi chalta hai — main login ke bina.
-    if re.match(r"^(mic:|brs:|brc:|brl:)", cq.data or ""):
+    if re.match(r"^mic:", cq.data or ""):
         return
     await safe_answer(cq, "🔒 Pehle Login karo", show_alert=False)
     try:

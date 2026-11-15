@@ -7,8 +7,8 @@ from helpers.setup_flow import mic_setup_step
 class GuidedSetupTests(unittest.TestCase):
     def test_steps_follow_prerequisites(self):
         self.assertEqual(mic_setup_step(False, True, 1, 2), "login")
-        self.assertEqual(mic_setup_step(True, False, 1, 2), "spare")
-        self.assertEqual(mic_setup_step(True, True, None, 2), "src")
+        self.assertEqual(mic_setup_step(True, False, 1, 2), "ready")
+        self.assertEqual(mic_setup_step(True, True, None, 2), "ready")
         self.assertEqual(mic_setup_step(True, True, 1, None), "tgt")
         self.assertEqual(mic_setup_step(True, True, 1, 2), "ready")
 
@@ -33,24 +33,13 @@ class GuidedSetupTests(unittest.TestCase):
         from plugins.ui import home_kb
         self.assertEqual(len(home_kb(False, False).inline_keyboard), 2)
 
-    def test_mic_panel_is_simple(self):
-        from plugins.vc_bridge import loud_kb
-        for live in (False, True):
-            rows = loud_kb(live).inline_keyboard
-            self.assertLessEqual(len(rows), 6)  # +Ghost Mic + Live Screen rows
-            self.assertEqual(len(rows[0]), 1)  # sirf ek bada ON/OFF button
-        self.assertEqual(loud_kb(False).inline_keyboard[0][0].callback_data, "brc:on")
-        self.assertEqual(loud_kb(True).inline_keyboard[0][0].callback_data, "brc:off")
-
-    def test_every_panel_button_has_handler(self):
-        import re
-        from plugins.vc_bridge import loud_kb
-        ok = re.compile(r"^(brc:(on|off|status|leave|loud|help|ss)|brl:.+|brv:(tune|setup|more)|"
-                        r"brs:(src|tgt|auto)|tut:video|menu:home|mic:(acct|chat)|gm:live(:-?\d+)?)$")
-        for page in ("main", "more", "tune", "setup"):
-            for row in loud_kb(False, page).inline_keyboard:
-                for b in row:
-                    self.assertRegex(b.callback_data, ok)
+    def test_mic_panel_is_browser_based_and_has_three_sound_modes(self):
+        from helpers.live_mic import LIVE_MIC_HTML
+        from plugins.web_mic import web_mic_panel
+        self.assertIn("setSoundMode('loudest')", LIVE_MIC_HTML)
+        self.assertIn("setSoundMode('warm')", LIVE_MIC_HTML)
+        self.assertIn("Mic Boost", LIVE_MIC_HTML)
+        self.assertIn("mic:wmode:loudest", open("plugins/web_mic.py").read())
 
 
 if __name__ == "__main__":

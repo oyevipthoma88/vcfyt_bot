@@ -16,7 +16,7 @@ import os
 
 from . import audio_processor as ap
 
-MODES = ("loudest", "clean")
+MODES = ("loudest", "clean", "warm")
 _mode = None
 _orig = None
 
@@ -82,10 +82,31 @@ def live_loudest_chain(ceiling_db: float = None, drive_db: float = None,
     return ap._sanitize_ffmpeg_filter(",".join(f))
 
 
-def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int = 0) -> str:
+def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int = 0,
+                          mode: str = None) -> str:
+    # Per-session modes share the same hard ceiling. CLEAN removes soft-clip;
+    # WARM uses a gentler presence curve and no pre-limiter drive.
+    selected = str(mode or get_mode()).strip().lower()
+    if selected not in MODES:
+        selected = "loudest"
+    if selected == "warm":
+        drive = ap._env_db("LIVE_LOUDEST_DRIVE_DB", 15.0, high=20.0, low=0.0)
+        limit = min(0.84, 10 ** (max(-12.0, min(-1.5, float(ceiling_db))) / 20.0)) if ceiling_db is not None and os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else 0.84
+        filters = ["aresample=48000:async=1:first_pts=0", "highpass=f=95:p=2"]
+        if ap._has_filter("afftdn"):
+            filters.append("afftdn=nr=8:nf=-52:tn=0")
+        filters += ["acompressor=threshold=0.12:ratio=3:attack=8:release=160:makeup=1.5:knee=8",
+                    "equalizer=f=300:t=q:w=1:g=-2",
+                    "equalizer=f=2500:t=q:w=1:g=3",
+                    "equalizer=f=4200:t=q:w=1:g=1",
+                    "lowpass=f=9000",
+                    f"alimiter=level_in=1:level_out=1:limit={limit:.4f}:attack=1:release=50:level=false"]
+        if ap._has_filter("asetnsamples"):
+            filters.append(f"asetnsamples=n={ap.AUDIO_FRAME_SAMPLES}:p=0")
+        return ap._sanitize_ffmpeg_filter(",".join(filters))
     # v83: CLEAN = same clear chain without the soft-clip stage.  The old
     # "clean" fallback (_orig) measured -2 LUFS / 0 dBFS = square wave too.
-    if get_mode() == "clean":
+    if selected == "clean":
         if os.environ.get("LIVE_MIC_LEGACY_CLEAN", "0") == "1" and _orig:
             return _orig(ceiling_db, loud=loud, crunch=crunch)
         return live_loudest_chain(ceiling_db, softclip=False)

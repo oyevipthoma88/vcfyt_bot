@@ -1,9 +1,8 @@
 """Force-subscribe / auto-join system.
 
 Owner adds one or more channel links from the owner panel. Every active user
-must be a member of those channels. If the user already has a logged-in
-account, their own account is auto-joined silently; otherwise the bot shows
-join buttons and blocks further commands until they join.
+must be a member of those channels. The bot shows Join buttons and blocks further commands until membership
+is explicitly verified. Verification failures never pass the gate.
 """
 
 import asyncio
@@ -13,7 +12,7 @@ from typing import List, Optional
 from urllib.parse import urlparse
 
 from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import FloodWait, UserAlreadyParticipant, UserNotParticipant
+from pyrogram.errors import UserNotParticipant
 
 from helpers.database import db
 
@@ -37,6 +36,17 @@ def parse_target(raw: str) -> dict:
     value = (raw or "").strip()
     if not value:
         raise ValueError("Channel link ya @username dein.")
+    bits = value.split(maxsplit=1)
+    if len(bits) == 2 and bits[0].lstrip("-").isdigit():
+        from helpers.peer_guard import chat_id_variants
+        chat_id = chat_id_variants(bits[0])[0]
+        join_url = bits[1].strip()
+        parsed_join = urlparse(join_url if "://" in join_url else f"https://{join_url}")
+        if parsed_join.netloc.lower() not in ("t.me", "telegram.me", "telegram.dog"):
+            raise ValueError("Numeric channel ID ke saath valid t.me Join URL dein.")
+        if not parsed_join.path.strip("/"):
+            raise ValueError("Join URL khaali hai.")
+        return {"ref": str(chat_id), "url": parsed_join.geturl(), "kind": "id"}
 
     if value.startswith("@"):
         username = value[1:].strip("/")
@@ -45,9 +55,7 @@ def parse_target(raw: str) -> dict:
         return {"ref": username, "url": f"https://t.me/{username}", "kind": "username"}
 
     if value.lstrip("-").isdigit():
-        from helpers.peer_guard import chat_id_variants
-        chat_id = chat_id_variants(value)[0]
-        return {"ref": str(chat_id), "url": "", "kind": "id"}
+        raise ValueError("Channel ID ke saath Join link bhi dein: /addfsub -100... https://t.me/channel")
 
     parsed = urlparse(value if "://" in value else f"https://{value}")
     if parsed.netloc.lower() not in ("t.me", "telegram.me", "telegram.dog"):
@@ -56,7 +64,7 @@ def parse_target(raw: str) -> dict:
     if not path:
         raise ValueError("Link me channel ka naam nahi hai.")
     if path.startswith("+") or path.startswith("joinchat/"):
-        return {"ref": value, "url": value, "kind": "invite"}
+        raise ValueError("Private invite ko verify karne ke liye numeric channel ID + invite URL dono dein: /addfsub -100... https://t.me/+invite")
     username = path.split("/")[0]
     return {"ref": username, "url": f"https://t.me/{username}", "kind": "username"}
 
@@ -136,8 +144,10 @@ async def resolve_chat_id(bot, entry: dict) -> Optional[int]:
 async def is_member(bot, entry: dict, user_id: int) -> bool:
     chat_id = await resolve_chat_id(bot, entry)
     if chat_id is None:
-        # Private invite links cannot be verified — never block on them.
-        return True
+        # Never treat an unverifiable Must Join target as success. Keep the gate
+        # closed and log it so an owner can repair/remove the bad entry.
+        logger.error("Must Join target is not verifiable: %s", entry.get("ref"))
+        return False
     key = (chat_id, user_id)
     hit = _member_cache.get(key)
     if hit and _now() - hit < _CACHE_TTL:
@@ -146,13 +156,10 @@ async def is_member(bot, entry: dict, user_id: int) -> bool:
         member = await bot.get_chat_member(chat_id, user_id)
     except UserNotParticipant:
         return False
-    except FloodWait as exc:
-        await asyncio.sleep(min(10, int(getattr(exc, "value", 3))))
-        return True
     except Exception as exc:
-        # Bot not admin there, or channel unreachable — do not lock users out.
-        logger.warning("force_sub check %s failed: %s", chat_id, exc)
-        return True
+        # Missing bot admin rights / inaccessible chat must not fail open.
+        logger.error("Must Join membership check failed for %s: %s", chat_id, exc)
+        return False
     if member.status in (ChatMemberStatus.BANNED, ChatMemberStatus.LEFT):
         return False
     _member_cache[key] = _now()
@@ -169,22 +176,3 @@ async def missing_channels(bot, user_id: int) -> List[dict]:
             missing.append(entry)
     return missing
 
-
-async def auto_join_with_user_account(user_client, entries: List[dict]) -> int:
-    """Silently join the force-sub channels with the user's own account."""
-    joined = 0
-    for entry in entries:
-        target = _chat_arg(entry)
-        try:
-            await user_client.join_chat(target)
-            joined += 1
-        except UserAlreadyParticipant:
-            joined += 1
-        except FloodWait as exc:
-            await asyncio.sleep(min(20, int(getattr(exc, "value", 5)) + 1))
-        except Exception as exc:
-            logger.info("auto join %s failed: %s", entry["ref"], exc)
-    if joined:
-        global _member_cache
-        _member_cache = {}
-    return joined

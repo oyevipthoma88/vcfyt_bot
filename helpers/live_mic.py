@@ -90,6 +90,10 @@ class LiveMicSession:
         self.tg_muted = False
         self.chat_id = chat_id
         self.settings = dict(settings or {})
+        from helpers import live_mic_v79 as _mic_audio
+        self.audio_mode = str(self.settings.pop("live_mic_mode", _mic_audio.get_mode()))
+        if self.audio_mode not in _mic_audio.MODES:
+            self.audio_mode = "loudest"
 
         self.ws: Optional[web.WebSocketResponse] = None
         self.raw_fifo: Optional[str] = None
@@ -172,6 +176,7 @@ class LiveMicSession:
             "clarity": int(s.get("clarity", 14) if s.get("clarity") is not None else 14),
             "loud": int(s.get("loud") or 120),
             "crunch": int(s.get("crunch", 0) or 0),
+            "mode": self.audio_mode,
         }
 
     @staticmethod
@@ -199,7 +204,8 @@ class LiveMicSession:
         self._pipeline_ceiling = self._ceiling_db()
         return build_live_mic_filter(self._pipeline_ceiling,
                                      loud=int(self.settings.get("loud") or 120),
-                                     crunch=int(self.settings.get("crunch", 0) or 0))
+                                     crunch=int(self.settings.get("crunch", 0) or 0),
+                                     mode=self.audio_mode)
 
     def _ceiling_db(self) -> float:
         """Loudest clip-safe output peak for the current Telegram volume.
@@ -721,13 +727,7 @@ class LiveMicSession:
         if self.relay is None:
             return
         try:
-            # VC bridge: the spare ID also sits in the private "source" VC
-            # (listening to the user) — never kick it out of that one.
-            keep = tuple(getattr(self, "keep_chats", ()) or ())
-            if keep:
-                await self.relay.release_other_chats(self.chat_id, also_keep=keep)
-            else:
-                await self.relay.release_other_chats(self.chat_id)
+            await self.relay.release_other_chats(self.chat_id)
         except Exception as exc:
             logger.warning("Could not leave stale voice chats: %r", exc)
 
@@ -1380,6 +1380,38 @@ class LiveMicSession:
                     result.update(ok=ok, on=bool(getattr(state, "ss_on", False)),
                                   message=("Screen share ON" if want else "Screen share OFF")
                                   if ok else (getattr(state, "ss_error", "") or "Screen share failed"))
+            elif action == "mode":
+                from helpers import live_mic_v79 as v79
+                mode = str(payload.get("mode", "")).strip().lower()
+                if mode not in v79.MODES:
+                    result["message"] = "Choose one of the available sound modes"
+                elif mode == self.audio_mode:
+                    result.update(ok=True, mode=mode, message=f"{mode.title()} mode already active")
+                else:
+                    previous = self.audio_mode
+                    self.audio_mode = mode
+                    if self.ffmpeg_proc is not None:
+                        saved = self._ffmpeg_restarts
+                        self._ffmpeg_restarts = 0
+                        try:
+                            ok = await self._restart_ffmpeg(max_attempts=1)
+                            if not ok:
+                                # Roll back the selected mode and try to restore
+                                # the previous filter before reporting the result.
+                                self.audio_mode = previous
+                                self._ffmpeg_restarts = 0
+                                restored = await self._restart_ffmpeg(max_attempts=1)
+                                if not restored:
+                                    result["message"] = "Mode switch failed; prior audio pipeline could not be restored"
+                        finally:
+                            self._ffmpeg_restarts = saved
+                    else:
+                        ok = True
+                    if not ok:
+                        result.update(mode=previous,
+                                      message="Mode switch failed; previous mode restored where possible")
+                    else:
+                        result.update(ok=True, mode=mode, message=f"{mode.title()} mode active")
             elif action == "chat":
                 text = payload.get("text", "")
                 text = "".join(ch for ch in str(text) if ch >= " " or ch in "\n\t").strip()
@@ -1863,8 +1895,9 @@ footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:7
   <div class="card-h"><h3>Awaaz Mode</h3></div>
   <p class="seg-label">Sound</p>
   <div class="seg">
-    <button class="chip" id="mFight" onclick="setMode('boost','')">&#9889; FIGHT<small>Sabse tez</small></button>
-    <button class="chip" id="mClean" onclick="setMode('boost','clean')">&#10024; CLEAN<small>Phate to</small></button>
+    <button class="chip" id="mFight" onclick="setSoundMode('loudest')">&#9889; FIGHT<small>Strong presence</small></button>
+    <button class="chip" id="mClean" onclick="setSoundMode('clean')">&#10024; CLEAN<small>Smooth peaks</small></button>
+    <button class="chip" id="mWarm" onclick="setSoundMode('warm')">&#127807; WARM<small>Natural tone</small></button>
   </div>
   <p class="seg-label">Output</p>
   <div class="seg">
@@ -1876,7 +1909,7 @@ footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:7
 <div class="feat">
   <div class="f"><b>48k</b><small>Native rate</small></div>
   <div class="f"><b>20ms</b><small>Low latency</small></div>
-  <div class="f"><b>MAX</b><small>Ultra loud</small></div>
+  <div class="f"><b>SAFE</b><small>Peak limited</small></div>
 </div>
 
 <button id="chromeBtn" class="btn" onclick="openInChrome()">Chrome me kholein (link copy ho jayega)</button>
@@ -2183,6 +2216,7 @@ function connectSocket(myAttempt){
             while (pending.length) { try { socket.send(pending.shift()); } catch(e){ break; } }
             setStatus('LIVE - Mic ON', 'on');
             enableControls(true);
+            try{const preferred=localStorage.getItem('vcfyt_sound_mode');if(['loudest','clean','warm'].includes(preferred)&&preferred!==activeSoundMode)activeSoundMode=preferred;sendControl('mode',{mode:activeSoundMode});}catch(e){}
             controlNote('Hand raise, live screen, VC chat and reactions are ready.');
             // Do not send settings automatically on connect.  The server-side
             // settings path rebuilds FFmpeg; doing that after first audio used
@@ -2194,7 +2228,7 @@ function connectSocket(myAttempt){
             /* ignored */
         } else if (ev.data.startsWith('control:')) {
             try{
-              const r=JSON.parse(ev.data.slice(8));controlNote(r.message||'Done');
+              const r=JSON.parse(ev.data.slice(8));controlNote(r.message||'Done');if(r.action==='mode'&&r.mode){paintModes(r.mode);try{localStorage.setItem('vcfyt_sound_mode',r.mode);}catch(e){}}
               if(r.action==='hand'&&r.ok){const b=document.getElementById('handBtn');b.textContent=r.on?'✋ Lower hand':'✋ Raise hand';}
               if(r.action==='screen'&&r.ok){const b=document.getElementById('screenBtn');b.textContent=r.on?'🖥 Stop live screen':'🖥 Live screen';}
             }catch(e){}
@@ -2233,11 +2267,22 @@ function connectSocket(myAttempt){
 }
 
 const USE_AEC = new URLSearchParams(location.search).get("aec") === "1";
+let activeSoundMode='loudest';
+try{const savedMode=localStorage.getItem('vcfyt_sound_mode');if(['loudest','clean','warm'].includes(savedMode))activeSoundMode=savedMode;}catch(e){}
+function setSoundMode(mode){
+  if(!['loudest','clean','warm'].includes(mode))return;
+  activeSoundMode=mode;try{localStorage.setItem('vcfyt_sound_mode',mode);}catch(e){}paintModes(mode);
+  if(!isOn||!sendReady){controlNote(mode.toUpperCase()+' selected — mic connect hone par apply hoga.');return;}
+  if(sendControl('mode',{mode}))controlNote('Switching to '+mode.toUpperCase()+'…');
+}
 function setMode(k,v){const u=new URL(location.href);if(v)u.searchParams.set(k,v);else u.searchParams.delete(k);
- if(u.href===location.href)return; if(isOn&&!confirm('Mode badalne ke liye page reload hoga. Phir mic dobara dabana.'))return; location.href=u.href;}
-function paintModes(){const q=new URLSearchParams(location.search);const c=q.get('boost')==='clean',a=q.get('aec')==='1';
+ if(u.href===location.href)return; if(isOn&&!confirm('Output device badalne ke liye page reload hoga. Mic dobara tap karna hoga.'))return; location.href=u.href;}
+function paintModes(mode){
  const t=(id,on)=>{const e=document.getElementById(id);if(e)e.classList.toggle('act',on);};
- t('mFight',!c);t('mClean',c);t('mEar',!a);t('mSpk',a);}
+ if(mode&&['loudest','clean','warm'].includes(mode))activeSoundMode=mode;
+ t('mFight',activeSoundMode==='loudest');t('mClean',activeSoundMode==='clean');t('mWarm',activeSoundMode==='warm');
+ const q=new URLSearchParams(location.search),a=q.get('aec')==='1';t('mEar',!a);t('mSpk',a);
+}
 let vuPeak=0;
 function vuUpdate(td){let pk=0,ss=0;for(let i=0;i<td.length;i++){const x=Math.abs(td[i]-128)/128;if(x>pk)pk=x;ss+=x*x;}
  const rms=Math.sqrt(ss/td.length),db=rms>0?20*Math.log10(rms):-90;vuPeak=Math.max(pk,vuPeak*0.92);
@@ -2247,8 +2292,8 @@ function vuUpdate(td){let pk=0,ss=0;for(let i=0;i<td.length;i++){const x=Math.ab
  if(vuPeak>0.985){h.textContent='CLIP — thoda door / CLEAN';h.className='c';}
  else if(db<-32){h.textContent='Dheemi — mic paas lao';h.className='q';}
  else{h.textContent='PERFECT — full tez';h.className='g';}}
-document.addEventListener('DOMContentLoaded',paintModes);setTimeout(paintModes,0);
-const FIGHT = new URLSearchParams(location.search).get("boost") !== "clean";
+document.addEventListener('DOMContentLoaded',()=>paintModes());setTimeout(()=>paintModes(),0);
+const FIGHT = true; // Capture stays stable; selectable sound profiles run on the server.
 // SILENT-MIC DETECTOR: Android gives the browser pure silence while another
 // app (Telegram in the VC, a call) holds the microphone.  Warn the user
 // instead of streaming silence for the whole fight.

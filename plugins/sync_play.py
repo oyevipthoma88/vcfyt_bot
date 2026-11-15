@@ -97,7 +97,7 @@ async def _target(uid: int):
     cid = await db.get_app_value(f"sync_gc_{uid}")
     ref = await db.get_app_value(f"sync_gc_ref_{uid}")
     if not cid:
-        from plugins.vc_bridge import target_ref
+        from plugins.live_mic_target import target_ref
         cid = await db.get_app_value(f"mic_chat_{uid}")
         ref, _trusted = await target_ref(uid, cid) if cid else (None, False)
     try:
@@ -117,7 +117,7 @@ def _stream(path):
 
 async def _join_all(engines, cid, ref) -> list:
     """Phase 1 — har ID ko VC me silence ke saath join karao (parallel)."""
-    from plugins.vc_bridge import ensure_in_target
+    from plugins.live_mic_target import ensure_in_target
     from pytgcalls.exceptions import NoActiveGroupCall
     from pytgcalls.types import GroupCallConfig
 
@@ -209,7 +209,7 @@ async def cmd_synctarget(bot: Client, msg: Message):
             "🎯 <b>Sync target GC</b>: " + (f"<code>{cid}</code>" if cid else "set nahi hai")
             + "\n\nSet: <code>.synctarget -100xxxx</code> / <code>@username</code> / invite link")
         return
-    from plugins.vc_bridge import resolve_group
+    from plugins.live_mic_target import resolve_group
     cid, jref = await resolve_group(msg, parts[1], uid, "tgt")
     if not cid:
         await msg.reply_text("❌ Group nahi mila. Chat ID / @username / invite link check karein.")

@@ -10,45 +10,6 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import helpers  # noqa: F401,E402
-from helpers import vc_bridge as vb  # noqa: E402
-
-HAS_FF = shutil.which("ffmpeg") is not None
-
-
-def _voice(level_db):
-    sr = 48000
-    t = np.arange(sr * 6) / sr
-    ph = 2 * np.pi * np.cumsum(140 + 30 * np.sin(2 * np.pi * 0.7 * t)) / sr
-    x = sum((1 / k) * np.sin(k * ph) for k in range(1, 25))
-    env = np.clip(np.sin(2 * np.pi * 3.5 * t), 0, 1) ** 1.5
-    x = x * env
-    x = x / np.sqrt(np.mean(x[env > 0.1] ** 2)) * 10 ** (level_db / 20)
-    return (np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes()
-
-
-def _phone_lufs_after_opus(raw: bytes) -> float:
-    agc = vb.PcmAgc()
-    pcm = b"".join(agc.process(raw[i:i + 960]) for i in range(0, len(raw), 960))
-    enc = subprocess.run(["ffmpeg", "-v", "error", "-f", "s16le", "-ar", "48000", "-ac", "1",
-                          "-i", "-", "-af", vb.build_bridge_filter(vb.LOUD_DEFAULT),
-                          "-c:a", "libopus", "-b:a", "48k", "-application", "voip",
-                          "-f", "ogg", "-"], input=pcm, capture_output=True, check=True).stdout
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", "-", "-af",
-                        "highpass=f=300,lowpass=f=4000,ebur128", "-f", "null", "-"],
-                       input=enc, capture_output=True).stderr.decode()
-    return float(re.findall(r"I:\s+(-?[\d.]+) LUFS", r)[-1])
-
-
-@pytest.mark.skipif(not HAS_FF, reason="ffmpeg missing")
-def test_bridge_voice_is_at_least_2db_louder_than_v62(monkeypatch):
-    raw = _voice(-32)
-    new = _phone_lufs_after_opus(raw)
-    monkeypatch.setenv("BRIDGE_PHONE_FIGHT", "0")
-    monkeypatch.setenv("BRIDGE_ULTRA", "0")
-    old = _phone_lufs_after_opus(raw)
-    assert new >= old + 2.0, (new, old)
-    assert new >= -7.5, new
-
 
 def test_audio_panel_only_tez_modes_and_echo():
     from plugins.ui import settings_kb
@@ -61,12 +22,6 @@ def test_audio_panel_only_tez_modes_and_echo():
         assert gone not in datas
 
 
-def test_v80_bridge_uses_speech_denoiser_first_and_phone_band():
-    from helpers import audio_processor as ap
-    from helpers import playback_v80 as v80
-    chain = vb.build_bridge_filter(vb.LOUD_DEFAULT)
-    if ap._has_filter("arnndn"):
-        assert os.path.isfile(v80.RNN_MODEL)
-        assert "arnndn=m=" in chain
-        assert chain.index("arnndn") < chain.index("highpass")
-    assert "highpass=f=330" in chain and "lowpass=f=4300" in chain
+def test_live_mic_modes_do_not_change_global_playback_panel():
+    from helpers import live_mic_v79
+    assert live_mic_v79.MODES == ("loudest", "clean", "warm")

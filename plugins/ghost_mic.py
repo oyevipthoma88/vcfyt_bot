@@ -134,15 +134,7 @@ def _user_engines(uid, uvc):
             _add(getattr(sess, "relay", None))
     except Exception:
         pass
-    try:
-        from helpers import vc_bridge
-        b = vc_bridge._bridges.get(uid)
-        if b is not None:
-            _add(getattr(b, "relay", None))
-            for x in list(getattr(b, "extras", []) or []):
-                _add(getattr(x, "relay", None))
-    except Exception:
-        pass
+
     try:
         from plugins.sync_play import sync_engines
         for e in sync_engines(uid):

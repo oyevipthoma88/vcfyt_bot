@@ -1320,12 +1320,12 @@ async def cb_vc(bot, cq):
 AUTO_KB = K([[B("🔹 Settings Panel", callback_data="menu:settings")]])
 
 def _mic_ss_target(uid, uvc, active_cid):
-    """(engine, chat) whose screen share belongs to the running Live Mic."""
+    """Return the relay and target VC used by this user's browser Live Mic."""
     try:
-        from helpers import vc_bridge
-        b = vc_bridge.get_bridge(uid)
-        if b is not None and getattr(b, "relay", None) is not None:
-            return b.relay, b.target_chat
+        from helpers import live_mic
+        session = live_mic.get_session(uid)
+        if session is not None and not getattr(session, "_closed", False):
+            return session.relay, session.chat_id
     except Exception:
         pass
     if uvc is not None and active_cid is not None:
@@ -1365,14 +1365,8 @@ async def cb_mic(bot: Client, cq):
         await safe_answer(cq)
         return
 
-    if action == "bridge":
-        from plugins.vc_bridge import open_panel_cb
-        await open_panel_cb(cq)
-        await safe_answer(cq)
-        return
-
     if action in {"panel", "won", "wleave", "whelp", "wmode", "wtarget", "wcancel", "wsetup"}:
-        # v82: Live Mic = Web Browser mic panel.
+        # Browser Live Mic panel.
         from plugins.web_mic import web_mic_panel, run_web_mic, HELP
         class _M:  # callback ko message jaisa banao
             pass
@@ -1383,17 +1377,16 @@ async def cb_mic(bot: Client, cq):
             await safe_answer(cq)
             return
         if action == "wsetup":
-            from plugins.vc_bridge import panel
-            text, kb = await panel(uid)
+            text, kb = await web_mic_panel(uid)
             await edit_screen(cq.message, text, reply_markup=kb)
             await safe_answer(cq)
             return
         if action == "wtarget":
-            from plugins.vc_bridge import request_target_input
+            from plugins.live_mic_target import request_target_input
             request_target_input(uid, surface="web")
             await edit_screen(cq.message,
                 "🎯 <b>Set Live Mic target</b>\n\n"
-                "Send the numeric group chat ID here, for example <code>-1001234567890</code>.\n"
+                "Send a group ID, <code>@username</code> or invite link here.\n"
                 "I'll verify and save it before updating this panel.\n"
                 "<i>Prompt expires in 5 minutes. You can also use <code>.mic cancel</code>.</i>",
                 reply_markup=K([[B("✖ Cancel", callback_data="mic:wcancel", style="danger")],
@@ -1401,7 +1394,7 @@ async def cb_mic(bot: Client, cq):
             await safe_answer(cq, "Target ID bhejo")
             return
         if action == "wcancel":
-            from plugins.vc_bridge import _await_chat
+            from plugins.live_mic_target import _await_chat
             _await_chat.pop(uid, None)
             await safe_answer(cq, "Target prompt cancelled")
         elif action == "won":
@@ -1410,15 +1403,17 @@ async def cb_mic(bot: Client, cq):
         elif action == "wleave":
             await run_web_mic(m, "leave")
             await safe_answer(cq, "Mic OFF + VC se bahar")
-        elif action == "wmode" and rest and rest[0] in {"loudest", "clean"}:
-            try:
-                from helpers import live_mic_v79 as v79
-                v79.set_mode(rest[0])
-                await db.set_app_value("live_mic_loud_mode", rest[0])
-                await v79.restart_live_sessions()
-            except Exception:
-                pass
-            await safe_answer(cq, f"Mic mode: {rest[0].upper()}")
+        elif action == "wmode" and rest and rest[0] in {"loudest", "clean", "warm"}:
+            from helpers import live_mic
+            session = live_mic.get_session(uid)
+            if session is None or session.ws is None or session.ws.closed:
+                await safe_answer(cq, "Pehle browser mic connect karein", show_alert=True)
+            else:
+                await session._handle_web_control({"action": "mode", "mode": rest[0]})
+                if session.audio_mode == rest[0]:
+                    await safe_answer(cq, f"Mic mode: {rest[0].upper()}")
+                else:
+                    await safe_answer(cq, "Mode switch nahi hua; previous mode active hai", show_alert=True)
         else:
             await safe_answer(cq)
         text, kb = await web_mic_panel(uid)
@@ -1496,7 +1491,7 @@ async def cb_mic(bot: Client, cq):
 
     if action == "ss":
         # Live Mic me bhi Live Screen (audio panel jaisa) — screen share us ID
-        # par jo VC me bol rahi hai (bridge spare ID, warna main ID).
+        # par jo VC me bol rahi hai (active relay, warna main ID).
         relay, cid = _mic_ss_target(uid, uvc, active_cid)
         if relay is None or cid is None:
             await safe_answer(cq, "Pehle 🎤 Mic ON karo — phir Live Screen chalega.",
@@ -1533,25 +1528,35 @@ async def cb_mic(bot: Client, cq):
             await edit_screen(cq.message, text, reply_markup=kb)
             await safe_answer(cq, "Pehle Spare ID login karein")
             return
-        # v81: Web Browser Mic link (VC Bridge hata diya).
-        from plugins.vc_bridge import _CbMsg
+        # Browser Live Mic link.
+        class _MicCallbackMessage:
+            def __init__(self, query):
+                self.from_user = query.from_user
+                self.chat = query.message.chat
+                self._client = query._client if hasattr(query, "_client") else query.message._client
+                self.id = query.message.id
+                self.text = ""
+                self.command = []
+            async def reply_text(self, text, **kwargs):
+                return await mic_notify(self, text, **kwargs)
+            async def reply(self, text, **kwargs):
+                return await self.reply_text(text, **kwargs)
         from plugins.web_mic import run_web_mic
         await safe_answer(cq, "Mic link aa raha hai…")
-        await run_web_mic(_CbMsg(cq), "on")
+        await run_web_mic(_MicCallbackMessage(cq), "on")
         return
 
     if action == "off":
         from helpers.live_mic import reset_mic_state, stop_session
-        from plugins.vc_bridge import open_panel_cb
-        from helpers import vc_bridge
         ok = await stop_session(uid)
         await db.set_app_value(f"live_mic_token_{uid}", "")
-        ok = (await vc_bridge.stop_bridge(uid)) or ok
         try:
             await reset_mic_state(uvc, uid)
         except Exception:
             pass
-        await open_panel_cb(cq)
+        from plugins.web_mic import web_mic_panel
+        text, kb = await web_mic_panel(uid)
+        await edit_screen(cq.message, text, reply_markup=kb)
         await safe_answer(cq, "⏹ Live Mic OFF" if ok else "Live Mic chal nahi raha tha")
         return
 
@@ -2243,15 +2248,15 @@ async def cmd_mic(bot: Client, msg: Message):
             parts = parts[:2] + [str(msg.chat.id)]
         if len(parts) < 3:
             saved = await db.get_app_value(f"mic_chat_{msg.from_user.id}")
-            from plugins.vc_bridge import request_target_input
+            from plugins.live_mic_target import request_target_input
             request_target_input(msg.from_user.id, surface="chat")
             await mic_notify(msg,
                 "🎯 <b>Live Mic target group</b>: "
                 + (f"<code>{saved}</code>\n\n" if saved else "not set\n\n")
-                + "Is private chat mein numeric group ID bhejo, jaise <code>-1001234567890</code>.\n"
+                + "Is private chat mein group ID, <code>@username</code> ya invite link bhejo.\n"
                 + "<i>5 minute tak active. Cancel: <code>.mic cancel</code></i>")
             return
-        from plugins.vc_bridge import set_target
+        from plugins.live_mic_target import set_target
         cid, text = await set_target(msg, msg.from_user.id, parts[2])
         if cid and "🔁" not in text and "⚠️" not in text:
             text += ("\n\nAb bot DM me sirf <code>.mic on</code> bhejo — aawaz isi "
@@ -2260,15 +2265,8 @@ async def cmd_mic(bot: Client, msg: Message):
         return
 
     alias = {"start": "on", "stop": "off", "exit": "leave", "out": "leave",
-             "vcleave": "leave", "devices": "help", "list": "help",
-             "source": "src", "power": "loud", "boost": "loud"}
+             "vcleave": "leave", "devices": "help", "list": "help"}
     action = alias.get(action, action)
-    alias.update({"panel": "loud", "control": "loud", "ctrl": "loud"})
-    action = alias.get(action, action)
-    if action in {"src", "loud"}:
-        from plugins.vc_bridge import run_bridge
-        await run_bridge(msg, ["bridge", action, *parts[2:]])
-        return
     from plugins.web_mic import run_web_mic
     if action in {"link", "seturl", "domain"}:
         action = "url"
@@ -2289,12 +2287,12 @@ async def cmd_setgc(bot: Client, msg: Message):
     if name == "gc" or (name == "setgc" and len(parts) == 1 and not (msg.chat and msg.chat.id < 0)):
         cur = DEFAULT_GC.get(uid)
         if name == "setgc" and msg.chat and str(getattr(msg.chat.type, "value", msg.chat.type)).lower() == "private":
-            from plugins.vc_bridge import request_target_input
+            from plugins.live_mic_target import request_target_input
             request_target_input(uid, surface="setgc")
             await msg.reply_text(
                 f"🎯 <b>Default + Live Mic group:</b> <code>{cur or 'not set'}</code>\n\n"
                 "Ab isi DM me group ka numeric chat ID bhejo, jaise <code>-1001234567890</code>.\n"
-                "ID verify hoga, phir default group aur Live Mic dono set honge.\n"
+                "Group verify hoga, phir default group aur Live Mic dono set honge.\n"
                 "Cancel: <code>.mic cancel</code> · Prompt 5 minute tak active rahega.")
             return
         await msg.reply_text(
@@ -2312,7 +2310,7 @@ async def cmd_setgc(bot: Client, msg: Message):
     # Keep the Live Mic's dedicated target aligned with .setgc as well. Use
     # the same verified resolver as .mic chat so an unverified guessed ID is
     # never shown as a successful microphone destination.
-    from plugins.vc_bridge import set_target
+    from plugins.live_mic_target import set_target
     target_ref_text = target_ref_text or str(cid)
     mic_cid, mic_text = await set_target(msg, uid, target_ref_text)
     if not mic_cid:
@@ -2513,7 +2511,7 @@ async def cmd_say(bot: Client, msg: Message):
 
 
 # group=6 (was 4): Pyrogram runs only ONE handler per group, and the Live
-# Mic target listener (plugins/vc_bridge.py) also sits in group 4 with the
+# Live Mic target listener also sits in group 4 with the
 # same filter -> one of them silently swallowed the other's messages.
 @Client.on_message(HAS_USER & filters.private & filters.text
                    & ~filters.regex(r"^[/.!]"), group=6)
@@ -2570,7 +2568,7 @@ async def cmd_masterdb(bot: Client, msg: Message):
         cur = float(s.get("master_drive_db", 12.0) or 12.0)
         await msg.reply_text(
             f"🎙️ <b>Master Drive dB:</b> <code>{cur:+.1f} dB</code>\n\n"
-            "💡 <i>Live mic aur VC bridge ki power. Range: 0 to 24 dB.</i>\n"
+            "💡 <i>Playback aur Live Mic ki power. Range: 0 to 24 dB.</i>\n"
             "Usage: <code>.masterdb 16</code> ya <code>.masterdb +2</code> ya <code>.masterdb -2</code>",
             reply_markup=K([[B("🎚️ Sound Controls", callback_data="menu:settings")]])
         )
@@ -2589,7 +2587,7 @@ async def cmd_masterdb(bot: Client, msg: Message):
     await _apply_and_reply(
         msg,
         f"🎙️ <b>Master Drive set: {val:+.1f} dB</b>\n"
-        "<i>(Live mic & VC bridge power updated)</i>",
+        "<i>(Playback aur Live Mic power updated)</i>",
         master_drive_db=val
     )
 

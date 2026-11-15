@@ -17,6 +17,7 @@ from helpers.vc_manager import session_manager
 from helpers.feature_flags import live_mic_on, refresh_flags, set_live_mic
 
 BANNED_USERS: set = set()
+_AWAIT_LIVE_MIC_URL: set[int] = set()
 
 def owner_only(func):
     async def wrapper(bot: Client, msg: Message):
@@ -44,7 +45,8 @@ def panel_kb() -> K:
         [B("🎛 VC Joiner", callback_data="adm_vcjoin", style="success"),
          B("🎬 Set Video", callback_data="adm_setvideo", style="primary")],
         [B("🔗 Source URL", callback_data="adm_source", style="primary"),
-         B("♻️ Restart", callback_data="adm_restart", style="danger")],
+         B("🎙 Live Mic URL", callback_data="adm_micurl", style="primary")],
+        [B("♻️ Restart", callback_data="adm_restart", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
 
@@ -82,6 +84,19 @@ async def cb_admin(bot, cq):
         await safe_answer(cq, "🎤 Live Mic ON — sab users ko dikhega" if new
                           else "🎤 Live Mic OFF — users se chhupa diya", show_alert=False)
         await edit_screen(cq.message, await _panel_text(), reply_markup=panel_kb())
+        return
+
+    if action == "micurl":
+        from helpers.mic_url import DB_OVERRIDE, _db_get
+        current = await _db_get(DB_OVERRIDE)
+        _AWAIT_LIVE_MIC_URL.add(cq.from_user.id)
+        await edit_screen(cq.message,
+            "🎙 <b>Live Mic URL</b>\n\n"
+            f"Current override: <code>{current or 'Auto detect'}</code>\n\n"
+            "Ab is chat me exact public app URL bhejein. Main health-check karke hi save karunga.\n"
+            "Auto-detect par reset: <code>reset</code>",
+            reply_markup=back)
+        await safe_answer(cq, "Owner URL bhejein")
         return
 
     if action == "vcjoin":
@@ -296,6 +311,29 @@ async def cb_admin(bot, cq):
         await edit_screen(cq.message, await _panel_text(), reply_markup=panel_kb())
 
     await safe_answer(cq)
+
+
+@Client.on_message(filters.private & filters.text, group=3)
+async def owner_live_mic_url_input(bot: Client, msg: Message):
+    uid = msg.from_user.id if msg.from_user else 0
+    if uid not in _AWAIT_LIVE_MIC_URL:
+        return
+    if not Config.is_owner(uid):
+        _AWAIT_LIVE_MIC_URL.discard(uid)
+        return
+    raw = (msg.text or "").strip()
+    _AWAIT_LIVE_MIC_URL.discard(uid)
+    from helpers import mic_url
+    ok, info = await mic_url.set_override(raw)
+    if ok:
+        await msg.reply_text(("♻️ Live Mic URL auto-detect par reset." if not info else
+                              f"✅ Live Mic URL verified and saved: <code>{info}</code>"),
+                             disable_web_page_preview=True)
+    elif info == "invalid":
+        await msg.reply_text("❌ Invalid URL. Public app URL bhejein, jaise https://your-app.example.com")
+    else:
+        await msg.reply_text("❌ URL is bot ko health-check par verify nahi hua; save nahi kiya.")
+    await msg.stop_propagation()
 
 @Client.on_message(HAS_USER & dm_cmd("setsource") & filters.private)
 @owner_only

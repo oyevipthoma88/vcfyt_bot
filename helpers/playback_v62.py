@@ -84,31 +84,8 @@ def playback_ceiling(env: str = "PLAY_CEILING_DB", default: float = -3.0) -> lis
             "aresample=48000"]
 
 
-def install():
-    if getattr(ap, "_playback_v62_installed", False):
-        return
-    ap._playback_v62_installed = True
-    install_live()
-    for name in ("playback_voice_stage", "playback_fight_stage", "playback_ceiling"):
-        setattr(ap, name, globals()[name])
-
-
-# ---------------------------------------------------------------------------
-# v62 LIVE MIC + VC BRIDGE ROOT FIX ("bridge me bohot kam", live mic dabi)
-#
-# Bench (record.ogg as the input voice -> chain -> Opus 48k voip -> decode):
-#   live mic : -6.2 LUFS, true peak +0.5 dBFS, 3.4 % samples clipped,
-#              energy <600 Hz -2.7 dB vs 2-6 kHz -6.8 dB (muddy, far away)
-#   bridge   : -5.5 LUFS, true peak +0.1 dBFS, 2.6 % clipped
-# Both share clear_loud_master(): a 48 kHz limiter at -1.5 dBFS that Opus
-# overshoots -> overs at the receiver -> Telegram's AGC ducks the whole
-# stream, and the crunch reads as "kam / dabi".  The bridge also stacked a
-# 200 Hz double highpass (thin), +8 dB @750 Hz (honk) and ~20 dB of
-# presence boosts (harsh, then pulled down by AGC).
-# Fix: one PRO MAX master for both - leveller -> RMS comp -> mud cut +
-# presence -> 4-band mcompand (dense like radio) -> drive -> oversampled
-# tanh -> double limiter at 192 kHz, ceiling -3 dBFS (Opus-safe).
-# ---------------------------------------------------------------------------
+# Shared legacy master retained because playback v73 installs it through
+# audio_processor. Bridge-specific stage patching was removed.
 def pro_max_master(drive_db: float = None, push_db: float = None,
                    leveller: bool = True) -> list:
     drive = ap._env_db("MASTER_DRIVE_DB", 12.0 if drive_db is None else drive_db,
@@ -126,38 +103,17 @@ def pro_max_master(drive_db: float = None, push_db: float = None,
             "highshelf=f=6000:g=2"]
     if ap._has_filter("aexciter"):
         out.append("aexciter=level_in=1:level_out=1:amount=1.5:drive=6:blend=0:freq=2500:ceil=9999")
-    # same proven fight stage as playback (drive set by caller), same ceiling
     fs = playback_fight_stage()
     fs = [f"volume={ap._db(drive)}dB" if x.startswith("volume=") else x for x in fs]
-    fs = [x for x in fs if not x.startswith("agate")]   # live: never chop words
-    # lighter de-esser live: the strong one ate ~2 dB of the presence push
-    fs = ["deesser=i=0.15:m=0.5:f=0.5:s=o" if x.startswith("deesser") else x for x in fs]
     out += fs
-    out += [x if x != "aresample=48000" else "aresample=osr=48000" for x in playback_ceiling("MASTER_CEILING_DB", float(ap._env_db("PLAY_CEILING_DB", -3.0)))]
+    out += playback_ceiling("MASTER_CEILING_DB", float(ap._env_db("PLAY_CEILING_DB", -3.0)))
     return out
 
 
-def bridge_loud_stage(cfg: dict, focus: bool = False) -> str:
-    from . import vc_bridge as vb
-    c = vb.clean_loud(cfg)
-    hp = 120 - c["bass"] * 3            # was 200 Hz double = thin, weak voice
-    if focus:
-        hp = max(hp, 180)
-    f = [f"highpass=f={hp}:p=2"]
-    if c["bass"]:
-        f.append(f"equalizer=f={hp + 40}:t=q:w=1:g={min(3.0, c['bass'] * 0.4):.1f}")
-    if c["presence"]:
-        f.append(f"equalizer=f=3200:t=q:w=1.2:g={min(4.0, c['presence'] * 0.4):.1f}")
-    if ap._has_filter("allpass"):        # phase rotator: lower crest = more level
-        f += ["allpass=f=180:t=q:w=0.7", "allpass=f=700:t=q:w=0.7"]
-    f += pro_max_master(drive_db=12.0 + min(4.0, vb.drive_db(c["drive"]) * 0.1))
-    return ",".join(f)
-
-
-def install_live():
-    if getattr(ap, "_live_v62_installed", False):
+def install():
+    if getattr(ap, "_playback_v62_installed", False):
         return
-    ap._live_v62_installed = True
-    ap.clear_loud_master = pro_max_master
-    from . import vc_bridge as vb
-    vb.loud_stage = bridge_loud_stage
+    ap._playback_v62_installed = True
+    for name in ("playback_voice_stage", "playback_fight_stage", "playback_ceiling"):
+        setattr(ap, name, globals()[name])
+

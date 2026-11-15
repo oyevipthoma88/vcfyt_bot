@@ -20,7 +20,7 @@ HELP = {
              "Audio reply karke: .play\n.play intro -1001234567890"),
     "tez": (["maxloud", "loudmax"], ".tez", "1 tap me sab MAX: Loudest mode + saari settings max + har logged-in ID ko 200% (admin ho to).", ".tez"),
     "loudmode": ([], ".loudmode  |  .loudmode loudest|phone|bass", "Play audio ka sound mode badlo. loudest = sabse tez, phone = saaf, bass = headphones.", ".loudmode phone"),
-    "micmode": ([], ".micmode  |  .micmode loudest|clean", "Live mic ka sound mode. Awaaz phate to clean.", ".micmode clean"),
+    "micmode": ([], ".micmode  |  Browser panel: FIGHT / CLEAN / WARM", "Live Mic ke per-session sound profiles.", ".mic panel"),
     "padd": ([], ".padd <tag>  (ya audio reply karke .padd)", "Track ko queue me add karta hai.", ".padd intro"),
     "playforce": (["fplay"], ".playforce <tag>", "Queue hata kar turant ye track chalata hai.", ".fplay intro"),
     "pause": ([], ".pause", "Chal raha audio rok deta hai.", ".pause"),
@@ -56,20 +56,14 @@ HELP = {
     "ss": ([], ".ss on  |  .ss off  |  photo reply karke .ss on",
            "VC me fake PC mixer screen share — live clock, LIVE timer aur chalte meters. "
            "Kitni bhi baar on/off kar sakte ho.", ".ss on"),
-    "mic": ([], ".mic on [full|clean|bass|echo] [chat_id]\n.mic off  |  .mic leave  |  .mic status\n"
-                ".mic src <private_chat_id>  |  .mic chat <target_chat_id>",
-            "Live mic: aapki aawaz spare ID ke through target VC me loud + clear. "
-            "Pehle .mic src aur .mic chat set karein.",
+    "mic": ([], ".mic on  |  .mic off  |  .mic leave  |  .mic status\n.mic chat [group_id]\n.setgc [group_id]",
+            "Browser Live Mic: pehle target set karein, phir private chat me .mic on se link lein.",
             ".mic chat -1001234567890\n.mic on"),
-    "chat": ([], ".mic chat <target_chat_id>",
-             "Live mic ka target group set karta hai (jahan aapki aawaz jayegi). "
-             "ID -100 se shuru honi chahiye.", ".mic chat -1001234567890"),
-    "src": ([], ".mic src <private_chat_id>", "Live mic ka source (private) group set karta hai.",
-            ".mic src -1009876543210"),
+    "chat": ([], ".mic chat [group_id | @username | invite_link]",
+             "Live Mic target group verify karke set karta hai.", ".mic chat -1001234567890"),
     "micaccount": ([], ".micaccount", "Spare mic account ki jaankari / setup.", ".micaccount"),
     "spare": ([], ".spare join|mute|unmute|leave", "Spare ID ko VC me control karta hai.", ".spare join"),
     "myboost": (["livegain", "livevolume"], ".myboost <1-20000>", "Aapke account ki live mic gain.", ".myboost 500"),
-    "bridge": ([], ".bridge", "VC bridge status / control.", ".bridge"),
     "syncplay": (["allplay", "splay"], ".syncplay  (recording reply karke)  |  .syncplay <tag>",
                  "Main ID + saari spare IDs target VC me EK SAATH, same awaaz me recording bajati hain (0 delay).",
                  ".synctarget -1001234567890\nRecording reply karke: .syncplay"),

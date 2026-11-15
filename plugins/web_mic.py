@@ -134,7 +134,7 @@ async def run_web_mic(msg, action: str, args=()):
         return
 
     if action == "cancel":
-        from plugins.vc_bridge import _await_chat
+        from plugins.live_mic_target import _await_chat
         _await_chat.pop(uid, None)
         await mic_notify(msg, "❎ Live Mic target prompt cancel kar diya.")
         return
@@ -148,7 +148,7 @@ async def run_web_mic(msg, action: str, args=()):
         return
     cid = await _target(msg, uid)
     if not cid:
-        from plugins.vc_bridge import request_target_input
+        from plugins.live_mic_target import request_target_input
         request_target_input(uid, start_after=True)
         await mic_notify(
             msg,
@@ -167,7 +167,7 @@ async def run_web_mic(msg, action: str, args=()):
         return
     # Playing ID (spare if set, else main) ko group me pahunchao.
     try:
-        from plugins.vc_bridge import ensure_in_target, target_ref
+        from plugins.live_mic_target import ensure_in_target, target_ref
         ref, _ = await target_ref(uid, cid)
         relay = await session_manager.get_relay(uid)
         eng = relay or uvc
@@ -195,7 +195,7 @@ async def web_mic_panel(uid: int):
     tgt = await db.get_app_value(f"mic_chat_{uid}")
     try:
         from helpers import live_mic_v79 as v79
-        mm = v79.get_mode()
+        mm = s.audio_mode if s else v79.get_mode()
     except Exception:
         mm = "loudest"
     state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
@@ -204,7 +204,7 @@ async def web_mic_panel(uid: int):
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
             f"<b>SESSION</b>  {state}\n"
             f"<b>TARGET</b>   <code>{tgt or 'Not set · choose a group ID'}</code>\n"
-            f"<b>SOUND</b>    {'⚡ FIGHT · strong presence' if mm == 'loudest' else '✨ CLEAN · smoother voice'}\n"
+            f"<b>SOUND</b>    {dict(loudest='⚡ FIGHT · max clarity', clean='✨ CLEAN · softer peaks', warm='🌿 WARM · natural tone').get(mm, '⚡ FIGHT')}\n"
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
             "<b>Quick setup</b>  ·  Chrome + mic permission\n"
             "🎧 Headset reduces echo  ·  Keep input meter out of red\n"
@@ -216,10 +216,12 @@ async def web_mic_panel(uid: int):
                      B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
     else:
         rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
-    rows.append([B("⚡ FIGHT (loudest)", callback_data="mic:wmode:loudest",
+    rows.append([B("⚡ FIGHT", callback_data="mic:wmode:loudest",
                    style="success" if mm == "loudest" else "primary"),
                  B("✨ CLEAN", callback_data="mic:wmode:clean",
-                   style="success" if mm == "clean" else "primary")])
+                   style="success" if mm == "clean" else "primary"),
+                 B("🌿 WARM", callback_data="mic:wmode:warm",
+                   style="success" if mm == "warm" else "primary")])
     rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
                  B("📘 Guide", callback_data="tut:livemic", style="primary"),
                  B("❓ Help", callback_data="mic:whelp", style="primary")])
