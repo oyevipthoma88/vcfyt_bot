@@ -1,9 +1,9 @@
 """Referral system: link generation, tracking, milestone rewards.
 
-Referral tiers:
-  7 referrals  → 5 hours premium
-  15 referrals → 10 hours premium
-  25 referrals → 24 hours premium
+Referral tiers (helpers.access_control.REFERRAL_REWARDS):
+  5 referrals  → 1 day premium  (premium = bina login Sudo ID unlimited)
+  15 referrals → 3 days premium
+  25 referrals → 7 days premium
 """
 
 import logging
@@ -23,7 +23,17 @@ def _referral_link(bot_username: str, user_id: int) -> str:
     return f"https://t.me/{bot_username}?start=ref_{user_id}"
 
 
+def _hours_label(hours: int) -> str:
+    return f"{hours // 24} din" if hours % 24 == 0 else f"{hours} ghante"
+
+
 async def _referral_text(user_id: int, bot_username: str) -> str:
+    # Pending milestones (jaise purane users jinke 5+ referrals pehle se
+    # hain) yahi claim ho jaate hain — naye referral ka wait nahi.
+    try:
+        await check_referral_milestones(user_id)
+    except Exception:
+        pass
     stats = await db.referral_stats(user_id)
     count = stats["count"]
     pinfo = await premium_info(user_id)
@@ -38,7 +48,7 @@ async def _referral_text(user_id: int, bot_username: str) -> str:
             icon = "🎁"
         else:
             icon = "⬜"
-        lines.append(f"  {icon} <b>{milestone} referrals</b> → {hours} hrs premium")
+        lines.append(f"  {icon} <b>{milestone} referrals</b> → {_hours_label(hours)} premium")
 
     premium_line = ""
     if pinfo["active"]:
@@ -60,7 +70,8 @@ async def _referral_text(user_id: int, bot_username: str) -> str:
         f"• Apna link dosto ko share karein\n"
         f"• Wo bot par .start link se aayein\n"
         f"• Referral count automatically badhega\n"
-        f"• Milestone poora hone par free premium hours milega!"
+        f"• Milestone poora hone par free premium milega!\n"
+        f"• 💎 Premium = <b>bina login</b> owner ki Sudo ID se unlimited .play + Live Mic"
     )
 
 
@@ -118,7 +129,8 @@ async def process_referral_start(bot: Client, user_id: int, referrer_id: int):
         try:
             text_parts = []
             for milestone, hours in claimed:
-                text_parts.append(f"🎁 {milestone} referrals complete! {hours} hours premium mil gaya!")
+                text_parts.append(f"🎁 {milestone} referrals complete! {_hours_label(hours)} premium mil gaya!")
+            text_parts.append("\n💎 Ab bina login bhi Sudo ID se bot chala sakte ho — /start dabao.")
             await bot.send_message(referrer_id, "🎉 <b>Referral Reward!</b>\n\n" + "\n".join(text_parts))
         except Exception:
             pass

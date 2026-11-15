@@ -642,7 +642,19 @@ class UserVC:
 
     async def _self_destruct(self, error: Exception):
         """Clear a revoked session and free everything it held."""
-        if self.label == "relay":
+        if str(self.label).startswith("sudo"):
+            # Owner ka shared Sudo ID: sirf pool se hatao, kisi user ka
+            # login mat chhedo.
+            try:
+                from helpers import sudo as _sudo
+                await _sudo.mark_dead(_sudo.account_key(self.string_session), error)
+            except Exception:
+                try:
+                    await self.stop()
+                except Exception:
+                    pass
+            return
+        if str(self.label).startswith("relay"):
             try:
                 await self.stop()
             except Exception:
@@ -3303,6 +3315,17 @@ class SessionManager:
         Returns None when no spare account is configured; callers then fall
         back to the user's own account (which kicks them out of the VC).
         """
+        if slot <= 1:
+            # Sudo mode (bina login): apni spare ID nahi hai to owner ki
+            # Sudo ID hi relay hai — wahi group me joined + verified hai.
+            try:
+                stored = await _db().get_app_value(self.spare_key(user_id, 1))
+            except Exception:
+                stored = None
+            if not (stored or "").strip():
+                from helpers import sudo as _sudo
+                if await _sudo.is_sudo_mode(user_id):
+                    return await _sudo.engine_for(user_id)
         string_session = await self.assistant_string(user_id, slot)
         if not string_session:
             return None
@@ -3429,6 +3452,14 @@ class SessionManager:
         except Exception:
             data = None
         if not data or not data.get("string_session"):
+            # Bina login wale user: trial / premium / owner-granted sudo ho
+            # to owner ki shared Sudo ID se VC chalao.
+            try:
+                from helpers import sudo as _sudo
+                if await _sudo.is_sudo_mode(user_id):
+                    return await _sudo.engine_for(user_id)
+            except Exception as exc:
+                logger.warning("sudo engine for %s failed: %r", user_id, exc)
             return None
         # A network blip / FloodWait while starting used to look exactly like
         # "not logged in" to the user.  Retry transient errors before giving up;

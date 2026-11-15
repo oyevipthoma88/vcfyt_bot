@@ -155,3 +155,30 @@ Keep `.env`, bot tokens, API credentials, MongoDB URIs, microphone relay tokens,
 This repository does not currently include a license file. Add a license before redistributing the project commercially.
 
 Built with [Pyrofork](https://github.com/Mayuri-Chan/pyrofork), [PyTgCalls](https://github.com/pytgcalls/pytgcalls), and [FFmpeg](https://ffmpeg.org/).
+
+
+## 👑 Sudo system (bina login use) — v90
+
+Users apna Telegram login kiye bina owner ki **Sudo IDs** se bot chala sakte hain.
+
+**User flow**
+1. `/start` → **🎁 Free Trial Start** (default 3 uses, bina login)
+2. Apne group ka link bhejo (`https://t.me/+…`, `t.me/name` ya `@name`)
+3. Sudo ID group join karti hai aur verify karti hai: group hai ✓, user member hai ✓, VC status
+4. **▶️ Audio Play** (audio par reply `.play`) ya **🎤 Live Mic**
+5. Har `.play` / Live Mic ON = 1 trial use (fail hone par use wapas)
+
+**Trial ke baad**
+- 🔐 Apna login → unlimited (apni ID se)
+- 👥 **5 referrals** → Premium (1 din) → bina login Sudo ID se unlimited (15 → 3 din, 25 → 7 din)
+- 🆘 Support GC join → 🙋 Sudo Request → owner 1/7/30 din ya permanent approve kare
+
+**Owner** — Owner Panel → **👑 Sudo IDs · Trial · Support GC**
+- Sudo ID add: string session ya phone + OTP (+2FA)
+- Sudo IDs / Sudo users list + remove, trial uses −/+, Support GC set (join-check ke liye bot ko us group me add karo)
+- Commands: `/sudo`, `/addsudo <id> [days]`, `/rmsudo <id>`, `/sudolist`, `/resettrial <id>`
+
+**Rules**
+- 1 Sudo ID = 1 group ek time par (Telegram ek account ko ek VC). Saari busy ho to user ko "busy" message — zyada users ke liye zyada Sudo IDs add karo.
+- Sudo user sirf apne verified group ko control kar sakta hai (dusre group ke buttons/IDs block).
+- Sudo ID expire ho to pool se auto-remove + owner ko message.

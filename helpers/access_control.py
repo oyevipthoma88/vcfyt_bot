@@ -20,10 +20,12 @@ NEW_USER_DAILY_LIMIT = 5
 NEW_USER_GRACE_HOURS = 24
 
 # (milestone, hours rewarded)
+# 5 referrals = Premium (bina login Sudo ID se unlimited). Bade milestones
+# par aur zyada.
 REFERRAL_REWARDS = [
-    (7, 5),
-    (15, 10),
-    (25, 24),
+    (5, 24),
+    (15, 72),
+    (25, 168),
 ]
 
 PAYMENT_PLANS = [

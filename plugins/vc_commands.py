@@ -38,6 +38,12 @@ LIMIT_KB = K([
 
 async def _check_usage_access(msg: Message) -> bool:
     """Gate: returns True if user can use the bot, False if limit reached."""
+    from helpers import sudo as _sudo
+    mode = await _sudo.engine_mode(msg.from_user.id, fresh=True)
+    if mode in _sudo.SUDO_ENGINE_MODES or mode == _sudo.NONE:
+        # Bina login (Sudo ID): verified group + trial/premium/sudo rules
+        from plugins.sudo import gate_sudo_use
+        return await gate_sudo_use(msg)
     access = await check_access(msg.from_user.id)
     if access["allowed"]:
         await record_usage(msg.from_user.id)
@@ -224,13 +230,8 @@ async def get_engine(msg: Message):
                     reply_markup=LOGIN_KB,
                 )
             return uvc
-        await mic_notify(
-            msg,
-            "❌ <b>Pehle login karein.</b>\n\n"
-            "Bot ke DM mein jaakar  Login   Phone se Login, "
-            "ya apna string session add karein.",
-            reply_markup=LOGIN_KB,
-        )
+        from plugins.sudo import no_engine_notice
+        await no_engine_notice(msg)
     return uvc
 
 _CHAT_ID_RE = re.compile(r"-?\d{7,}")
@@ -250,6 +251,14 @@ def is_chat_ref(p) -> bool:
 async def target_chat(msg: Message, arg: str = None) -> tuple:
     """Return (chat_id, join_reference) where join_reference is a username or
     invite link the logged-in account can use to join the group if needed."""
+    uid0 = msg.from_user.id if getattr(msg, "from_user", None) else 0
+    if uid0:
+        # Sudo mode: sirf wahi group jo user ne link bhej kar verify kiya.
+        # Shared Sudo ID kisi aur ke group ko control na kare.
+        from helpers import sudo as _sudo
+        if await _sudo.is_sudo_mode(uid0):
+            gc_id, gc_ref, _ = await _sudo.get_gc(uid0)
+            return (gc_id, gc_ref or None) if gc_id else (0, None)
     if arg:
         try:
             int(arg)
@@ -541,6 +550,8 @@ async def _play(bot: Client, msg: Message, enqueue: bool):
         _cleanup_source(path)
         await stat.edit_text(friendly_error(e))
         await log_error("cmd_play", e)
+        from plugins.sudo import refund_if_trial
+        await refund_if_trial(msg.from_user.id)
         return
     await _archive_played_audio(bot, source_file_id, name)
     if status == "parked":
@@ -606,6 +617,8 @@ async def cmd_playforce(bot: Client, msg: Message):
         _cleanup_source(path)
         await stat.edit_text(friendly_error(e))
         await log_error("cmd_playforce", e)
+        from plugins.sudo import refund_if_trial
+        await refund_if_trial(msg.from_user.id)
         return
     await _archive_played_audio(bot, source_file_id, name)
     await stat.edit_text(
@@ -1577,7 +1590,8 @@ async def cb_mic(bot: Client, cq):
         return
 
     if action == "on":
-        if not await session_manager.assistant_string(uid):
+        from helpers import sudo as _sudo
+        if not await session_manager.assistant_string(uid) and not await _sudo.is_sudo_mode(uid):
             text, kb = await spare_screen(uid)
             await edit_screen(cq.message, text, reply_markup=kb)
             await safe_answer(cq, "Pehle Spare ID login karein")
@@ -2331,6 +2345,11 @@ async def cmd_mic(bot: Client, msg: Message):
 async def cmd_setgc(bot: Client, msg: Message):
     """Set a default group once; every command then targets it automatically."""
     uid = msg.from_user.id
+    from helpers import sudo as _sudo
+    if await _sudo.is_sudo_mode(uid):
+        from plugins.sudo import sudo_setgc
+        await sudo_setgc(msg)
+        return
     parts = cmd_text(msg).split()
     name = parts[0].lstrip("./!").lower()
     if name == "unsetgc":

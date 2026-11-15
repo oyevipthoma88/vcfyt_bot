@@ -45,12 +45,24 @@ async def login_gate(bot, cq):
     from plugins.start import _is_logged_in
     if await _is_logged_in(user.id):
         return
+    from helpers import sudo as _sudo
+    if await _sudo.is_sudo_mode(user.id):
+        # Sudo user sirf apne verified group ke controls chala sakta hai.
+        ids = re.findall(r"-\d{7,}", cq.data or "")
+        gc_id, _, _ = await _sudo.get_gc(user.id)
+        if not ids or all(int(x) == gc_id for x in ids):
+            return
+        await safe_answer(cq, "🔒 Ye aapka verified group nahi hai", show_alert=True)
+        cq.stop_propagation()
+        return
     # Live Mic sirf Spare ID se bhi chalta hai — main login ke bina.
     if re.match(r"^mic:", cq.data or ""):
         return
-    await safe_answer(cq, "🔒 Pehle Login karo", show_alert=False)
+    await safe_answer(cq, "🔒 Login / Trial chahiye", show_alert=False)
     try:
-        await edit_screen(cq.message, GATE_TEXT, reply_markup=GATE_KB)
+        from plugins.sudo import paywall_screen
+        text, kb = await paywall_screen(user.id)
+        await edit_screen(cq.message, text, reply_markup=kb)
     except Exception:
         pass
     cq.stop_propagation()

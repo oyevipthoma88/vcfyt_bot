@@ -68,6 +68,10 @@ async def cmd_start(bot: Client, msg: Message):
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
     text = home_text(user.first_name or "friend", logged)
     markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
+    if not logged and not Config.is_owner(user.id):
+        # Bina login: Free Trial / Sudo / Referral wala home
+        from plugins.sudo import home_override
+        text, markup = await home_override(user.id)
     sent = False
     if Config.START_PIC:
         try:
@@ -86,11 +90,13 @@ async def cb_home(bot, cq):
     logged = await _is_logged_in(user.id)
     uvc = session_manager.users.get(user.id)
     active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
-    await edit_screen(cq.message,
-        home_text(user.first_name or "friend", logged),
-        reply_markup=home_kb(Config.is_owner(user.id), logged, active_chat_id),
-        disable_web_page_preview=True,
-    )
+    text = home_text(user.first_name or "friend", logged)
+    markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
+    if not logged and not Config.is_owner(user.id):
+        from plugins.sudo import home_override
+        text, markup = await home_override(user.id)
+    await edit_screen(cq.message, text, reply_markup=markup,
+                      disable_web_page_preview=True)
     await safe_answer(cq)
 
 @Client.on_callback_query(filters.regex(r"^menu:tutorial$"))

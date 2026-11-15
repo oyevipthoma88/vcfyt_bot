@@ -41,6 +41,7 @@ def panel_kb() -> K:
          B("💳 Payments", callback_data="adm_payment", style="primary")],
         [B(("🎤 Live Mic: 🟢 ON (users)" if live_mic_on() else "🎤 Live Mic: ⚫ OFF (users)"),
            callback_data="adm_livemic", style=("success" if live_mic_on() else "danger"))],
+        [B("👑 Sudo IDs · Trial · Support GC", callback_data="sadm:home", style="success")],
         [B("👥 Multi Spare (Free / Premium)", callback_data="adm_mspare", style="success")],
         [B("🎛 VC Joiner", callback_data="adm_vcjoin", style="success"),
          B("🎬 Set Video", callback_data="adm_setvideo", style="primary")],

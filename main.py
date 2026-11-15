@@ -123,6 +123,11 @@ BOT_COMMANDS = [
     BotCommand("vcjoin", "🎛 VC Joiner panel (owner)"),
     BotCommand("setvc", "🎯 Target VC add (owner)"),
     BotCommand("delvc", "🗑 Target VC remove (owner)"),
+    BotCommand("sudo", "👑 Sudo / Free Trial (bina login)"),
+    BotCommand("addsudo", "👑 Sudo do: id [days] (owner)"),
+    BotCommand("rmsudo", "👑 Sudo hatao (owner)"),
+    BotCommand("sudolist", "👑 Sudo users (owner)"),
+    BotCommand("resettrial", "🎁 Trial reset (owner)"),
 ]
 
 def _new_bot() -> StyledBotClient:

@@ -146,6 +146,14 @@ async def run_web_mic(msg, action: str, args=()):
     uvc = await get_engine(msg)
     if not uvc:
         return
+    from helpers import sudo as _sudo
+    sudo_trial = False
+    if await _sudo.is_sudo_mode(uid):
+        # Bina login: verified group zaroori + trial ho to 1 use katega.
+        from plugins.sudo import gate_sudo_use
+        if not await gate_sudo_use(msg):
+            return
+        sudo_trial = await _sudo.engine_mode(uid) in (_sudo.TRIAL, _sudo.TRIAL_OVER)
     cid = await _target(msg, uid)
     if not cid:
         from plugins.live_mic_target import request_target_input
@@ -164,6 +172,8 @@ async def run_web_mic(msg, action: str, args=()):
         # chala jata tha -> Heroku "There's nothing here, yet."  Ab sirf
         # verified address bhejte hain; nahi mila to saaf batate hain.
         await mic_notify(msg, _no_url_text(), disable_web_page_preview=True)
+        if sudo_trial:
+            await _sudo.refund_trial(uid)
         return
     # Playing ID (spare if set, else main) ko group me pahunchao.
     try:
