@@ -219,6 +219,8 @@ class LiveMicSession:
                 return max(-12.0, min(-0.5, float(os.environ.get(name, "") or default)))
             except (TypeError, ValueError):
                 return default
+        # v88: LOUDEST ignores this headroom inside live_mic_v79.limiter_db
+        # (it cancelled the 200 % boost = "sab max par bhi normal").
         if self._admin_boost:
             return _env("LIVE_MIC_CEILING_DB", -6.5)
         return _env("LIVE_MIC_OPEN_CEILING_DB", -0.3)
@@ -1078,9 +1080,10 @@ class LiveMicSession:
         swaps FFmpeg on the same processed FIFO, so the VC stream stays alive
         (a ~0.2s blip at most).  The page only sends on slider release.
         """
-        # v41: chain is FIXED in code — users cannot change loudness.
-        return True
-        live = {}
+        # v88: LOUD + CRUNCH (Extra Tez) sliders drive the chain again.
+        live = {k: int(changes[k]) for k in ("loud", "crunch") if k in changes}
+        if not live:
+            return True
         if all(int(self.settings.get(k, 0) or 0) == v for k, v in live.items()):
             return True
         self.settings.update(live)
@@ -1425,6 +1428,39 @@ class LiveMicSession:
             result["message"] = str(exc)[:180] or type(exc).__name__
         try:
             await self.ws.send_str("control:" + json.dumps(result))
+        except Exception:
+            pass
+
+    async def send_relay_profile(self):
+        """Tell the page WHICH account fights in the VC: name, @user, id, DP, group."""
+        info = {"name": "", "username": "", "id": 0, "photo": "", "chat": "",
+                "shared": bool(self.shared_account)}
+        try:
+            client = self.relay.client
+            me = await client.get_me()
+            info["id"] = int(me.id)
+            info["name"] = " ".join(x for x in (me.first_name, me.last_name) if x) or "Relay ID"
+            info["username"] = me.username or ""
+            photo = getattr(me, "photo", None)
+            if photo is not None:
+                import base64
+                try:
+                    buf = await client.download_media(photo.small_file_id, in_memory=True)
+                    raw = bytes(buf.getbuffer()) if hasattr(buf, "getbuffer") else b""
+                    if raw and len(raw) < 400_000:
+                        info["photo"] = "data:image/jpeg;base64," + base64.b64encode(raw).decode()
+                except Exception as exc:
+                    logger.debug("relay photo download failed: %r", exc)
+            try:
+                chat = await client.get_chat(self.chat_id)
+                info["chat"] = getattr(chat, "title", "") or ""
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.debug("relay profile failed: %r", exc)
+        try:
+            if self.ws is not None and not self.ws.closed:
+                await self.ws.send_str("relay:" + json.dumps(info))
         except Exception:
             pass
 
@@ -1861,6 +1897,24 @@ footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:7
   <div id="permHelp" class="help"></div>
 </section>
 
+<section class="card" id="relayCard">
+  <div class="card-h"><h3>VC me Fight ID</h3><span class="val" id="relayTag" style="font-size:.75rem">--</span></div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <div id="relayDp" style="width:58px;height:58px;border-radius:50%;flex:none;background:var(--card2) center/cover no-repeat;border:2px solid var(--acc);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:1.3rem;color:var(--acc)">?</div>
+    <div style="min-width:0">
+      <div id="relayName" style="font-weight:800;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Connect hone par dikhega</div>
+      <div id="relayUser" style="color:var(--muted);font-size:.85rem;font-family:var(--mono)"></div>
+      <div id="relayChat" style="color:var(--dim);font-size:.8rem;margin-top:2px"></div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-h"><h3>Extra Tez</h3><b id="crunchVal" class="val">0%</b></div>
+  <input type="range" id="tezR" min="0" max="200" step="10" value="0" oninput="paintTez(this.value)" onchange="sendTez(this.value)" aria-label="Extra loudness">
+  <p class="note">Aur tez chahiye to badhao (thodi phategi). Chhodne par 1 sec me lagta hai.</p>
+</section>
+
 <section class="card">
   <div class="card-h"><h3>Mic Level</h3><span id="vuDb" class="val">-- dB</span></div>
   <div class="vu"><i id="vuBar"></i></div>
@@ -1949,7 +2003,13 @@ try{localStorage.removeItem('vcfyt_mic');}catch(e){}
 // v41: loudness FIXED in code — sliders hidden, nothing sent.
 ['loudR','crunchR'].forEach(function(id){var e=document.getElementById(id);
   if(e){var c=e.closest('.ctl,.row,label,div')||e;c.style.display='none';}});
-function syncCtl(st){}
+function syncCtl(st){if(st&&typeof st.crunch==='number'){const r=document.getElementById('tezR');if(r){r.value=st.crunch;paintTez(st.crunch);}}}
+function paintTez(v){const b=document.getElementById('crunchVal');if(b)b.textContent=Math.round(v/2)+'%';const r=document.getElementById('tezR');if(r)r.style.setProperty('--fill',(v/2)+'%');}
+function sendTez(v){try{localStorage.setItem('vcfyt_tez',String(v));if(ws&&ws.readyState===1)ws.send('settings:'+JSON.stringify({crunch:parseInt(v,10)||0,loud:200}));}catch(e){}}
+function showRelay(r){try{const n=document.getElementById('relayName'),u=document.getElementById('relayUser'),c=document.getElementById('relayChat'),d=document.getElementById('relayDp'),t=document.getElementById('relayTag');
+  n.textContent=r.name||'Relay ID';u.textContent=(r.username?'@'+r.username+' · ':'')+'ID '+(r.id||'?');c.textContent=r.chat?('Group: '+r.chat):'';
+  t.textContent=r.shared?'Aapki ID':'Spare ID';
+  if(r.photo){d.style.backgroundImage='url("'+r.photo+'")';d.textContent='';}else{d.style.backgroundImage='';d.textContent=(r.name||'?').trim().charAt(0).toUpperCase();}}catch(e){}}
 // v83 MIC BOOST: phone par hi live badlo (server restart nahi, gap nahi).
 function micBoost(){let v=2.0;try{const x=parseFloat(localStorage.getItem('vcfyt_boost'));if(x>=0.5&&x<=4)v=x;}catch(e){}return v;}
 function setBoost(v){v=Math.max(0.5,Math.min(4,parseFloat(v)||2));try{localStorage.setItem('vcfyt_boost',String(v));}catch(e){}
@@ -2217,12 +2277,15 @@ function connectSocket(myAttempt){
             enableControls(true);
             try{const preferred=normMode(localStorage.getItem('vcfyt_sound_mode'));if(preferred&&preferred!==activeSoundMode)activeSoundMode=preferred;sendControl('mode',{mode:activeSoundMode});}catch(e){}
             controlNote('Hand raise, live screen, VC chat and reactions are ready.');
+            try{const tz=parseInt(localStorage.getItem('vcfyt_tez')||'0',10);if(tz>0)setTimeout(()=>sendTez(tz),1500);}catch(e){}
             // Do not send settings automatically on connect.  The server-side
             // settings path rebuilds FFmpeg; doing that after first audio used
             // to create an audible gap and could make the relay look dead on
             // slower phones. Explicit preset/reset actions still send changes.
         } else if (ev.data.startsWith('settings:')) {
             try { const st=JSON.parse(ev.data.slice(9)); syncCtl(st); } catch(e){}
+        } else if (ev.data.startsWith('relay:')) {
+            try { showRelay(JSON.parse(ev.data.slice(6))); } catch(e){}
         } else if (ev.data.startsWith('settings_failed:')) {
             /* ignored */
         } else if (ev.data.startsWith('control:')) {
@@ -2742,6 +2805,7 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
         try:
             await ws.send_str("ready")
             await ws.send_str("settings:" + json.dumps(existing.public_settings()))
+            asyncio.create_task(existing.send_relay_profile())
             await existing.run_ws_loop()
         finally:
             if existing._intentional_stop:
@@ -2765,6 +2829,7 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
         # its real sample rate (rate:<hz>) or sends its first PCM frame.
         await ws.send_str("ready")
         await ws.send_str("settings:" + json.dumps(session.public_settings()))
+        asyncio.create_task(session.send_relay_profile())
 
         # The browser must feed PCM before PyTgCalls can attach to the live
         # source. Running both tasks concurrently removes the old startup

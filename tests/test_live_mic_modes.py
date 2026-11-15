@@ -12,11 +12,11 @@ def test_three_server_modes_have_safe_limiter_and_distinct_filters():
     chains = {mode: live_mic_v79.build_live_mic_filter(mode=mode)
               for mode in live_mic_v79.MODES}
     assert set(chains) == {"loudest", "phone", "bass"}
-    for chain in chains.values():
+    for mode, chain in chains.items():
         assert "alimiter=" in chain
-        assert "asoftclip" not in chain
+        assert ("asoftclip" in chain) == (mode == "loudest")
         assert "pan=stereo|c0=c0|c1=c0" in chain
-    assert "limit=0.8913" in chains["loudest"]
+    assert "limit=0.9226" in chains["loudest"]
     assert "limit=0.8414" in chains["phone"]
     assert "limit=0.7943" in chains["bass"]
     assert chains["phone"] != chains["loudest"]

@@ -359,15 +359,6 @@ async def cmd_tag(bot: Client, msg: Message):
     if len(parts) < 2:
         await msg.reply_text("Usage: <code>.tag &lt;name&gt;</code> (audio ko reply karke)")
         return
-    source_arg, cid_arg = _split_args(msg)
-    is_clear = cmd_text(msg).split()[0].lstrip("./!").lower().split("@", 1)[0] == "pmclr" or (source_arg or "").lower() == "clear"
-    if is_clear:
-        cid = await need_chat(msg, cid_arg)
-        if not cid:
-            return
-        uvc.clear_playmute(cid)
-        await msg.reply_text("✅ PlayMute audio aur saved archive reference clear kar diya.")
-        return
     reply = msg.reply_to_message
     media = None
     if reply:
@@ -700,11 +691,26 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
     uvc = await get_engine(msg)
     if not uvc:
         return
+    # ROOT FIX: these two lines (and the clear branch) had been pasted into
+    # `.tag` by mistake, so `.playmute` crashed with NameError every time.
+    source_arg, cid_arg = _split_args(msg)
+    is_clear = (cmd_text(msg).split()[0].lstrip("./!").lower().split("@", 1)[0] == "pmclr"
+                or (source_arg or "").lower() == "clear")
+    if is_clear:
+        cid = await need_chat(msg, cid_arg)
+        if not cid:
+            return
+        uvc.clear_playmute(cid)
+        await msg.reply_text("✅ PlayMute audio aur saved archive reference clear kar diya.")
+        return
     reply = msg.reply_to_message
     media = None
     if reply:
         media = (reply.audio or reply.voice or reply.video or reply.document
                  or reply.video_note)
+    if not media:
+        media = _media_of(msg)  # audio sent with .playmute as its caption
+        reply = msg if media else reply
     if not media:
         await msg.reply_text(
             " Kisi audio/video message ko reply karke <code>.unmuteaudio</code> likhein.\n"
@@ -1326,7 +1332,7 @@ async def cb_vc(bot, cq):
             await safe_answer(cq, "✅ PlayMute cleared")
         elif action == "pmtest":
             ok = await uvc.play_unmute_audio(cid)
-            await safe_answer(cq, "❌ PlayMute chal raha" if ok else "PlayMute audio set nahi hai", show_alert=not ok)
+            await safe_answer(cq, "▶️ PlayMute chal raha" if ok else "PlayMute audio set nahi hai", show_alert=not ok)
         try:
             await cq.message.edit_reply_markup(now_playing_kb(cid, uvc.chats.get(cid)))
         except Exception:

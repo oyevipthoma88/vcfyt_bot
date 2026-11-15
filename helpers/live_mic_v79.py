@@ -45,8 +45,12 @@ DEFAULT_CEILING_DB = -0.3
 # ceiling so Opus overshoot never clips (calibrated at 32k + 48k bitrate).
 PROFILES = {
     # phone speaker max: 280 Hz - 4.8 kHz voice band, +8 dB @ 2.5 kHz
-    "loudest": dict(hp=280, lp=4800, body=-3.0, pres=8.0, air=3.2, bass=0.0,
-                    drive=24.0, margin=0.7),
+    # v88 MAX TEZ: phone-speaker band (300 Hz - 4.2 kHz) + very dense
+    # levelling + tanh soft-clip in front of the limiter.  Clarity is traded
+    # for loudness on purpose: average sits ~3 dB under the peak, so it
+    # drowns the other fighter.  `clip` = dB pushed into the soft clipper.
+    "loudest": dict(hp=300, lp=4200, body=-4.0, pres=9.0, air=4.0, bass=0.0,
+                    drive=26.0, margin=0.4, clip=8.0),
     # tez + saaf: wider band (200 Hz - 6.5 kHz) for clearer words
     "phone": dict(hp=200, lp=6500, body=-3.0, pres=6.0, air=2.4, bass=0.0,
                   drive=24.0, margin=1.2),
@@ -87,11 +91,22 @@ def limiter_db(mode: str, ceiling_db: float = None) -> float:
     except (TypeError, ValueError):
         ceiling = DEFAULT_CEILING_DB
     ceiling = max(-12.0, min(DEFAULT_CEILING_DB, ceiling))
-    return ceiling - PROFILES[normalize_mode(mode, "loudest")]["margin"]
+    # v88 ROOT FIX "sab max par bhi awaaz normal": when an admin 200 % was
+    # confirmed the session asked for a -6.5 dBFS ceiling, so the stream left
+    # 6.5 dB quieter and Telegram's x2 only gave it back = NORMAL volume.
+    # The old audio_processor chain skipped that headroom by default, but this
+    # v79 override silently dropped the check.  Full ceiling always, unless
+    # LIVE_MIC_RESPECT_ADMIN=1 (then 200 % adds on top of a full stream).
+    # Only LOUDEST (max tez) skips it; PHONE/BASS stay the clearer options.
+    m = normalize_mode(mode, "loudest")
+    if m == "loudest" and os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") != "1":
+        ceiling = DEFAULT_CEILING_DB
+    return ceiling - PROFILES[m]["margin"]
 
 
 def mode_chain(mode: str = "loudest", ceiling_db: float = None,
-               drive_db: float = None) -> str:
+               drive_db: float = None, extra_drive: float = 0.0,
+               extra_clip: float = 0.0) -> str:
     mode = normalize_mode(mode, "loudest")
     p = PROFILES[mode]
     drive = p["drive"]
@@ -99,6 +114,7 @@ def mode_chain(mode: str = "loudest", ceiling_db: float = None,
         drive = ap._env_db("LIVE_LOUDEST_DRIVE_DB", drive, high=30.0, low=0.0)
     if drive_db is not None:
         drive = max(0.0, min(30.0, float(drive_db)))
+    drive = max(0.0, min(36.0, drive + float(extra_drive or 0.0)))
     limit = 10 ** (limiter_db(mode, ceiling_db) / 20.0)
     f = ["aresample=48000:async=1:first_pts=0",
          f"highpass=f={p['hp']}:p=2", f"highpass=f={p['hp']}:p=2"]
@@ -108,11 +124,15 @@ def mode_chain(mode: str = "loudest", ceiling_db: float = None,
         # soft downward expander: hiss between words is never levelled up
         f.append("agate=threshold=0.003:range=0.1:ratio=2:attack=5:release=300:knee=8:detection=rms")
     f.append("volume=6dB")
+    hard = mode == "loudest"
     if ap._has_filter("speechnorm"):
-        f.append("speechnorm=e=25:r=0.001:l=1:p=0.95")
+        f.append("speechnorm=e=50:r=0.002:l=1:p=0.95" if hard
+                 else "speechnorm=e=25:r=0.001:l=1:p=0.95")
     else:
-        f.append("dynaudnorm=f=150:g=11:p=0.6:m=12")
-    f.append("acompressor=threshold=0.1:ratio=4:attack=5:release=120:makeup=2:knee=6")
+        f.append("dynaudnorm=f=100:g=7:p=0.9:m=30" if hard
+                 else "dynaudnorm=f=150:g=11:p=0.6:m=12")
+    f.append("acompressor=threshold=0.05:ratio=8:attack=2:release=80:makeup=4:knee=4" if hard
+             else "acompressor=threshold=0.1:ratio=4:attack=5:release=120:makeup=2:knee=6")
     if p["bass"]:
         f.append(f"equalizer=f=140:t=q:w=1:g={p['bass']:.1f}")
     f += [f"equalizer=f=300:t=q:w=1:g={p['body']:.1f}",
@@ -120,8 +140,18 @@ def mode_chain(mode: str = "loudest", ceiling_db: float = None,
           f"equalizer=f=4200:t=q:w=1:g={p['air']:.1f}",
           f"lowpass=f={p['lp']}",
           PHASE_ROTATOR,
-          f"volume={drive:.2f}dB",
-          f"alimiter=level_in=1:level_out=1:limit={limit:.4f}:attack=5:release=40:level=false",
+          f"volume={drive:.2f}dB"]
+    clip = float(p.get("clip", 0.0) or 0.0) + float(extra_clip or 0.0)
+    if clip > 0 and ap._has_filter("asoftclip"):
+        # Dense tanh saturation: rounds peaks instead of squaring them, so the
+        # average level climbs hard while Opus still encodes it cleanly-ish.
+        f += [f"volume={clip:.2f}dB",
+              "asoftclip=type=tanh:oversample=2",
+              # back to the limiter's input range; the limiter only trims
+              f"volume={-min(clip, 4.0):.2f}dB"]
+    f += [
+          f"alimiter=level_in=1:level_out=1:limit={limit:.4f}:"
+          + ("attack=2:release=30" if hard else "attack=5:release=40") + ":level=false",
           # dual mono: without this FFmpeg's -ac 2 upmix costs 3 dB
           "pan=stereo|c0=c0|c1=c0"]
     if ap._has_filter("asetnsamples"):
@@ -138,8 +168,18 @@ def live_loudest_chain(ceiling_db: float = None, drive_db: float = None,
 
 def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int = 0,
                           mode: str = None) -> str:
-    del loud, crunch
-    return mode_chain(normalize_mode(mode or get_mode(), "loudest"), ceiling_db)
+    """LOUD slider (0..200, 100 = default) -> -6..+6 dB drive,
+    CRUNCH slider (0..200) -> up to +10 dB more into the tanh soft clipper."""
+    try:
+        loud = max(0, min(200, int(loud if loud is not None else 100)))
+    except (TypeError, ValueError):
+        loud = 100
+    try:
+        crunch = max(0, min(200, int(crunch or 0)))
+    except (TypeError, ValueError):
+        crunch = 0
+    return mode_chain(normalize_mode(mode or get_mode(), "loudest"), ceiling_db,
+                      extra_drive=max(0, loud - 100) * 0.06, extra_clip=crunch * 0.05)
 
 
 async def load_mode() -> str:

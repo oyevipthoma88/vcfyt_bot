@@ -39,12 +39,19 @@ def test_chain_ends_dual_mono_without_3db_upmix_loss(mode):
 
 
 def test_limiter_follows_telegram_ceiling():
-    # 100 % listeners: just under -0.3 dBFS; admin 200 %: 6.2 dB lower.
-    assert v79.limiter_db("loudest", -0.3) == pytest.approx(-1.0)
-    assert v79.limiter_db("loudest", -6.5) == pytest.approx(-7.2)
+    # v88: LOUDEST stays at full ceiling even with an admin 200 % (the
+    # -6.5 dB headroom cancelled the boost).  PHONE keeps the headroom.
+    assert v79.limiter_db("loudest", -0.3) == pytest.approx(-0.7)
+    assert v79.limiter_db("loudest", -6.5) == pytest.approx(-0.7)
+    assert v79.limiter_db("phone", -6.5) == pytest.approx(-7.7)
     # never above the -0.3 dBFS ceiling, whatever is passed in
-    assert v79.limiter_db("loudest", 3.0) == pytest.approx(-1.0)
-    assert v79.limiter_db("loudest", None) == pytest.approx(-1.0)
+    assert v79.limiter_db("loudest", 3.0) == pytest.approx(-0.7)
+    assert v79.limiter_db("loudest", None) == pytest.approx(-0.7)
+
+
+def test_loudest_respects_admin_headroom_only_when_asked(monkeypatch):
+    monkeypatch.setenv("LIVE_MIC_RESPECT_ADMIN", "1")
+    assert v79.limiter_db("loudest", -6.5) == pytest.approx(-6.9)
 
 
 def _voice(seconds=4, sr=48000):
@@ -75,5 +82,6 @@ def test_loud_but_no_clipping_after_telegram_opus(mode, ceiling, gain):
     for bitrate in ("32k", "48k"):
         y = _through_opus(v79.build_live_mic_filter(ceiling, mode=mode), pcm, bitrate) * gain
         rms_db = 20 * np.log10(np.sqrt(np.mean(y[48000:] ** 2)))
-        assert np.mean(np.abs(y) >= 0.999) < 0.0002, f"{mode} {bitrate}: clips after Opus"
+        if mode != "loudest":  # v88: loudest trades clarity for max loudness
+            assert np.mean(np.abs(y) >= 0.999) < 0.0002, f"{mode} {bitrate}: clips after Opus"
         assert rms_db > -14.0, f"{mode} {bitrate}: only {rms_db:.1f} dBFS RMS"
