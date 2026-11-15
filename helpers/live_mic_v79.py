@@ -50,11 +50,13 @@ def live_loudest_chain(ceiling_db: float = None, drive_db: float = None,
     moderate drive into ONE gentle soft-clip and a brick-wall at -1.5 dBFS.
     Measured ~-9.5 LUFS (very loud), true peak < -1 dBFS, ~0 % Opus clip.
     """
-    drive = (ap._env_db("LIVE_LOUDEST_DRIVE_DB", 15.0, high=20.0, low=0.0)
+    drive = (ap._env_db("LIVE_LOUDEST_DRIVE_DB", 20.0, high=22.0, low=0.0)
              if drive_db is None else max(0.0, min(20.0, float(drive_db))))
-    limit = 0.84  # -1.5 dBFS sample peak -> true peak stays under -1 dBFS
-    if ceiling_db is not None and os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1":
-        limit = min(limit, 10 ** (max(-12.0, min(-1.5, float(ceiling_db))) / 20.0))
+    # Leave 2.5 dB true-peak headroom for Telegram's Opus encode/decode.
+    # The limiter stays below full-scale even when the browser sends a hotter
+    # mic frame; confirmed Telegram listener boost can lower this further.
+    ceiling = max(-12.0, min(-2.5, float(ceiling_db if ceiling_db is not None else -2.5)))
+    limit = 10 ** (ceiling / 20.0)
     f = ["aresample=48000:async=1:first_pts=0",
          "highpass=f=110:p=2", "highpass=f=110:p=2"]
     if ap._has_filter("afftdn"):
@@ -65,7 +67,10 @@ def live_loudest_chain(ceiling_db: float = None, drive_db: float = None,
         f.append("agate=threshold=0.003:range=0.1:ratio=2:attack=5:release=300:knee=8:detection=rms")
     f.append("volume=6dB")
     if ap._has_filter("speechnorm"):
-        f.append("speechnorm=e=10:r=0.0005:l=1:p=0.6")
+        # Stronger adaptive speech leveling lifts quieter syllables before the
+        # final limiter; it increases perceived loudness without flattening
+        # peaks into a square wave.
+        f.append("speechnorm=e=25:r=0.001:l=1:p=0.95")
     else:
         f.append("dynaudnorm=f=150:g=11:p=0.6:m=12")
     f += ["acompressor=threshold=0.1:ratio=4:attack=5:release=120:makeup=2:knee=6",
@@ -90,8 +95,9 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
     if selected not in MODES:
         selected = "loudest"
     if selected == "warm":
-        drive = ap._env_db("LIVE_LOUDEST_DRIVE_DB", 15.0, high=20.0, low=0.0)
-        limit = min(0.84, 10 ** (max(-12.0, min(-1.5, float(ceiling_db))) / 20.0)) if ceiling_db is not None and os.environ.get("LIVE_MIC_RESPECT_ADMIN", "0") == "1" else 0.84
+        drive = ap._env_db("LIVE_LOUDEST_DRIVE_DB", 20.0, high=22.0, low=0.0)
+        ceiling = max(-12.0, min(-2.5, float(ceiling_db if ceiling_db is not None else -2.5)))
+        limit = 10 ** (ceiling / 20.0)
         filters = ["aresample=48000:async=1:first_pts=0", "highpass=f=95:p=2"]
         if ap._has_filter("afftdn"):
             filters.append("afftdn=nr=8:nf=-52:tn=0")
@@ -99,7 +105,7 @@ def build_live_mic_filter(ceiling_db: float = None, loud: int = 0, crunch: int =
                     "equalizer=f=300:t=q:w=1:g=-2",
                     "equalizer=f=2500:t=q:w=1:g=3",
                     "equalizer=f=4200:t=q:w=1:g=1",
-                    "lowpass=f=9000",
+                    "lowpass=f=9000", "volume=8dB",
                     f"alimiter=level_in=1:level_out=1:limit={limit:.4f}:attack=1:release=50:level=false"]
         if ap._has_filter("asetnsamples"):
             filters.append(f"asetnsamples=n={ap.AUDIO_FRAME_SAMPLES}:p=0")

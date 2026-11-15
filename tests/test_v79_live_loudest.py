@@ -19,7 +19,7 @@ def test_live_mic_default_is_loudest_clear_chain():
     chain = ap.build_live_mic_filter(-0.3, loud=120)
     assert v79.get_mode() == "loudest"
     assert chain.count("asoftclip") <= 1
-    assert "limit=0.8400" in chain
+    assert "limit=0.7499" in chain
 
 
 def test_clean_mode_has_no_softclip():

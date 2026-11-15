@@ -3,7 +3,7 @@
   .maxloud / .tez      -> phone-max mode + all play settings max + har logged-in
                           ID (main + spares) ko VC me 200% + admin try
   .loudmode            -> current mode dikhao
-  .micmode loudest|clean -> live mic ka chain
+  .micmode loudest|clean|warm -> live mic ka chain
   .loudmode phone|bass -> phone = phone speaker pe sabse tez + clear (default)
                           bass  = purana heavy-bass chain (headphones)
 """
@@ -109,12 +109,13 @@ async def cmd_micmode(bot: Client, msg: Message):
         await msg.reply_text(
             f"🎙 <b>Live mic mode:</b> <code>{v79.get_mode()}</code>\n\n"
             "<code>.micmode loudest</code> — live mic sabse tez, phone ke liye (default)\n"
-            "<code>.micmode clean</code> — purana saaf chain (agar awaaz phate)")
+            "<code>.micmode clean</code> — no saturation, safe peak\n"
+            "<code>.micmode warm</code> — softer, natural voice")
         return
     try:
         mode = v79.set_mode(parts[1])
     except ValueError:
-        await msg.reply_text("❌ Sirf <code>loudest</code> ya <code>clean</code>.")
+        await msg.reply_text("❌ Sirf <code>loudest</code>, <code>clean</code> ya <code>warm</code>.")
         return
     await db.set_app_value("live_mic_loud_mode", mode)
     n = await v79.restart_live_sessions()

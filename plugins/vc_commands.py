@@ -673,6 +673,18 @@ async def dm_only(msg: Message, text: str, **kwargs):
 async def cmd_padd(bot: Client, msg: Message):
     await _play(bot, msg, enqueue=True)
 
+def _parse_unmute_loops(argument: str) -> int:
+    """Parse only the PlayMute options, never a destination chat ID."""
+    loops = 1
+    for token in (argument or "").split():
+        low = token.lower()
+        if low in {"loop", "inf", "infinite", "always"}:
+            return -1
+        if low.isdigit():
+            loops = max(1, min(100, int(low)))
+    return loops
+
+
 @Client.on_message(HAS_USER & cmd_prefix(r"(playmute|unmuteaudio)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_unmuteaudio(bot: Client, msg: Message):
     """Set an audio to play when bot is unmuted after admin mute."""
@@ -702,6 +714,19 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
         await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
         return
     await stat.delete()
+    archive_file_id = None
+    # A Telegram file_id survives local temp cleanup/deploys. Keep this
+    # announcement in the configured private archive channel when available.
+    if Config.AUDIO_ARCHIVE_CHANNEL:
+        try:
+            archived = await bot.send_cached_media(
+                Config.AUDIO_ARCHIVE_CHANNEL, media.file_id,
+                caption=f"PlayMute · owner {uvc.owner_id} · chat {cid}")
+            archived_media = _cached_file_id(archived)
+            if archived_media:
+                archive_file_id = archived_media
+        except Exception as exc:
+            await log_error("playmute_archive", exc)
     try:
         import shutil
         os.makedirs(_PLAYMUTE_DIR, exist_ok=True)
@@ -713,13 +738,8 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
     except Exception as exc:
         await log_error("playmute_store", exc)
     st.unmute_audio = path
-    loops = 1
-    for tok in cmd_text(msg).split()[1:]:
-        low = tok.lower()
-        if low in ("loop", "inf", "infinite", "always"):
-            loops = -1
-        elif low.isdigit():
-            loops = max(1, int(low))
+    st.unmute_file_id = archive_file_id
+    loops = _parse_unmute_loops(source_arg)
     st.unmute_loop = loops
     st.unmute_loop_left = loops
     uvc.save_mute_prefs(cid)
@@ -729,6 +749,8 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
         f"Jab is chat me koi admin bot ko unmute karega: pehle "
         f"{st.mic_blink_secs}s mic on/off (<code>.micblink</code>), phir ye audio "
         f"{loop_txt} bajega, aur uske baad purani recording / queue wapas chalu."
+        + ("\n✅ Restart-safe: Telegram archive me copy saved." if archive_file_id else
+           "\n⚠️ Archive upload nahi hua; current bot session ke dauran local copy hi available hogi.")
     )
 
 

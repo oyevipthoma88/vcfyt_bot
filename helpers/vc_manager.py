@@ -1,6 +1,7 @@
 
 import asyncio
 import inspect
+import json
 import logging
 import os
 import shutil
@@ -403,6 +404,7 @@ class ChatState:
         self.loop_left = -1
         self.queue: list = []
         self.unmute_audio: Optional[str] = None
+        self.unmute_file_id: Optional[str] = None
         self.admin_muted: bool = False
         # --- human-like mute/unmute behaviour ---
         self.hand_raise: bool = True
@@ -484,6 +486,8 @@ class UserVC:
         self._keepers: Dict[int, asyncio.Task] = {}
         self._call_chats: Dict[int, int] = {}
         self._vol_guards: Dict[tuple, dict] = {}
+        self.mute_prefs: Dict[int, dict] = {}
+        self._mute_prefs_save_task = None
 
         self._stopped_chats: set[int] = set()
         self._bg_tasks = set()
@@ -502,6 +506,7 @@ class UserVC:
             in_memory=True,
         )
         await self.client.start()
+        await self.load_mute_prefs()
         me = await self.client.get_me()
         self.account_id = me.id
         self.account_name = me.first_name or ""
@@ -554,13 +559,17 @@ class UserVC:
             self._stop_keeper(update.chat_id)
             st = self.chats.pop(update.chat_id, None)
             if st:
+                self.mute_prefs[update.chat_id] = {k: getattr(st, k) for k in self._PREF_KEYS}
+                self.save_mute_prefs(update.chat_id)
                 for item in st.queue:
                     _unlink(item[0])
                     if len(item) > 2:
                         _unlink(item[2])
                 _unlink(st.processed_file)
-                _unlink(st.current_file)
-                _unlink(st.unmute_audio)
+                if st.current_file != st.unmute_audio:
+                    _unlink(st.current_file)
+                # unmute_audio is an owner-configured reusable announcement;
+                # do not delete it merely because Telegram ended the call.
 
         @self.client.on_raw_update()
         async def _on_raw_update(client, update, users, chats):
@@ -1074,11 +1083,40 @@ class UserVC:
             return True
         return False
 
+    async def _ensure_unmute_audio_file(self, chat_id: int) -> Optional[str]:
+        """Re-fetch the reusable announcement from Telegram after a restart."""
+        st = self.state(chat_id)
+        if st.unmute_audio and os.path.isfile(st.unmute_audio):
+            return st.unmute_audio
+        file_id = getattr(st, "unmute_file_id", None)
+        if not file_id:
+            return None
+        try:
+            from helpers.logger_channel import get_bot
+            bot = get_bot()
+            if not bot:
+                return None
+            path = await bot.download_media(file_id)
+            if not path or not os.path.isfile(path):
+                return None
+            ext = os.path.splitext(path)[1] or ".media"
+            keep = os.path.join(tempfile.gettempdir(),
+                                f"vc_unmute_{self.owner_id}_{abs(int(chat_id))}{ext}")
+            os.makedirs(os.path.dirname(keep), exist_ok=True)
+            if os.path.abspath(path) != os.path.abspath(keep):
+                shutil.move(path, keep)
+            st.unmute_audio = keep
+            self.save_mute_prefs(chat_id)
+            return keep
+        except Exception as exc:
+            logger.warning("Could not restore PlayMute media for %s: %s", chat_id, exc)
+            return None
+
     async def play_unmute_audio(self, chat_id: int) -> bool:
         """Play the `.playmute` announcement, keeping the old recording aside."""
         st = self.state(chat_id)
-        path = st.unmute_audio
-        if not path or not os.path.exists(path):
+        path = await self._ensure_unmute_audio_file(chat_id)
+        if not path:
             return False
         if st.current_file and st.current_file != path and not st.resume_file:
             st.resume_file = st.current_file
@@ -1803,17 +1841,52 @@ class UserVC:
             active = await active
         return set(active or {})
 
-    _PREF_KEYS = ("unmute_audio", "unmute_loop", "hand_raise", "mic_blink",
-                  "mic_blink_secs")
+    _PREF_KEYS = ("unmute_audio", "unmute_file_id", "unmute_loop",
+                  "hand_raise", "mic_blink", "mic_blink_secs")
+
+    def _mute_prefs_key(self) -> str:
+        return f"vc_mute_prefs_{self.owner_id}"
+
+    async def load_mute_prefs(self):
+        """Restore per-chat PlayMute and mute preferences after a restart."""
+        try:
+            raw = await _db().get_app_value(self._mute_prefs_key())
+            values = json.loads(raw) if raw else {}
+            restored = {}
+            for chat_id, prefs in values.items():
+                try:
+                    cid = int(chat_id)
+                    clean = {k: prefs[k] for k in self._PREF_KEYS if k in prefs}
+                    path = clean.get("unmute_audio")
+                    if path and not os.path.isfile(path):
+                        clean["unmute_audio"] = None
+                    restored[cid] = clean
+                except (TypeError, ValueError):
+                    continue
+            self.mute_prefs.update(restored)
+        except Exception as exc:
+            logger.warning("Could not restore mute preferences for %s: %s", self.owner_id, exc)
+
+    async def _persist_mute_prefs(self):
+        try:
+            snapshot = {str(cid): prefs for cid, prefs in self.mute_prefs.items()}
+            await _db().set_app_value(self._mute_prefs_key(), json.dumps(snapshot))
+        except Exception as exc:
+            logger.warning("Could not save mute preferences for %s: %s", self.owner_id, exc)
 
     def save_mute_prefs(self, chat_id: int):
-        """Remember playmute / handraise / micblink for this chat so they
-        survive track end, stop and state resets."""
-        if not hasattr(self, "mute_prefs"):
-            self.mute_prefs = {}
+        """Remember playmute / handraise / micblink in memory and database."""
         st = self.chats.get(chat_id)
         if st:
             self.mute_prefs[chat_id] = {k: getattr(st, k) for k in self._PREF_KEYS}
+        try:
+            loop = asyncio.get_running_loop()
+            old = self._mute_prefs_save_task
+            if old and not old.done():
+                old.cancel()
+            self._mute_prefs_save_task = loop.create_task(self._persist_mute_prefs())
+        except RuntimeError:
+            pass
 
     def state(self, chat_id: int) -> ChatState:
         if chat_id not in self.chats:
@@ -3030,6 +3103,7 @@ class UserVC:
                 _unlink(st.current_file)
             self.mute_prefs = getattr(self, "mute_prefs", {})
             self.mute_prefs[chat_id] = {k: getattr(st, k) for k in self._PREF_KEYS}
+            self.save_mute_prefs(chat_id)
         _cleanup_temp_files()
         try:
             await self.calls.leave_call(chat_id)
