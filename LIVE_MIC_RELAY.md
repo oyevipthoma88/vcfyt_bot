@@ -266,7 +266,7 @@ back toward clean dynamics.
 3. **Target set but audio stays in the old GC** — a running Live Mic kept
    the target from Mic-ON time (new target went only to the DB), and the
    saved invite link of an OLD target was used as fallback for a new one.
-   Now `VCBridge.retarget()` moves the running stream immediately (spare
+   Now `helpers.mic_target.retarget_live()` moves the running stream immediately (spare
    leaves the old VC), and saved links are bound to their chat
    (`mic_chat_ref_for_<uid>`).
 
@@ -280,7 +280,7 @@ Tests: `python -m pytest tests/test_v32_fixes.py` (run on its own).
    - Speechnorm expansion e=16, r=0.0004, p=0.8 (dense vocal envelope without breathing artifacts).
    - Compressor threshold 0.09 (-21 dB), 6:1 ratio, 4ms attack, 80ms release, +7 dB makeup.
    - Fixed drive +20 dB into tanh soft-clipper, dual limiter stage (-1.2 dBFS ceiling, 1.5ms attack / 35ms release) to keep true peaks distortion-free after Opus 32k encoding.
-2. **VC Bridge Clarity**:
+2. **Old bridge clarity (bridge removed in v90)**:
    -  raised to  (removes the "muffled / band-limited" boxiness).
    - Pre-clip limiter raised from 0.5 to 0.75 and compressor makeup from 3.0 to 5.0 dB for full loudness density.
    - Presence curve re-balanced at 2800 Hz (+7 dB) and 4500 Hz (+4 dB) so voices pierce through fighting calls cleanly.
@@ -299,3 +299,9 @@ Tests: `python -m pytest tests/test_v32_fixes.py` (run on its own).
    - Outer Orb Glow (): Frosted halo ring around the mic orb button.
    - Ambient Page Aura (): 420px soft radial blur behind the mic section with pulsing keyframes.
    - Glassmorphism: Backdrop-filter blur enabled across all cards and containers.
+
+## v90: 0 dBFS live mic, 3 modes, Web Studio, VC bridge removed
+
+- VC bridge removed completely; group target logic lives in `helpers/mic_target.py`.
+- Live mic modes match playback: Loudest (+2 LUFS), Phone (-0.4 LUFS), Bass (-1.4 LUFS), limiter at 0.999 (0 dBFS). Post-leveller gate keeps pauses quiet. Per-user mode: panel buttons, Studio page, `.micmode loudest|phone|bass`.
+- Web Studio page tabs: Mic (ON AIR, meter, modes, PUSH/BOOST), Screen (screen or camera into VC, 360/480/720p), Chat (read/send group messages), VC (members, speaking, muted).
