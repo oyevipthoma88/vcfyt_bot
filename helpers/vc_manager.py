@@ -2621,13 +2621,9 @@ class UserVC:
         # MAIN USER FIX: on the Live Mic the screen is shared by the spare ID,
         # so the window showed the spare's name/DP.  Always show the owner's
         # main account (fallback: this account).
+        # v88: user wants the ID that is actually IN the VC fighting (the one
+        # sharing the screen) — its own name + DP, not the main owner's.
         src = self
-        try:
-            main = session_manager.users.get(self.owner_id)
-            if main is not None and getattr(main, "client", None) is not None:
-                src = main
-        except Exception:
-            src = self
         me = None
         try:
             me = await src.client.get_me()
@@ -2660,7 +2656,7 @@ class UserVC:
                 pass
 
         # 3. If empty, check self.owner_id (the main user/owner)
-        if not me_photo and self.owner_id and self.owner_id != me_id:
+        if not me_photo and not me_id and self.owner_id:  # v88: never show another ID's DP
             try:
                 for cli in [getattr(src, "client", None), self.client]:
                     if cli:
