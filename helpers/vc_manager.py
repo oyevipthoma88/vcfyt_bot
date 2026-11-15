@@ -1888,6 +1888,22 @@ class UserVC:
         except RuntimeError:
             pass
 
+    def clear_playmute(self, chat_id: int):
+        """Clear both local and archived PlayMute references for one chat."""
+        st = self.state(chat_id)
+        path = getattr(st, "unmute_audio", None)
+        st.unmute_audio = None
+        st.unmute_file_id = None
+        st.unmute_loop = 1
+        st.unmute_loop_left = 1
+        if path:
+            try:
+                if os.path.isfile(path):
+                    os.unlink(path)
+            except OSError as exc:
+                logger.warning("Could not remove PlayMute audio for %s: %s", chat_id, exc)
+        self.save_mute_prefs(chat_id)
+
     def state(self, chat_id: int) -> ChatState:
         if chat_id not in self.chats:
             self.chats[chat_id] = ChatState()

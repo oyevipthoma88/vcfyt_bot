@@ -359,6 +359,15 @@ async def cmd_tag(bot: Client, msg: Message):
     if len(parts) < 2:
         await msg.reply_text("Usage: <code>.tag &lt;name&gt;</code> (audio ko reply karke)")
         return
+    source_arg, cid_arg = _split_args(msg)
+    is_clear = cmd_text(msg).split()[0].lstrip("./!").lower().split("@", 1)[0] == "pmclr" or (source_arg or "").lower() == "clear"
+    if is_clear:
+        cid = await need_chat(msg, cid_arg)
+        if not cid:
+            return
+        uvc.clear_playmute(cid)
+        await msg.reply_text("✅ PlayMute audio aur saved archive reference clear kar diya.")
+        return
     reply = msg.reply_to_message
     media = None
     if reply:
@@ -685,7 +694,7 @@ def _parse_unmute_loops(argument: str) -> int:
     return loops
 
 
-@Client.on_message(HAS_USER & cmd_prefix(r"(playmute|unmuteaudio)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
+@Client.on_message(HAS_USER & cmd_prefix(r"(playmute|unmuteaudio|pmclr)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
 async def cmd_unmuteaudio(bot: Client, msg: Message):
     """Set an audio to play when bot is unmuted after admin mute."""
     uvc = await get_engine(msg)
@@ -702,7 +711,6 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
             "Jab koi admin bot ko unmute karega, ye audio pehle bajega, phir normal queue."
         )
         return
-    source_arg, cid_arg = _split_args(msg)
     cid = await need_chat(msg, cid_arg)
     if not cid:
         return
@@ -1314,8 +1322,7 @@ async def cb_vc(bot, cq):
             await safe_answer(cq, "PlayMute set hai ✅" if st.unmute_audio else
                               "Audio ko reply karke .playmute likhein", show_alert=True)
         elif action == "pmclr":
-            st.unmute_audio = None
-            uvc.save_mute_prefs(cid)
+            uvc.clear_playmute(cid)
             await safe_answer(cq, "✅ PlayMute cleared")
         elif action == "pmtest":
             ok = await uvc.play_unmute_audio(cid)

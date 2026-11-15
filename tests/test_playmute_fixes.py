@@ -75,3 +75,32 @@ def test_playmute_command_handler_is_registered_not_parser():
     assert any(isinstance(node, ast.AsyncFunctionDef) for node in [functions["cmd_unmuteaudio"]])
     assert functions["cmd_unmuteaudio"].decorator_list, "PlayMute handler lost its Pyrogram registration"
     assert not functions["_parse_unmute_loops"].decorator_list
+
+
+def test_pmclr_command_is_registered_and_documented():
+    source = Path("plugins/vc_commands.py").read_text()
+    assert '(playmute|unmuteaudio|pmclr)' in source
+    from plugins.cmd_help import HELP
+    assert "pmclr" in HELP
+
+
+def test_clear_playmute_clears_local_and_archive_reference(tmp_path):
+    m = UserVC.__new__(UserVC)
+    m.owner_id = 12
+    m.live_volume = 1000
+    m.chats = {}
+    m.mute_prefs = {}
+    m._mute_prefs_save_task = None
+    f = tmp_path / "playmute.ogg"
+    f.write_bytes(b"audio")
+    st = m.state(-1001234567890)
+    st.unmute_audio = str(f)
+    st.unmute_file_id = "archived-file-id"
+    st.unmute_loop = -1
+    st.unmute_loop_left = -1
+    m.clear_playmute(-1001234567890)
+    assert not f.exists()
+    assert st.unmute_audio is None
+    assert st.unmute_file_id is None
+    assert st.unmute_loop == 1 and st.unmute_loop_left == 1
+    assert m.mute_prefs[-1001234567890]["unmute_file_id"] is None
