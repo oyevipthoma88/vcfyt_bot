@@ -1355,7 +1355,7 @@ async def cb_mic(bot: Client, cq):
         # SPARE-ONLY MODE: main ID login ke bina bhi Live Mic chalta hai —
         # spare ID hi listener + speaker dono banti hai.
         uvc = await session_manager.get_relay(uid)
-    if not uvc and action not in {"acct", "panel", "noop"}:
+    if not uvc and action not in {"acct", "panel", "noop", "wtarget", "wcancel", "whelp", "wsetup"}:
         text, kb = await spare_screen(uid)
         await edit_screen(cq.message, "🎤 <b>Live Mic ke liye sirf Spare ID chahiye</b> — main ID login zaroori nahi.\n\n" + text, reply_markup=kb)
         await safe_answer(cq, "Pehle Spare ID add karo")
@@ -1371,7 +1371,7 @@ async def cb_mic(bot: Client, cq):
         await safe_answer(cq)
         return
 
-    if action in {"panel", "won", "wleave", "whelp", "wmode"}:
+    if action in {"panel", "won", "wleave", "whelp", "wmode", "wtarget", "wcancel", "wsetup"}:
         # v82: Live Mic = Web Browser mic panel.
         from plugins.web_mic import web_mic_panel, run_web_mic, HELP
         class _M:  # callback ko message jaisa banao
@@ -1382,7 +1382,29 @@ async def cb_mic(bot: Client, cq):
             await edit_screen(cq.message, HELP, reply_markup=K([[B("⬅ Back", callback_data="mic:panel")]]))
             await safe_answer(cq)
             return
-        if action == "won":
+        if action == "wsetup":
+            from plugins.vc_bridge import panel
+            text, kb = await panel(uid)
+            await edit_screen(cq.message, text, reply_markup=kb)
+            await safe_answer(cq)
+            return
+        if action == "wtarget":
+            from plugins.vc_bridge import request_target_input
+            request_target_input(uid, surface="web")
+            await edit_screen(cq.message,
+                "🎯 <b>Set Live Mic target</b>\n\n"
+                "Send the numeric group chat ID here, for example <code>-1001234567890</code>.\n"
+                "I'll verify and save it before updating this panel.\n"
+                "<i>Prompt expires in 5 minutes. You can also use <code>.mic cancel</code>.</i>",
+                reply_markup=K([[B("✖ Cancel", callback_data="mic:wcancel", style="danger")],
+                                [B("⬅ Back", callback_data="mic:panel")]]))
+            await safe_answer(cq, "Target ID bhejo")
+            return
+        if action == "wcancel":
+            from plugins.vc_bridge import _await_chat
+            _await_chat.pop(uid, None)
+            await safe_answer(cq, "Target prompt cancelled")
+        elif action == "won":
             await run_web_mic(m, "on")
             await safe_answer(cq, "Link bhej diya 👇")
         elif action == "wleave":
@@ -2215,18 +2237,19 @@ async def cmd_mic(bot: Client, msg: Message):
     action = parts[1].lower() if len(parts) > 1 else "help"
 
     if action in {"chat", "setchat", "target", "tgt"}:
-        # Target save karne ke liye engine start hona zaroori nahi.
+        # In a group, bare `.mic chat` selects this group. In DM, prompt for
+        # a numeric ID so the user doesn't need to memorize a command syntax.
         if len(parts) < 3 and msg.chat and msg.chat.id < 0:
             parts = parts[:2] + [str(msg.chat.id)]
-        # Save a default group so `.mic on` works from bot DM — nothing is
-        # ever typed in the group, other members won't know.
         if len(parts) < 3:
-            saved = (await db.get_app_value(f"mic_chat_{msg.from_user.id}"))
-            await mic_notify(msg, 
-                "🎯 <b>Mic target group</b>: "
-                + (f"<code>{saved}</code>" if saved else "set nahi hai") +
-                "\n\nSet karne ke liye (bot DM me): <code>.mic chat -100xxxxxxxx</code>\n"
-                "Username / invite link bhi chalega.")
+            saved = await db.get_app_value(f"mic_chat_{msg.from_user.id}")
+            from plugins.vc_bridge import request_target_input
+            request_target_input(msg.from_user.id, surface="chat")
+            await mic_notify(msg,
+                "🎯 <b>Live Mic target group</b>: "
+                + (f"<code>{saved}</code>\n\n" if saved else "not set\n\n")
+                + "Is private chat mein numeric group ID bhejo, jaise <code>-1001234567890</code>.\n"
+                + "<i>5 minute tak active. Cancel: <code>.mic cancel</code></i>")
             return
         from plugins.vc_bridge import set_target
         cid, text = await set_target(msg, msg.from_user.id, parts[2])
@@ -2249,7 +2272,7 @@ async def cmd_mic(bot: Client, msg: Message):
     from plugins.web_mic import run_web_mic
     if action in {"link", "seturl", "domain"}:
         action = "url"
-    await run_web_mic(msg, action if action in {"on", "off", "leave", "status", "url"} else "help", parts[2:])
+    await run_web_mic(msg, action if action in {"on", "off", "leave", "status", "url", "cancel"} else "help", parts[2:])
 
 
 @Client.on_message(HAS_USER & cmd_prefix(r"(setgc|unsetgc|gc)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -2265,22 +2288,43 @@ async def cmd_setgc(bot: Client, msg: Message):
         return
     if name == "gc" or (name == "setgc" and len(parts) == 1 and not (msg.chat and msg.chat.id < 0)):
         cur = DEFAULT_GC.get(uid)
+        if name == "setgc" and msg.chat and str(getattr(msg.chat.type, "value", msg.chat.type)).lower() == "private":
+            from plugins.vc_bridge import request_target_input
+            request_target_input(uid, surface="setgc")
+            await msg.reply_text(
+                f"🎯 <b>Default + Live Mic group:</b> <code>{cur or 'not set'}</code>\n\n"
+                "Ab isi DM me group ka numeric chat ID bhejo, jaise <code>-1001234567890</code>.\n"
+                "ID verify hoga, phir default group aur Live Mic dono set honge.\n"
+                "Cancel: <code>.mic cancel</code> · Prompt 5 minute tak active rahega.")
+            return
         await msg.reply_text(
-            f" <b>Default group:</b> <code>{cur or 'none'}</code>\n"
-            "Set: group me <code>.setgc</code> ya DM me <code>.setgc -100xxxx / @username / link</code>")
+            f"🎯 <b>Default + Live Mic group:</b> <code>{cur or 'not set'}</code>\n"
+            "Set karne ke liye: target group me <code>.setgc</code> ya DM me <code>.setgc -100xxxx</code> bhejo.")
         return
     arg = parts[1] if len(parts) > 1 else None
-    DEFAULT_GC.pop(uid, None)  # so target_chat resolves the given/current chat
-    cid, _ = await target_chat(msg, arg)
+    # Resolve explicitly before changing either setting. Bare `.setgc` in a
+    # group means this group; a failed validation must preserve the old target.
+    target_ref_text = arg or (str(msg.chat.id) if msg.chat and msg.chat.id < 0 else None)
+    cid, _ = await target_chat(msg, target_ref_text)
     if not cid:
         await msg.reply_text("❌ Group resolve nahi hua. Chat ID / @username / invite link dein.")
         return
+    # Keep the Live Mic's dedicated target aligned with .setgc as well. Use
+    # the same verified resolver as .mic chat so an unverified guessed ID is
+    # never shown as a successful microphone destination.
+    from plugins.vc_bridge import set_target
+    target_ref_text = target_ref_text or str(cid)
+    mic_cid, mic_text = await set_target(msg, uid, target_ref_text)
+    if not mic_cid:
+        await msg.reply_text(mic_text)
+        return
+    cid = mic_cid
     DEFAULT_GC[uid] = cid
     _save_gc()
     await msg.reply_text(
-        f"✅ <b>Default group set:</b> <code>{cid}</code>\n"
-        "Ab saari commands (play, handraise, micblink, playmute…) bina chat ID ke isi group pe lagengi.\n"
-        "Hatane ke liye: <code>.unsetgc</code>")
+        f"✅ <b>Default group + Live Mic target set:</b> <code>{cid}</code>\n"
+        "Ab <code>.mic on</code> ya dusri default-target commands DM se bhi isi group ko use karengi.\n"
+        "Hatane ke liye <code>.unsetgc</code> default commands se unset karega; mic target <code>.mic chat</code> se badlo.")
 
 
 # ----------------------------------------------------------------------

@@ -513,6 +513,16 @@ _await_chat: dict = {}
 _AWAIT_TTL = 300  # sec — purana 'group bhejo' state baad ke normal DM text ko na khaye
 
 
+def request_target_input(uid: int, *, start_after: bool = False,
+                         surface: str = "bridge") -> None:
+    """Arm one short-lived DM prompt to set the shared Live Mic target."""
+    import time as _time
+    mode = "tgt_start" if start_after else ("tgt_web" if surface == "web" else
+                                             "tgt_chat" if surface == "chat" else
+                                             "tgt_setgc" if surface == "setgc" else "tgt")
+    _await_chat[int(uid)] = (mode, _time.time())
+
+
 @Client.on_callback_query(filters.regex(r"^brs:"))
 async def cb_mic_setup(bot: Client, cq):
     what = cq.data.split(":", 1)[1]
@@ -567,8 +577,16 @@ async def mic_setup_listener(bot: Client, msg: Message):
     if not entry:
         return
     what, since = entry if isinstance(entry, tuple) else (entry, _t.time())
+    start_after = what == "tgt_start"
+    web_panel_after = what == "tgt_web"
+    chat_command = what == "tgt_chat"
+    setgc_prompt = what == "tgt_setgc"
+    if start_after or web_panel_after or chat_command or setgc_prompt:
+        what = "tgt"
     if _t.time() - since > _AWAIT_TTL:
         _await_chat.pop(uid, None)
+        await bot.send_message(msg.chat.id,
+                               "⌛ Group ID prompt expire ho gaya. Dobara <code>.mic chat</code> ya <code>.setgc</code> bhejo.")
         return
     ref = cmd_text(msg).strip().split()[0] if cmd_text(msg).strip() else ""
     try:
@@ -594,8 +612,26 @@ async def mic_setup_listener(bot: Client, msg: Message):
     if what == "tgt":
         await save_target(uid, cid, jref)
         note = await retarget_live(uid, cid, jref)
+        if setgc_prompt:
+            from plugins.vc_commands import DEFAULT_GC, _save_gc
+            DEFAULT_GC[uid] = cid
+            _save_gc()
     else:
         await db.set_app_value(f"bridge_src_{uid}", str(cid))
+    if start_after:
+        await bot.send_message(msg.chat.id,
+                               f"✅ Live Mic target set: <code>{cid}</code>{note}")
+        from plugins.web_mic import run_web_mic
+        await run_web_mic(msg, "on")
+        return
+    if web_panel_after or chat_command or setgc_prompt:
+        from plugins.web_mic import web_mic_panel
+        text, kb = await web_mic_panel(uid)
+        heading = "✅ Default group + Live Mic target saved" if setgc_prompt else "✅ Live Mic target saved"
+        await bot.send_message(msg.chat.id,
+                               f"{heading}: <code>{cid}</code>{note}\n\n" + text,
+                               reply_markup=kb)
+        return
     text, kb = await panel(uid)
     await bot.send_message(msg.chat.id, f"✅ {'Private' if what == 'src' else 'Target'} group set: "
                            f"<code>{cid}</code>{note}\n\n" + text, reply_markup=kb)

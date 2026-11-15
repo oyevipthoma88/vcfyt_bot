@@ -14,10 +14,11 @@ from helpers.vc_manager import session_manager
 from plugins.ui import B
 
 HELP = (
-    "🎤 <b>Live Mic (Web Browser) — ULTRA LOUD</b>\n\n"
-    "1. <code>.mic chat -100xxx</code> — target group set karo (ek baar)\n"
-    "2. <code>.mic on</code> — private link milega\n"
+    "🎤 <b>Live Mic · Browser Studio</b>\n\n"
+    "1. Group me <code>.setgc</code>, ya DM me <code>.mic chat</code> / <code>.setgc</code>\n"
+    "2. <code>.mic on</code> — target na ho to bot chat ID pooch lega\n"
     "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
+    "• <code>.mic chat -100xxx</code> — target badlo  •  <code>.mic cancel</code> — ID prompt roko\n"
     "• <code>.mic off</code> — band  •  <code>.mic leave</code> — band + VC se bahar\n"
     "• <code>.mic status</code>  •  <code>.micmode loudest|clean</code>\n"
     "• <code>.mic url https://your-app.herokuapp.com</code> — (owner) mic link ka address set karo\n\n"
@@ -87,17 +88,16 @@ async def _set_url(msg, uid, args):
 
 
 async def _target(msg, uid):
+    """Use only an explicitly saved Live Mic target.
+
+    Never silently infer the destination from the chat where `.mic on` was
+    sent: an explicit target prevents sending audio into the wrong VC.
+    """
     raw = await db.get_app_value(f"mic_chat_{uid}")
-    if raw:
-        return int(raw)
-    if msg.chat and msg.chat.id < 0:
-        try:
-            from plugins.vc_bridge import save_target
-            await save_target(uid, msg.chat.id)
-        except Exception:
-            pass
-        return msg.chat.id
-    return 0
+    try:
+        return int(raw) if raw else 0
+    except (TypeError, ValueError):
+        return 0
 
 
 async def run_web_mic(msg, action: str, args=()):
@@ -133,6 +133,12 @@ async def run_web_mic(msg, action: str, args=()):
         await _set_url(msg, uid, list(args))
         return
 
+    if action == "cancel":
+        from plugins.vc_bridge import _await_chat
+        _await_chat.pop(uid, None)
+        await mic_notify(msg, "❎ Live Mic target prompt cancel kar diya.")
+        return
+
     if action != "on":
         await mic_notify(msg, HELP, disable_web_page_preview=True)
         return
@@ -142,7 +148,15 @@ async def run_web_mic(msg, action: str, args=()):
         return
     cid = await _target(msg, uid)
     if not cid:
-        await mic_notify(msg, "🎯 Pehle target group set karo: <code>.mic chat -100xxxxxxxx</code>")
+        from plugins.vc_bridge import request_target_input
+        request_target_input(uid, start_after=True)
+        await mic_notify(
+            msg,
+            "🎯 <b>Live Mic target group ID bhejo</b>\n\n"
+            "Is private chat mein group ID, <code>@username</code> ya invite link bhejo.\n"
+            "Main group verify karke target save karunga aur uske baad mic link bhejunga.\n"
+            "<i>Prompt 5 minute active rahega; cancel: <code>.mic cancel</code></i>",
+        )
         return
     base = await live_mic.resolve_base_url()
     if not base:
@@ -186,16 +200,17 @@ async def web_mic_panel(uid: int):
         mm = "loudest"
     state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
         "🟡 Link khula, mic band" if s else "⚪ OFF")
-    text = ("🎤 <b>LIVE MIC  ·  Web Browser</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"Status : {state}\n"
-            f"🎯 Group : <code>{tgt or 'set nahi — .mic chat -100…'}</code>\n"
-            f"🔊 Mode : <b>{'⚡ FIGHT (loudest)' if mm == 'loudest' else '✨ CLEAN'}</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "<b>Tez + saaf ke 3 rules</b>\n"
-            "🎧 Earphone lagao  ·  📏 mic 3–5 cm\n"
-            "📊 Page par MIC LEVEL <b>green</b> — MIC BOOST slider se set karo")
-    rows = []
+    text = ("🎙️ <b>APEX LIVE MIC</b>  <i>· Browser Studio</i>\n"
+            "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
+            f"<b>SESSION</b>  {state}\n"
+            f"<b>TARGET</b>   <code>{tgt or 'Not set · choose a group ID'}</code>\n"
+            f"<b>SOUND</b>    {'⚡ FIGHT · strong presence' if mm == 'loudest' else '✨ CLEAN · smoother voice'}\n"
+            "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
+            "<b>Quick setup</b>  ·  Chrome + mic permission\n"
+            "🎧 Headset reduces echo  ·  Keep input meter out of red\n"
+            "Your private link stays yours. Share it with no one.")
+    rows = [[B("🎯 Set target group", callback_data="mic:wtarget", style="primary")],
+            [B("🧭 Setup / status", callback_data="mic:wsetup", style="primary")]]
     if s or live:
         rows.append([B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
                      B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
@@ -206,8 +221,7 @@ async def web_mic_panel(uid: int):
                  B("✨ CLEAN", callback_data="mic:wmode:clean",
                    style="success" if mm == "clean" else "primary")])
     rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
-                 B("📘 Tutorial", callback_data="tut:livemic", style="primary"),
+                 B("📘 Guide", callback_data="tut:livemic", style="primary"),
                  B("❓ Help", callback_data="mic:whelp", style="primary")])
-    rows.append([B("🌉 Old VC Bridge", callback_data="mic:bridge", style="primary"),
-                 B("🏠 Home", callback_data="menu:home", style="primary")])
+    rows.append([B("🏠 Home", callback_data="menu:home", style="primary")])
     return text, K(rows)

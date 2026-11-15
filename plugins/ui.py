@@ -243,35 +243,33 @@ def _live_mic_on() -> bool:
         return True
 
 def home_text(name: str, logged_in: bool) -> str:
+    """Short, task-first home card with the next useful action up front."""
     mic = _live_mic_on()
-    feats = "🔊 Ultra-loud + clear  ·  " + ("🎤 Web live mic  ·  " if mic else "") + "🔗 Sync play"
+    greeting = f"👋 Hey <b>{_html.escape(str(name))}</b>"
     if logged_in:
-        status = "🟢 <b>Connected</b>  ·  ready to fight"
-        last = ("🎤 <b>Live Mic</b> dabao (Chrome me bolo) ya audio pe reply → <code>.play</code>"
-                if mic else "Audio pe reply karke <code>.play</code> bhejo")
-        steps = (
+        status = "🟢 <b>Account ready</b> · choose what you want to do"
+        body = (
+            f"{greeting}\n"
+            f"🔊 Ultra-loud + clear  ·  {'🎙️ Browser Live Mic  ·  ' if mic else ''}🔗 Sync play\n\n"
             "<b>⚡ Quick start</b>\n"
-            "<b>①</b> Group me <code>.setgc</code>  <i>(sirf ek baar)</i>\n"
-            "<b>②</b> Voice chat start karo\n"
-            f"<b>③</b> {last}"
+            "① Start a voice chat in your group\n"
+            f"② {'Open Live Mic and set your target once' if mic else 'Reply to audio with <code>.play</code>'}\n"
+            f"③ {'Open the link in Chrome and tap MIC' if mic else 'Use Player or Sync Play below'}\n\n"
+            f"<b>Status</b>  {status}"
         )
+        tip = ("Target setup: send <code>.setgc</code> in the group, or open Live Mic and enter its chat ID. "
+               "Use a headset to reduce echo.")
     else:
-        status = "🔴 <b>Not connected</b>  ·  setup baaki hai"
-        steps = (
-            "<b>⚡ 2 minute setup</b>\n"
-            "<b>①</b> 🔐 <b>Start Setup</b> dabao\n"
-            "<b>②</b> Phone number bhejo  <i>(+91…)</i>\n"
-            "<b>③</b> Telegram OTP bhejo — done ✅"
+        body = (
+            f"{greeting}\n"
+            "🔊 Ultra-loud + clear  ·  🎙️ Browser Live Mic\n\n"
+            "<b>🔐 Connect your Telegram account</b>\n"
+            "① Tap <b>Start Setup</b>\n"
+            "② Send your phone number with country code\n"
+            "③ Enter the Telegram OTP (and 2-step password if enabled)"
         )
-    return (
-        "🎧 <b>A P E X  ·  V C  F I G H T</b>\n"
-        f"<code>{RULE}</code>\n"
-        f"<blockquote>👋 Hey <b>{_html.escape(str(name))}</b>, welcome!\n{feats}</blockquote>\n"
-        f"<b>Status</b>  {status}\n\n"
-        f"{steps}\n"
-        f"<code>{RULE}</code>\n"
-        "<i>❓ Confusion? Neeche 📘 <b>Help</b> dabao.</i>"
-    )
+        tip = "Your account session is used to control your own voice chat. You can disconnect it from More → Logout."
+    return card("🎧", "Apex · VC Fight", body, tip)
 
 def home_kb(is_owner: bool = False, logged_in: bool = False,
             active_chat_id: int = None) -> K:
