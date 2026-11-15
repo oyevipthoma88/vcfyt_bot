@@ -357,6 +357,14 @@ async def _cmd_setvc(client: Client, msg: Message):
     )
 
 
+@Client.on_message(HAS_USER & filters.text & filters.regex(r"^[./!]setvc(?:@\w+)?\b", flags=2) & filters.private)
+async def _cmd_setvc_dm(client: Client, msg: Message):
+    if not is_owner(msg.from_user.id):
+        return
+    await msg.reply_text("ℹ️ <code>.setvc</code> target group ke andar bhejein — "
+                         "wahi group VC Joiner ka target ban jayega.")
+
+
 @Client.on_message(HAS_USER & filters.text & filters.regex(r"^[./!]delvc(?:@\w+)?\b", flags=2) & (filters.group | filters.private))
 async def _cmd_delvc(client: Client, msg: Message):
     if not is_owner(msg.from_user.id):

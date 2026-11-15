@@ -80,8 +80,15 @@ class Config:
     FAST_PLAY: bool = _bool("FAST_PLAY", True)
 
     HAND_RAISE_DEFAULT: bool = _bool("HAND_RAISE_DEFAULT", True)
-    MIC_BLINK_DEFAULT: bool = _bool("MIC_BLINK_DEFAULT", True)
+    # Mic on/off blink after an admin unmute is OFF by default (looks like a
+    # bot); `.micblink on` still enables it per chat.
+    MIC_BLINK_DEFAULT: bool = _bool("MIC_BLINK_DEFAULT", False)
     MIC_BLINK_SECONDS: int = _int("MIC_BLINK_SECONDS", 5)
+    # Human mode timings (non-admin group "bot or human?" mute check).
+    HUMAN_HAND_DELAY_MIN: float = float(os.environ.get("HUMAN_HAND_DELAY_MIN", "") or 2.0)
+    HUMAN_HAND_DELAY_MAX: float = float(os.environ.get("HUMAN_HAND_DELAY_MAX", "") or 3.0)
+    HUMAN_RESUME_DELAY_MIN: float = float(os.environ.get("HUMAN_RESUME_DELAY_MIN", "") or 10.0)
+    HUMAN_RESUME_DELAY_MAX: float = float(os.environ.get("HUMAN_RESUME_DELAY_MAX", "") or 15.0)
 
     SCREEN_SHARE_ENABLED: bool = _bool("SCREEN_SHARE_ENABLED", True)
     SS_WIDTH: int = _int("SS_WIDTH", 1920)

@@ -377,6 +377,33 @@ async def _invalidate_session(user_id: int, error: Exception, source: str):
         user_id, type(error).__name__, source,
     )
 
+def is_admin_mute(participant) -> bool:
+    """True only for a real admin mute: muted AND not allowed to unmute.
+
+    Raw Telegram participants carry ``can_self_unmute``; pytgcalls objects
+    carry ``muted_by_admin`` (= muted != can_self_unmute, which is also True
+    for a speaking member flagged can_self_unmute), so both need ``muted``.
+    """
+    muted = bool(getattr(participant, "muted", False))
+    if not muted:
+        return False
+    if hasattr(participant, "can_self_unmute"):
+        return not bool(getattr(participant, "can_self_unmute", False))
+    return bool(getattr(participant, "muted_by_admin", False))
+
+
+def human_hand_delay() -> float:
+    """Seconds between an admin mute and the hand raise (natural 2-3 s)."""
+    lo, hi = sorted((Config.HUMAN_HAND_DELAY_MIN, Config.HUMAN_HAND_DELAY_MAX))
+    return random.uniform(max(0.0, lo), max(0.0, hi))
+
+
+def human_resume_delay() -> float:
+    """Silent seconds between the admin unmute and speaking again (10-15 s)."""
+    lo, hi = sorted((Config.HUMAN_RESUME_DELAY_MIN, Config.HUMAN_RESUME_DELAY_MAX))
+    return random.uniform(max(0.0, lo), max(0.0, hi))
+
+
 class ChatState:
 
     def __init__(self):
@@ -407,7 +434,7 @@ class ChatState:
         self.unmute_file_id: Optional[str] = None
         self.admin_muted: bool = False
         # --- human-like mute/unmute behaviour ---
-        self.hand_raise: bool = True
+        self.hand_raise: bool = Config.HAND_RAISE_DEFAULT
         self.hand_raised: bool = False
         self.mic_blink: bool = Config.MIC_BLINK_DEFAULT
         self.mic_blink_secs: int = Config.MIC_BLINK_SECONDS
@@ -547,7 +574,12 @@ class UserVC:
                 part = update.participant
                 if part.user_id != self.account_id:
                     return
-                self.apply_mute_state(update.chat_id, bool(part.muted_by_admin))
+                # pytgcalls derives muted_by_admin as (muted != can_self_unmute),
+                # which is also True for a SPEAKING participant that Telegram
+                # flags can_self_unmute.  Only "muted AND not allowed to
+                # unmute" is a real admin mute (otherwise our own unmute was
+                # read as a new admin mute and the flow restarted forever).
+                self.apply_mute_state(update.chat_id, is_admin_mute(part))
             except Exception as exc:
                 logger.debug("participant update failed: %r", exc)
 
@@ -559,7 +591,7 @@ class UserVC:
             self._stop_keeper(update.chat_id)
             st = self.chats.pop(update.chat_id, None)
             if st:
-                self.mute_prefs[update.chat_id] = {k: getattr(st, k) for k in self._PREF_KEYS}
+                self.mute_prefs[update.chat_id] = self._prefs_of(st)
                 self.save_mute_prefs(update.chat_id)
                 for item in st.queue:
                     _unlink(item[0])
@@ -713,9 +745,7 @@ class UserVC:
                         pass
                     if getattr(peer, "user_id", None) != self.account_id:
                         continue
-                    by_admin = bool(getattr(participant, "muted", False)) and \
-                        not bool(getattr(participant, "can_self_unmute", False))
-                    self.apply_mute_state(chat_id, by_admin)
+                    self.apply_mute_state(chat_id, is_admin_mute(participant))
         except Exception:
             pass
 
@@ -904,24 +934,33 @@ class UserVC:
             await asyncio.sleep(0.05)
         await self._edit_self(chat_id, muted=False)
 
-    async def _self_unmute(self, chat_id: int):
+    async def _self_unmute(self, chat_id: int, settle: bool = True):
         """Telegram's admin "unmute" only *allows* speaking — the member still
-        has to switch the mic on.  Always do that, otherwise nobody hears us."""
+        has to switch the mic on.  Do that once, steady (no on/off blink), and
+        re-assert it a moment later because pytgcalls may push its own stale
+        "muted" status right after the admin's change."""
         if _check_ghost(self, chat_id):
             logger.info("Ghost mode active in %s; _self_unmute blocked", chat_id)
-            return
+            return False
+        ok = False
         for delay in (0.0, 0.8, 2.0):
             if delay:
                 await asyncio.sleep(delay)
             if await self._edit_self(chat_id, muted=False):
+                ok = True
                 break
-        for fn_name in ("unmute",):
-            fn = getattr(self.calls, fn_name, None)
-            if fn:
-                try:
-                    await fn(chat_id)
-                except Exception:
-                    pass
+        fn = getattr(self.calls, "unmute", None)
+        if fn:
+            try:
+                await fn(chat_id)
+            except Exception:
+                pass
+        if ok and settle:
+            await asyncio.sleep(1.5)
+            st = self.chats.get(chat_id)
+            if st is not None and not st.admin_muted:
+                await self._edit_self(chat_id, muted=False)
+        return ok
 
     async def _current_position(self, chat_id: int) -> float:
         """Seconds into the current track (loop-aware), 0 if unknown."""
@@ -986,40 +1025,57 @@ class UserVC:
         st.mute_task = asyncio.create_task(coro)
 
     async def handle_admin_mute(self, chat_id: int):
+        """Admin muted this ID (non-admin group "bot or human?" check).
+
+        Human behaviour: stop talking at once, then after a short, natural
+        2-3 s pause raise the hand to ask for the mic back.  The recording is
+        only paused here; after the unmute it starts again from the beginning.
+        """
         st = self.state(chat_id)
         st.unmute_flow = False
-        if st.hand_raise:
-            # HUMAN TOUCH: Force raise hand with a delay
-            delay = random.uniform(1.5, 4.0)
-            async def _delayed_raise():
-                await asyncio.sleep(delay)
-                if self.chats.get(chat_id, None) and self.chats[chat_id].admin_muted:
-                    await self.raise_hand(chat_id, True)
-                    logger.info("Human delay: Hand raised in %.1fs for chat %s", delay, chat_id)
-            asyncio.create_task(_delayed_raise())
-        # Remember where the recording was, so it continues from there later.
+        st.hand_raised = False
         if st.playing_unmute:
             # Muted again in the middle of the announcement: stop it, the
-            # parked recording stays parked.
+            # parked recording stays parked and the announcement plays again
+            # after the next unmute.
             st.playing_unmute = False
-        elif st.is_playing and st.current_file:
-            st.resume_pos = await self._current_position(chat_id)
         if st.is_playing and not st.is_paused:
             try:
                 await self.calls.pause(chat_id)
                 st.is_paused = True
-            except Exception:
-                pass
+                st.pause_time = time.time()
+            except Exception as exc:
+                logger.debug("pause on admin mute failed in %s: %r", chat_id, exc)
         try:
             from helpers.live_mic import is_active_for_chat, stop_session
             if is_active_for_chat(chat_id):
                 asyncio.create_task(stop_session(self.owner_id))
         except Exception:
             pass
-        if st.hand_raise and st.admin_muted and not st.hand_raised:
-            await self.raise_hand(chat_id, True)  # retry if the instant one failed
+        if not st.hand_raise:
+            return
+        delay = human_hand_delay()
+        logger.info("Admin mute in %s: raising hand in %.1fs", chat_id, delay)
+        await asyncio.sleep(delay)
+        # Cancelled by apply_mute_state when the admin unmutes meanwhile.
+        for attempt in range(3):
+            if not st.admin_muted or self.chats.get(chat_id) is not st:
+                return
+            if await self.raise_hand(chat_id, True):
+                return
+            await asyncio.sleep(2.0 + attempt)
+        logger.warning("Hand raise failed in %s after admin mute", chat_id)
 
     async def handle_admin_unmute(self, chat_id: int):
+        """Admin gave the mic back.
+
+        1. switch the mic ON at once (Telegram's unmute only *allows* it),
+           steady - no on/off blink (unless the user explicitly enabled
+           ``.micblink``),
+        2. stay silent for a natural 10-15 s,
+        3. play the ``.playmute`` audio completely (if one is set) and then
+           the main recording again from the very beginning.
+        """
         if _check_ghost(self, chat_id):
             logger.info("Ghost mode active in %s; handle_admin_unmute blocked", chat_id)
             return
@@ -1034,47 +1090,75 @@ class UserVC:
                     raise
                 except Exception as exc:
                     logger.debug("mic blink failed: %r", exc)
+            loop = asyncio.get_running_loop()
+            delay = human_resume_delay()
+            speak_at = loop.time() + delay
+            if st.is_playing:
+                # A paused stream makes pytgcalls report the mic as muted and
+                # flip our unmute back.  Hold a silent mic instead.
+                await self._hold_silence(chat_id)
             await self._self_unmute(chat_id)
-            if st.admin_muted:
+            logger.info("Admin unmute in %s: mic ON, speaking again in %.1fs",
+                        chat_id, delay)
+            await asyncio.sleep(max(0.0, speak_at - loop.time()))
+            if st.admin_muted or self.chats.get(chat_id) is not st:
                 return
-            
-            # If .umplay is set, play it
+            await self._self_unmute(chat_id, settle=False)
             if await self.play_unmute_audio(chat_id):
                 return
-                
-            # If .umplay is NOT set, wait 5-10 seconds (human hesitation)
-            import random
-            delay = random.uniform(5.0, 10.0)
-            logger.info("No umplay set. Waiting %.1fs before resuming in chat %s", delay, chat_id)
-            await asyncio.sleep(delay)
-            
-            # Then resume original audio from the BEGINNING
-            await self._resume_after_mute(chat_id)
+            if not await self._resume_after_mute(chat_id) and st.is_playing:
+                await self._hold_silence(chat_id)
         finally:
             st.unmute_flow = False
 
+    async def _hold_silence(self, chat_id: int) -> bool:
+        """Keep the call alive with a silent mic (mic icon stays ON)."""
+        st = self.chats.get(chat_id)
+        if st is None:
+            return False
+        try:
+            await self.calls.play(chat_id, self._raw_stream(st, self._silent_mic()),
+                                  GroupCallConfig(auto_start=False))
+            st.is_paused = False
+            st.pause_time = None
+            st.last_mic = None
+            return True
+        except Exception as exc:
+            logger.debug("silent hold failed in %s: %r", chat_id, exc)
+            return False
+
     async def _resume_after_mute(self, chat_id: int) -> bool:
-        """Give the VC back: user's newer recording > old recording > queue."""
+        """Give the VC back - ALWAYS from the beginning:
+        user's newer recording > the recording that was playing > queue."""
         st = self.state(chat_id)
         resume = st.resume_file
+        resume_processed = st.resume_processed
         name = st.resume_name or "audio"
-        pos = float(st.resume_pos or 0) if st.resume_is_old else 0.0
         st.resume_file = None
         st.resume_processed = None
         st.resume_pos = 0.0
         st.resume_is_old = False
-        if resume and os.path.exists(resume):
-            # Do NOT resume from pos (middle). Resume from 0 (beginning).
-            await self._stream(chat_id, resume, name, start_at=0)
-            logger.info("Resumed recording in chat %s from beginning (0.0s)", chat_id)
-            return True
-        if st.is_paused and st.current_file:
+        announce = st.unmute_audio
+
+        def _usable(path):
+            return bool(path) and path != announce and os.path.exists(path)
+
+        candidates = []
+        if _usable(resume):
+            candidates.append((resume, name, None))
+        elif _usable(resume_processed):
+            candidates.append((resume_processed, name, resume_processed))
+        if _usable(st.current_file):
+            candidates.append((st.current_file, st.source_name, None))
+        elif _usable(st.processed_file):
+            candidates.append((st.processed_file, st.source_name, st.processed_file))
+        for path, src_name, pre in candidates:
             try:
-                # Stream from 0 instead of resuming from middle
-                await self._stream(chat_id, st.current_file, st.source_name, start_at=0)
+                await self._stream(chat_id, path, src_name, preprocessed=pre, start_at=0)
+                logger.info("Resumed %s in chat %s from the beginning", src_name, chat_id)
                 return True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Resume after mute failed for %s: %r", chat_id, exc)
         if st.queue:
             item = st.queue.pop(0)
             await self._stream(chat_id, item[0], item[1],
@@ -1112,8 +1196,19 @@ class UserVC:
             logger.warning("Could not restore PlayMute media for %s: %s", chat_id, exc)
             return None
 
+    async def _stream_announcement(self, chat_id: int, path: str):
+        """Stream the PlayMute audio exactly once (never natively looped -
+        its repeat count is handled by _after_unmute_audio)."""
+        st = self.state(chat_id)
+        track_loop, track_left = st.loop, st.loop_left
+        st.loop, st.loop_left = False, -1
+        try:
+            await self._stream(chat_id, path, "Unmute Audio")
+        finally:
+            st.loop, st.loop_left = track_loop, track_left
+
     async def play_unmute_audio(self, chat_id: int) -> bool:
-        """Play the `.playmute` announcement, keeping the old recording aside."""
+        """Play the `.playmute` announcement, keeping the main recording aside."""
         st = self.state(chat_id)
         path = await self._ensure_unmute_audio_file(chat_id)
         if not path:
@@ -1123,32 +1218,39 @@ class UserVC:
             st.resume_processed = st.processed_file
             st.resume_name = st.source_name
             st.resume_is_old = True
+        elif not st.current_file and st.processed_file and not st.resume_file \
+                and st.processed_file != path:
+            st.resume_file = None
+            st.resume_processed = st.processed_file
+            st.resume_name = st.source_name
+            st.resume_is_old = True
         # Hide them from _stream so it cannot delete the parked recording.
         st.current_file = None
         st.processed_file = None
         count = int(getattr(st, "unmute_loop", 1) or 1)
         st.unmute_loop_left = -1 if count < 0 else max(1, count)
         st.playing_unmute = True
-        track_loop, track_left = st.loop, st.loop_left
-        st.loop, st.loop_left = False, -1  # announcement has its own loop logic
         try:
-            await self._stream(chat_id, path, "Unmute Audio")
+            await self._stream_announcement(chat_id, path)
         except Exception as exc:
             st.playing_unmute = False
             st.current_file = st.resume_file
             st.processed_file = st.resume_processed
             st.resume_file = st.resume_processed = None
-            st.loop, st.loop_left = track_loop, track_left
             logger.warning("Unmute audio failed for %s: %r", chat_id, exc)
             return False
-        st.loop, st.loop_left = track_loop, track_left
         return True
 
     async def _after_unmute_audio(self, chat_id: int) -> bool:
-        """Announcement finished: loop it again, or give the VC back."""
+        """Announcement finished: repeat it (count/loop), then give the VC
+        back to the main recording from the beginning."""
         st = self.chats.get(chat_id)
         if not st:
             return False
+        if st.admin_muted:
+            # muted while it played: handle_admin_mute already took over
+            st.playing_unmute = False
+            return True
         left = int(getattr(st, "unmute_loop_left", 1) or 1)
         path = st.unmute_audio
         # An infinite announcement still yields as soon as the user gives a
@@ -1160,14 +1262,18 @@ class UserVC:
                 st.unmute_loop_left = left - 1
             st.current_file = None
             st.processed_file = None
-            await self._stream(chat_id, path, "Unmute Audio")
+            await self._stream_announcement(chat_id, path)
             return True
 
         st.playing_unmute = False
         # The announcement file belongs to `.playmute` — never delete it.
         st.current_file = None
         st.processed_file = None
-        return await self._resume_after_mute(chat_id)
+        if await self._resume_after_mute(chat_id):
+            return True
+        # Nothing to go back to: stay in the VC, mic ON and silent.
+        await self._hold_silence(chat_id)
+        return True
 
     def mute_busy(self, chat_id: int) -> bool:
         st = self.chats.get(chat_id)
@@ -1844,6 +1950,15 @@ class UserVC:
     _PREF_KEYS = ("unmute_audio", "unmute_file_id", "unmute_loop",
                   "hand_raise", "mic_blink", "mic_blink_secs")
 
+    # v2: mic blink is OFF unless the user turned it on AFTER this version
+    # (older builds saved mic_blink=True from the old default / Human button).
+    _PREFS_VERSION = 2
+
+    def _prefs_of(self, st) -> dict:
+        prefs = {k: getattr(st, k, None) for k in self._PREF_KEYS}
+        prefs["_v"] = self._PREFS_VERSION
+        return prefs
+
     def _mute_prefs_key(self) -> str:
         return f"vc_mute_prefs_{self.owner_id}"
 
@@ -1857,6 +1972,8 @@ class UserVC:
                 try:
                     cid = int(chat_id)
                     clean = {k: prefs[k] for k in self._PREF_KEYS if k in prefs}
+                    if int(prefs.get("_v", 0) or 0) < self._PREFS_VERSION:
+                        clean.pop("mic_blink", None)
                     path = clean.get("unmute_audio")
                     if path and not os.path.isfile(path):
                         clean["unmute_audio"] = None
@@ -1878,7 +1995,7 @@ class UserVC:
         """Remember playmute / handraise / micblink in memory and database."""
         st = self.chats.get(chat_id)
         if st:
-            self.mute_prefs[chat_id] = {k: getattr(st, k) for k in self._PREF_KEYS}
+            self.mute_prefs[chat_id] = self._prefs_of(st)
         try:
             loop = asyncio.get_running_loop()
             old = self._mute_prefs_save_task
@@ -1909,7 +2026,8 @@ class UserVC:
             self.chats[chat_id] = ChatState()
             self.chats[chat_id].live_volume = self.live_volume
             for k, v in getattr(self, "mute_prefs", {}).get(chat_id, {}).items():
-                setattr(self.chats[chat_id], k, v)
+                if not str(k).startswith("_"):
+                    setattr(self.chats[chat_id], k, v)
             st0 = self.chats[chat_id]
             if st0.unmute_audio and not os.path.exists(st0.unmute_audio):
                 st0.unmute_audio = None
@@ -3114,7 +3232,7 @@ class UserVC:
             if st.current_file != st.unmute_audio:
                 _unlink(st.current_file)
             self.mute_prefs = getattr(self, "mute_prefs", {})
-            self.mute_prefs[chat_id] = {k: getattr(st, k) for k in self._PREF_KEYS}
+            self.mute_prefs[chat_id] = self._prefs_of(st)
             self.save_mute_prefs(chat_id)
         _cleanup_temp_files()
         try:

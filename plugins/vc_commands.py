@@ -151,7 +151,7 @@ def _save_gc():
 def now_playing_kb(cid: int, st=None) -> K:
     # v81: sabse zaroori upar — controls, phir TEZ, phir extras.
     paused = bool(st and st.is_paused)
-    human = bool(st and (st.hand_raise or st.mic_blink))
+    human = bool(st and st.hand_raise)
     ss = bool(st and getattr(st, "ss_on", False))
     loop = bool(st and st.loop)
     def onoff(v):
@@ -359,17 +359,17 @@ async def cmd_tag(bot: Client, msg: Message):
     if len(parts) < 2:
         await msg.reply_text("Usage: <code>.tag &lt;name&gt;</code> (audio ko reply karke)")
         return
-    reply = msg.reply_to_message
-    media = None
-    if reply:
-        media = (reply.audio or reply.voice or reply.video or reply.document
-                 or reply.video_note)
+    media, dl = await _find_reply_media(bot, msg)
+    if media is not None and dl is not bot:
+        media = None  # file_id seen only by the user account: bot can't replay it
     if not media:
         await msg.reply_text("ℹ️ Kisi audio/video message ko reply karke <code>.tag</code> likhein.")
         return
     name = parts[1].strip().lower()
-    ftype = "audio" if (reply.audio or reply.voice) else "video"
-    await db.tag_file(msg.from_user.id, name, media.file_id, ftype, reply.caption or "")
+    reply = msg.reply_to_message
+    ftype = "audio" if type(media).__name__ in ("Audio", "Voice") else "video"
+    caption = (getattr(reply, "caption", None) or "") if reply else ""
+    await db.tag_file(msg.from_user.id, name, media.file_id, ftype, caption)
     await msg.reply_text(f"✅ Saved as <code>{name}</code> — ab <code>.play {name}</code>")
 
 @Client.on_message(HAS_USER & cmd_prefix(r"untag\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -703,35 +703,41 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
         uvc.clear_playmute(cid)
         await msg.reply_text("✅ PlayMute audio aur saved archive reference clear kar diya.")
         return
-    reply = msg.reply_to_message
-    media = None
-    if reply:
-        media = (reply.audio or reply.voice or reply.video or reply.document
-                 or reply.video_note)
-    if not media:
-        media = _media_of(msg)  # audio sent with .playmute as its caption
-        reply = msg if media else reply
+    # Same robust lookup as `.play`: reply object missing (forum topic /
+    # uncached), audio sent with `.playmute` as caption, reply-to-a-reply,
+    # or only the logged-in account can see the message.
+    media, dl = await _find_reply_media(bot, msg)
     if not media:
         await msg.reply_text(
-            " Kisi audio/video message ko reply karke <code>.unmuteaudio</code> likhein.\n"
-            "Jab koi admin bot ko unmute karega, ye audio pehle bajega, phir normal queue."
+            "🎧 Kisi audio/voice/video message ko <b>reply</b> karke "
+            "<code>.playmute</code> likhein.\n"
+            "Admin unmute karega → 10-15 sec ruk ke pehle ye audio poora bajega, "
+            "phir main audio shuru se.\n"
+            "Repeat: <code>.playmute 3</code> · hamesha: <code>.playmute loop</code> · "
+            "hatao: <code>.pmclr</code>"
         )
         return
     cid = await need_chat(msg, cid_arg)
     if not cid:
         return
     st = uvc.state(cid)
-    stat = await msg.reply_text("⬇ Unmute audio download ho raha hai…")
+    stat = await msg.reply_text("⬇ PlayMute audio download ho raha hai…")
     try:
-        path = await bot.download_media(media.file_id)
+        path = await dl.download_media(media.file_id)
     except Exception as e:
-        await stat.edit_text(f"❌ Download fail: <code>{e}</code>")
+        await stat.edit_text(f"❌ Download fail: <code>{html.escape(str(e))[:300]}</code>")
         return
-    await stat.delete()
+    if not path or not os.path.exists(path):
+        await stat.edit_text("❌ Download fail: file nahi mili. Dobara try karein.")
+        return
+    try:
+        await stat.delete()
+    except Exception:
+        pass
     archive_file_id = None
     # A Telegram file_id survives local temp cleanup/deploys. Keep this
     # announcement in the configured private archive channel when available.
-    if Config.AUDIO_ARCHIVE_CHANNEL:
+    if Config.AUDIO_ARCHIVE_CHANNEL and dl is bot:
         try:
             archived = await bot.send_cached_media(
                 Config.AUDIO_ARCHIVE_CHANNEL, media.file_id,
@@ -741,6 +747,10 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
                 archive_file_id = archived_media
         except Exception as exc:
             await log_error("playmute_archive", exc)
+    if not archive_file_id and dl is bot:
+        # The bot's own file_id stays downloadable for the bot forever, so the
+        # PlayMute audio survives restarts even without an archive channel.
+        archive_file_id = media.file_id
     try:
         import shutil
         os.makedirs(_PLAYMUTE_DIR, exist_ok=True)
@@ -757,14 +767,16 @@ async def cmd_unmuteaudio(bot: Client, msg: Message):
     st.unmute_loop = loops
     st.unmute_loop_left = loops
     uvc.save_mute_prefs(cid)
-    loop_txt = "infinite loop" if loops < 0 else f"{loops}x"
+    loop_txt = "♾ loop" if loops < 0 else f"{loops}x"
     await msg.reply_text(
-        f" <b>Unmute audio set!</b> ({loop_txt})\n\n"
-        f"Jab is chat me koi admin bot ko unmute karega: pehle "
-        f"{st.mic_blink_secs}s mic on/off (<code>.micblink</code>), phir ye audio "
-        f"{loop_txt} bajega, aur uske baad purani recording / queue wapas chalu."
-        + ("\n✅ Restart-safe: Telegram archive me copy saved." if archive_file_id else
-           "\n⚠️ Archive upload nahi hua; current bot session ke dauran local copy hi available hogi.")
+        f"✅ <b>PlayMute audio set!</b> ({loop_txt})\n\n"
+        "Admin is ID ko mute kare to:\n"
+        "1️⃣ 2-3 sec me ✋ hand raise\n"
+        "2️⃣ Unmute hote hi mic ON (bina blink)\n"
+        f"3️⃣ 10-15 sec baad ye audio poora ({loop_txt})\n"
+        "4️⃣ Phir main audio <b>shuru se</b>"
+        + ("\n\n✅ Restart ke baad bhi yaad rahega." if archive_file_id else
+           "\n\n⚠️ Restart ke baad dobara set karna padega.")
     )
 
 
@@ -785,15 +797,16 @@ async def cmd_handraise(bot: Client, msg: Message):
         uvc.save_mute_prefs(cid)
     elif arg == "now":
         ok = await uvc.raise_hand(cid, True)
-        await msg.reply_text("❌ Hand raise ho gaya." if ok else
-                             " Hand raise nahi hua (VC me nahi ya permission nahi).")
+        await msg.reply_text("✋ Hand raise ho gaya." if ok else
+                             "❌ Hand raise nahi hua (VC me nahi ya permission nahi).")
         return
     elif arg:
         await msg.reply_text("✅ Use: <code>.handraise on|off|now</code>")
         return
     await msg.reply_text(
         f"✋ <b>Hand raise:</b> <code>{'ON' if st.hand_raise else 'OFF'}</code>\n"
-        f"Admin mute karte hi bot Telegram ke rule ke hisaab se hand raise karega."
+        "Admin mute kare to 2-3 sec baad hand raise; unmute ke 10-15 sec baad "
+        "PlayMute audio (agar set hai) aur phir main audio shuru se."
     )
 
 
@@ -820,9 +833,10 @@ async def cmd_micblink(bot: Client, msg: Message):
         await msg.reply_text("✅ Use: <code>.micblink on|off|&lt;seconds&gt;</code>")
         return
     await msg.reply_text(
-        f" <b>Mic blink:</b> <code>{'ON' if st.mic_blink else 'OFF'}</code> — "
+        f"🎙 <b>Mic blink:</b> <code>{'ON' if st.mic_blink else 'OFF'}</code> — "
         f"<code>{st.mic_blink_secs}s</code>\n"
-        f"Unmute hone par pehle sirf mic on/off hoga, recording turant nahi bajegi."
+        + ("Unmute hone par pehle mic on/off blink hoga." if st.mic_blink else
+           "Unmute hone par mic seedha ON rahega (blink nahi) — human jaisa.")
     )
 
 
@@ -1267,16 +1281,14 @@ async def cb_vc(bot, cq):
                                **(AUTO_PRESET if on else {}))
         await apply_settings_live(cq.from_user.id)
     elif action == "human":
+        # Human mode = hand raise 2-3 s after an admin mute + steady mic and
+        # a 10-15 s pause after the unmute.  It never blinks the mic and
+        # never raises the hand while nobody muted us.
         st = uvc.state(cid)
-        on = not (st.hand_raise or st.mic_blink)
+        on = not st.hand_raise
         st.hand_raise = on
-        st.mic_blink = on
+        st.mic_blink = False
         uvc.save_mute_prefs(cid)
-        if on:
-            try:
-                await uvc.raise_hand(cid, True)
-            except Exception:
-                pass
         await safe_answer(cq, "🧑 Human Mode " + ("ON" if on else "OFF"))
     elif action == "ss":
         if getattr(uvc, "ss_busy", None) and uvc.ss_busy(cid):

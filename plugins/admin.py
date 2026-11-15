@@ -459,7 +459,7 @@ async def cmd_restart(bot: Client, msg: Message):
     await asyncio.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-@Client.on_message(HAS_USER & dm_cmd("(cleandb|dbclean)") & filters.private)
+@Client.on_message(HAS_USER & dm_cmd(["cleandb", "dbclean"]) & filters.private)
 @owner_only
 async def cmd_cleandb(bot: Client, msg: Message):
     status_msg = await msg.reply_text("🧹 <i>Cleaning bloated non-critical database collections...</i>")

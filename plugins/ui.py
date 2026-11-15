@@ -504,7 +504,7 @@ def now_playing_text(st, status: str = "playing", chat_title: str = "",
     flags = []
     if getattr(st, "loop", False):
         flags.append("🔁 Loop")
-    if getattr(st, "hand_raise", False) or getattr(st, "mic_blink", False):
+    if getattr(st, "hand_raise", False):
         flags.append("🧑 Human")
     if getattr(st, "ss_on", False):
         flags.append("🖥 Screen")

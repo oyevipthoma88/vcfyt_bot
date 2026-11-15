@@ -12,7 +12,8 @@ from helpers.feature_flags import live_mic_on, refresh_flags
 from plugins.ui import B, edit_screen, safe_answer
 
 _CB = re.compile(r"^(mic:|gm:|tut:livemic$)")
-_CMD = re.compile(r"^[./!](mic|micaccount|micblink|ghostmic)(@\w+)?\b", re.I)
+# .micblink belongs to Human mode (admin mute/unmute), not Live Mic.
+_CMD = re.compile(r"^[./!](mic|micaccount|ghostmic)(@\w+)?\b", re.I)
 
 OFF_TEXT = (
     "🎤 <b>Live Mic abhi band hai</b>\n"

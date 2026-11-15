@@ -419,11 +419,11 @@ def _install_guards():
     if hasattr(user_vc, "_self_unmute"):
         orig_unmute = user_vc._self_unmute
 
-        async def _su_v7(self, chat_id):
+        async def _su_v7(self, chat_id, *args, **kwargs):
             if _active(self, chat_id):
                 logger.info("Ghost v7: _self_unmute blocked %s", chat_id)
-                return
-            return await orig_unmute(self, chat_id)
+                return False
+            return await orig_unmute(self, chat_id, *args, **kwargs)
 
         user_vc._self_unmute = _su_v7
 
@@ -586,6 +586,8 @@ _install_guards()
     & (filters.group | filters.private)
 )
 async def ghost_mic_cmd(bot, msg):
+    if not msg.from_user:  # anonymous admin / channel post
+        return
     uid = msg.from_user.id
     parts = (msg.text or "").split()
     action = parts[1].lower() if len(parts) > 1 else "status"

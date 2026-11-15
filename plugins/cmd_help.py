@@ -50,11 +50,13 @@ HELP = {
     "loud": ([], ".loud <0-18>", "Extra loudness layer.", ".loud 10"),
     "relaystatus": ([], ".relaystatus", "Current relay/audio settings dikhata hai.", ".relaystatus"),
     "playmute": (["unmuteaudio"], ".playmute [count|loop]  |  audio reply karke .playmute",
-                 "Admin unmute karte hi ye audio bajega (reply karke set karein).", "Audio reply karke: .playmute"),
+                 "Admin mute → 2-3 sec me hand raise. Unmute → mic ON (bina blink), 10-15 sec baad "
+                 "ye audio poora bajega, phir main audio shuru se.", "Audio reply karke: .playmute\n.playmute 2"),
     "pmclr": ([], ".pmclr [chat_id]  |  .playmute clear [chat_id]",
               "PlayMute audio, archived fallback aur loop setting poori tarah clear karta hai.", ".pmclr"),
-    "handraise": ([], ".handraise on|off|now", "Mute hote hi hand raise karta hai.", ".handraise on"),
-    "micblink": ([], ".micblink on|off|<sec>", "Unmute ke baad pehle mic on/off blink.", ".micblink 5"),
+    "handraise": ([], ".handraise on|off|now", "Human mode: admin mute kare to 2-3 sec baad hand raise, "
+                  "unmute ke 10-15 sec baad audio shuru se.", ".handraise on"),
+    "micblink": ([], ".micblink on|off|<sec>", "Default OFF (human jaisa steady mic). ON = unmute ke baad mic on/off blink.", ".micblink off"),
     "ss": ([], ".ss on  |  .ss off  |  photo reply karke .ss on",
            "VC me fake PC mixer screen share — live clock, LIVE timer aur chalte meters. "
            "Kitni bhi baar on/off kar sakte ho.", ".ss on"),
@@ -159,6 +161,13 @@ _KNOWN_EXTRA = {"ghostmic", "start", "login", "logout", "mystatus", "settings", 
 _DOT_WORD = re.compile(r"^\.([a-zA-Z]{2,15})\b")
 
 
+_KNOWN_EXTRA |= {"playdb", "pldb", "masterdb", "mstrdb", "ceiling", "ceilingdb", "ceildb",
+                 "say", "target", "settarget", "tgt", "vcjoin", "setvc", "delvc", "sound",
+                 "controls", "cleandb", "dbclean", "growbots", "grow", "setvideo", "clearvideo",
+                 "video", "guide", "tutorial", "setlog", "logtest", "addaudio", "end", "leave",
+                 "ultra", "fplay", "unmuteaudio", "pmclr", "synconly", "synckick", "syncids"}
+
+
 def _unknown_filter(_, __, m):
     mt = _DOT_WORD.match((m.text or "").strip())
     if not mt:
@@ -167,9 +176,25 @@ def _unknown_filter(_, __, m):
     return w not in ALIAS and w not in _KNOWN_EXTRA
 
 
+async def _handled_elsewhere(bot, msg) -> bool:
+    """True when a real command handler (group 0) also matches this text.
+    Keeps "command nahi hai" from appearing under a reply that worked."""
+    try:
+        groups = getattr(getattr(bot, "dispatcher", None), "groups", {}) or {}
+        for handler in groups.get(0, []):
+            flt = getattr(handler, "filters", None)
+            if flt is not None and await flt(bot, msg):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 # Only in bot DM, so normal group chat starting with "." is never spammed.
 @Client.on_message(HAS_USER & filters.private & filters.text & filters.create(_unknown_filter), group=5)
 async def cmd_unknown(bot: Client, msg: Message):
+    if await _handled_elsewhere(bot, msg):
+        return
     word = _DOT_WORD.match(msg.text.strip()).group(1)
     sug = _suggest(word)
     await msg.reply_text(
