@@ -1348,6 +1348,12 @@ async def cb_vc(bot, cq):
 
 AUTO_KB = K([[B("🔹 Settings Panel", callback_data="menu:settings")]])
 
+def _mic_mode(name):
+    """Live mic mode from a button/command (old clean/warm names still work)."""
+    from helpers import live_mic_v79
+    return live_mic_v79.normalize_mode(name)
+
+
 def _mic_ss_target(uid, uvc, active_cid):
     """Return the relay and target VC used by this user's browser Live Mic."""
     try:
@@ -1432,15 +1438,16 @@ async def cb_mic(bot: Client, cq):
         elif action == "wleave":
             await run_web_mic(m, "leave")
             await safe_answer(cq, "Mic OFF + VC se bahar")
-        elif action == "wmode" and rest and rest[0] in {"loudest", "clean", "warm"}:
+        elif action == "wmode" and rest and _mic_mode(rest[0]):
             from helpers import live_mic
+            want = _mic_mode(rest[0])
             session = live_mic.get_session(uid)
             if session is None or session.ws is None or session.ws.closed:
                 await safe_answer(cq, "Pehle browser mic connect karein", show_alert=True)
             else:
-                await session._handle_web_control({"action": "mode", "mode": rest[0]})
-                if session.audio_mode == rest[0]:
-                    await safe_answer(cq, f"Mic mode: {rest[0].upper()}")
+                await session._handle_web_control({"action": "mode", "mode": want})
+                if session.audio_mode == want:
+                    await safe_answer(cq, f"Mic mode: {want.upper()}")
                 else:
                     await safe_answer(cq, "Mode switch nahi hua; previous mode active hai", show_alert=True)
         else:

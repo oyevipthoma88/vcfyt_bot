@@ -38,6 +38,6 @@ def _legacy_live_mic_chain(request):
         yield
         return
     old = v79._mode
-    v79._mode = "clean"
+    v79._mode = "phone"
     yield
     v79._mode = old

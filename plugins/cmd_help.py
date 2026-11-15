@@ -20,7 +20,7 @@ HELP = {
              "Audio reply karke: .play\n.play intro -1001234567890"),
     "tez": (["maxloud", "loudmax"], ".tez", "1 tap me sab MAX: Loudest mode + saari settings max + har logged-in ID ko 200% (admin ho to).", ".tez"),
     "loudmode": ([], ".loudmode  |  .loudmode loudest|phone|bass", "Play audio ka sound mode badlo. loudest = sabse tez, phone = saaf, bass = headphones.", ".loudmode phone"),
-    "micmode": ([], ".micmode  |  Browser panel: FIGHT / CLEAN / WARM", "Live Mic ke per-session sound profiles.", ".mic panel"),
+    "micmode": ([], ".micmode  |  .micmode loudest|phone|bass", "Live Mic ka sound mode. loudest = sabse tez, phone = tez + saaf, bass = tez + bhari.", ".mic panel"),
     "padd": ([], ".padd <tag>  (ya audio reply karke .padd)", "Track ko queue me add karta hai.", ".padd intro"),
     "playforce": (["fplay"], ".playforce <tag>", "Queue hata kar turant ye track chalata hai.", ".fplay intro"),
     "pause": ([], ".pause", "Chal raha audio rok deta hai.", ".pause"),

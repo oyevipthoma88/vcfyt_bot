@@ -8,7 +8,7 @@ def test_browser_disables_phone_processing():
 
 def test_fight_prechain_default_on():
     h = live_mic.LIVE_MIC_HTML
-    assert "setSoundMode(\'loudest\')" in h and "setSoundMode(\'clean\')" in h and "setSoundMode(\'warm\')" in h
+    assert "setSoundMode('loudest')" in h and "setSoundMode('phone')" in h and "setSoundMode('bass')" in h
     # v83: pre-amp = user MIC BOOST slider (default 2x) + soft-clip guard
     assert "pres.gain.value=FIGHT?6:0" in h and "pre.gain.value = micBoost()" in h
 

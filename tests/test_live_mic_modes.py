@@ -11,24 +11,23 @@ from helpers import live_mic, live_mic_v79
 def test_three_server_modes_have_safe_limiter_and_distinct_filters():
     chains = {mode: live_mic_v79.build_live_mic_filter(mode=mode)
               for mode in live_mic_v79.MODES}
-    assert set(chains) == {"loudest", "clean", "warm"}
+    assert set(chains) == {"loudest", "phone", "bass"}
     for chain in chains.values():
         assert "alimiter=" in chain
-        assert "limit=" in chain
-    assert "limit=0.7499" in chains["loudest"]
-    assert "limit=0.7499" in chains["clean"]
-    assert "limit=0.7499" in chains["warm"]
-    assert "volume=20dB" in chains["warm"]
-    assert "speechnorm=e=25" in chains["loudest"]
-    assert chains["clean"] != chains["loudest"]
-    assert chains["warm"] != chains["clean"]
+        assert "asoftclip" not in chain
+        assert "pan=stereo|c0=c0|c1=c0" in chain
+    assert "limit=0.8913" in chains["loudest"]
+    assert "limit=0.8414" in chains["phone"]
+    assert "limit=0.7943" in chains["bass"]
+    assert chains["phone"] != chains["loudest"]
+    assert chains["bass"] != chains["phone"]
 
 
 def test_browser_modes_are_session_controls_without_reload():
     page = live_mic.LIVE_MIC_HTML
     assert "setSoundMode('loudest')" in page
-    assert "setSoundMode('clean')" in page
-    assert "setSoundMode('warm')" in page
+    assert "setSoundMode('phone')" in page
+    assert "setSoundMode('bass')" in page
     assert "sendControl('mode',{mode})" in page
     assert "Mode badalne ke liye page reload hoga" not in page
     assert 'id="boostR"' in page
@@ -56,4 +55,4 @@ def test_each_mode_runs_through_ffmpeg_opus_with_bounded_peaks():
         assert np.isfinite(out).all()
         assert np.mean(np.abs(out)>=0.999) < 0.002
         assert np.max(np.abs(out)) <= 1.0
-    assert any(not np.array_equal(results["loudest"],results[m]) for m in ("clean","warm"))
+    assert any(not np.array_equal(results["loudest"],results[m]) for m in ("phone","bass"))

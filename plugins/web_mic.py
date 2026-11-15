@@ -20,7 +20,7 @@ HELP = (
     "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
     "• <code>.mic chat -100xxx</code> — target badlo  •  <code>.mic cancel</code> — ID prompt roko\n"
     "• <code>.mic off</code> — band  •  <code>.mic leave</code> — band + VC se bahar\n"
-    "• <code>.mic status</code>  •  <code>.micmode loudest|clean</code>\n"
+    "• <code>.mic status</code>  •  <code>.micmode loudest|phone|bass</code>\n"
     "• <code>.mic url https://your-app.herokuapp.com</code> — (owner) mic link ka address set karo\n\n"
     "<b>Sabse tez + saaf awaaz ke liye:</b>\n"
     "• Page par <b>MIC BOOST</b> slider — MIC LEVEL green rakho\n"
@@ -204,7 +204,7 @@ async def web_mic_panel(uid: int):
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
             f"<b>SESSION</b>  {state}\n"
             f"<b>TARGET</b>   <code>{tgt or 'Not set · choose a group ID'}</code>\n"
-            f"<b>SOUND</b>    {dict(loudest='⚡ FIGHT · max clarity', clean='✨ CLEAN · softer peaks', warm='🌿 WARM · natural tone').get(mm, '⚡ FIGHT')}\n"
+            f"<b>SOUND</b>    {dict(loudest='⚡ LOUDEST · phone speaker max', phone='📱 PHONE · tez + saaf', bass='🔊 BASS · tez + bhari').get(mm, '⚡ LOUDEST')}\n"
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
             "<b>Quick setup</b>  ·  Chrome + mic permission\n"
             "🎧 Headset reduces echo  ·  Keep input meter out of red\n"
@@ -216,12 +216,12 @@ async def web_mic_panel(uid: int):
                      B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
     else:
         rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
-    rows.append([B("⚡ FIGHT", callback_data="mic:wmode:loudest",
+    rows.append([B("⚡ LOUDEST", callback_data="mic:wmode:loudest",
                    style="success" if mm == "loudest" else "primary"),
-                 B("✨ CLEAN", callback_data="mic:wmode:clean",
-                   style="success" if mm == "clean" else "primary"),
-                 B("🌿 WARM", callback_data="mic:wmode:warm",
-                   style="success" if mm == "warm" else "primary")])
+                 B("📱 PHONE", callback_data="mic:wmode:phone",
+                   style="success" if mm == "phone" else "primary"),
+                 B("🔊 BASS", callback_data="mic:wmode:bass",
+                   style="success" if mm == "bass" else "primary")])
     rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
                  B("📘 Guide", callback_data="tut:livemic", style="primary"),
                  B("❓ Help", callback_data="mic:whelp", style="primary")])

@@ -91,9 +91,8 @@ class LiveMicSession:
         self.chat_id = chat_id
         self.settings = dict(settings or {})
         from helpers import live_mic_v79 as _mic_audio
-        self.audio_mode = str(self.settings.pop("live_mic_mode", _mic_audio.get_mode()))
-        if self.audio_mode not in _mic_audio.MODES:
-            self.audio_mode = "loudest"
+        self.audio_mode = _mic_audio.normalize_mode(
+            self.settings.pop("live_mic_mode", None) or _mic_audio.get_mode(), "loudest")
 
         self.ws: Optional[web.WebSocketResponse] = None
         self.raw_fifo: Optional[str] = None
@@ -1382,8 +1381,8 @@ class LiveMicSession:
                                   if ok else (getattr(state, "ss_error", "") or "Screen share failed"))
             elif action == "mode":
                 from helpers import live_mic_v79 as v79
-                mode = str(payload.get("mode", "")).strip().lower()
-                if mode not in v79.MODES:
+                mode = v79.normalize_mode(payload.get("mode", ""))
+                if mode is None:
                     result["message"] = "Choose one of the available sound modes"
                 elif mode == self.audio_mode:
                     result.update(ok=True, mode=mode, message=f"{mode.title()} mode already active")
@@ -1895,9 +1894,9 @@ footer{margin-top:auto;padding-top:8px;text-align:center;color:var(--dim);font:7
   <div class="card-h"><h3>Awaaz Mode</h3></div>
   <p class="seg-label">Sound</p>
   <div class="seg">
-    <button class="chip" id="mFight" onclick="setSoundMode('loudest')">&#9889; FIGHT<small>Strong presence</small></button>
-    <button class="chip" id="mClean" onclick="setSoundMode('clean')">&#10024; CLEAN<small>Smooth peaks</small></button>
-    <button class="chip" id="mWarm" onclick="setSoundMode('warm')">&#127807; WARM<small>Natural tone</small></button>
+    <button class="chip" id="mFight" onclick="setSoundMode('loudest')">&#9889; LOUDEST<small>Phone speaker max</small></button>
+    <button class="chip" id="mPhone" onclick="setSoundMode('phone')">&#128241; PHONE<small>Tez + saaf</small></button>
+    <button class="chip" id="mBass" onclick="setSoundMode('bass')">&#128266; BASS<small>Tez + bhari</small></button>
   </div>
   <p class="seg-label">Output</p>
   <div class="seg">
@@ -2216,7 +2215,7 @@ function connectSocket(myAttempt){
             while (pending.length) { try { socket.send(pending.shift()); } catch(e){ break; } }
             setStatus('LIVE - Mic ON', 'on');
             enableControls(true);
-            try{const preferred=localStorage.getItem('vcfyt_sound_mode');if(['loudest','clean','warm'].includes(preferred)&&preferred!==activeSoundMode)activeSoundMode=preferred;sendControl('mode',{mode:activeSoundMode});}catch(e){}
+            try{const preferred=normMode(localStorage.getItem('vcfyt_sound_mode'));if(preferred&&preferred!==activeSoundMode)activeSoundMode=preferred;sendControl('mode',{mode:activeSoundMode});}catch(e){}
             controlNote('Hand raise, live screen, VC chat and reactions are ready.');
             // Do not send settings automatically on connect.  The server-side
             // settings path rebuilds FFmpeg; doing that after first audio used
@@ -2268,9 +2267,10 @@ function connectSocket(myAttempt){
 
 const USE_AEC = new URLSearchParams(location.search).get("aec") === "1";
 let activeSoundMode='loudest';
-try{const savedMode=localStorage.getItem('vcfyt_sound_mode');if(['loudest','clean','warm'].includes(savedMode))activeSoundMode=savedMode;}catch(e){}
+function normMode(m){m=String(m||'').toLowerCase();m=({clean:'phone',warm:'bass',fight:'loudest'})[m]||m;return ['loudest','phone','bass'].includes(m)?m:'';}
+try{const savedMode=normMode(localStorage.getItem('vcfyt_sound_mode'));if(savedMode)activeSoundMode=savedMode;}catch(e){}
 function setSoundMode(mode){
-  if(!['loudest','clean','warm'].includes(mode))return;
+  mode=normMode(mode);if(!mode)return;
   activeSoundMode=mode;try{localStorage.setItem('vcfyt_sound_mode',mode);}catch(e){}paintModes(mode);
   if(!isOn||!sendReady){controlNote(mode.toUpperCase()+' selected — mic connect hone par apply hoga.');return;}
   if(sendControl('mode',{mode}))controlNote('Switching to '+mode.toUpperCase()+'…');
@@ -2279,8 +2279,8 @@ function setMode(k,v){const u=new URL(location.href);if(v)u.searchParams.set(k,v
  if(u.href===location.href)return; if(isOn&&!confirm('Output device badalne ke liye page reload hoga. Mic dobara tap karna hoga.'))return; location.href=u.href;}
 function paintModes(mode){
  const t=(id,on)=>{const e=document.getElementById(id);if(e)e.classList.toggle('act',on);};
- if(mode&&['loudest','clean','warm'].includes(mode))activeSoundMode=mode;
- t('mFight',activeSoundMode==='loudest');t('mClean',activeSoundMode==='clean');t('mWarm',activeSoundMode==='warm');
+ mode=normMode(mode);if(mode)activeSoundMode=mode;
+ t('mFight',activeSoundMode==='loudest');t('mPhone',activeSoundMode==='phone');t('mBass',activeSoundMode==='bass');
  const q=new URLSearchParams(location.search),a=q.get('aec')==='1';t('mEar',!a);t('mSpk',a);
 }
 let vuPeak=0;

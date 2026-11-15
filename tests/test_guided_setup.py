@@ -37,7 +37,7 @@ class GuidedSetupTests(unittest.TestCase):
         from helpers.live_mic import LIVE_MIC_HTML
         from plugins.web_mic import web_mic_panel
         self.assertIn("setSoundMode('loudest')", LIVE_MIC_HTML)
-        self.assertIn("setSoundMode('warm')", LIVE_MIC_HTML)
+        self.assertIn("setSoundMode('bass')", LIVE_MIC_HTML)
         self.assertIn("Mic Boost", LIVE_MIC_HTML)
         self.assertIn("mic:wmode:loudest", open("plugins/web_mic.py").read())
 

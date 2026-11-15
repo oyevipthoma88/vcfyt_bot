@@ -14,16 +14,17 @@ def _reset_mode():
 
 
 def test_live_mic_default_is_loudest_clear_chain():
-    # v83: loudest = one soft-clip + brick-wall at -1.5 dBFS (no double tanh).
+    # v87: loudest = no clipper, limiter 0.7 dB under the -0.3 dBFS ceiling.
     v79._mode = None
     chain = ap.build_live_mic_filter(-0.3, loud=120)
     assert v79.get_mode() == "loudest"
-    assert chain.count("asoftclip") <= 1
-    assert "limit=0.7499" in chain
+    assert "asoftclip" not in chain
+    assert "limit=0.8913" in chain
 
 
 def test_clean_mode_has_no_softclip():
-    v79.set_mode("clean")
+    v79.set_mode("clean")  # old name -> phone
+    assert v79.get_mode() == "phone"
     chain = ap.build_live_mic_filter(-0.3, loud=120)
     assert "asoftclip" not in chain and "alimiter" in chain
 

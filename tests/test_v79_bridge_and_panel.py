@@ -24,4 +24,4 @@ def test_audio_panel_only_tez_modes_and_echo():
 
 def test_live_mic_modes_do_not_change_global_playback_panel():
     from helpers import live_mic_v79
-    assert live_mic_v79.MODES == ("loudest", "clean", "warm")
+    assert live_mic_v79.MODES == ("loudest", "phone", "bass")

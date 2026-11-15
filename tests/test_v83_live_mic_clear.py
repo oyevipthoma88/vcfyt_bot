@@ -41,13 +41,13 @@ def _mode():
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg needed")
-@pytest.mark.parametrize("mode", ["loudest", "clean", "warm"])
+@pytest.mark.parametrize("mode", ["loudest", "phone", "bass"])
 def test_live_mic_loud_clear_and_opus_safe(mode):
     v79.set_mode(mode)
     lufs, tp, clip = _measure(ap.build_live_mic_filter())
     assert lufs > -12.0, f"{mode}: {lufs} LUFS too quiet"
     assert lufs < -5.0, f"{mode}: {lufs} LUFS = square wave"
-    assert tp <= -1.0, f"{mode}: true peak {tp}"
+    assert tp <= -0.3, f"{mode}: true peak {tp}"
     assert clip < 0.002, f"{mode}: {clip:.2%} clip after Opus"
 
 
@@ -59,7 +59,7 @@ def test_mode_survives_restart(monkeypatch):
     import helpers.database as hdb
     monkeypatch.setattr(hdb, "db", FakeDB(), raising=False)
     v79._mode = None
-    assert asyncio.run(v79.load_mode()) == "clean"
+    assert asyncio.run(v79.load_mode()) == "phone"  # old saved name migrates
 
 
 def test_browser_never_sends_double_audio():
