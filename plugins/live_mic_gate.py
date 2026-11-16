@@ -13,7 +13,7 @@ from plugins.ui import B, edit_screen, safe_answer
 
 _CB = re.compile(r"^(mic:|gm:|tut:livemic$)")
 # .micblink belongs to Human mode (admin mute/unmute), not Live Mic.
-_CMD = re.compile(r"^[./!](mic|micaccount|ghostmic)(@\w+)?\b", re.I)
+_CMD = re.compile(r"^[./!](mic|micaccount|fightid|ghostmic)(@\w+)?\b", re.I)
 
 OFF_TEXT = (
     "🎤 <b>Live Mic abhi band hai</b>\n"

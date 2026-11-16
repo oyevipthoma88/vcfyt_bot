@@ -254,7 +254,7 @@ async def cmd_syncplay(bot: Client, msg: Message):
             return
         engines = await collect_engines(uid, await _include_main(uid))
         if not engines:
-            await stat.edit_text("❌ Koi logged-in ID nahi mili. Pehle /login + spare IDs add karo.")
+            await stat.edit_text("❌ Koi ID nahi mili. Pehle ⚔️ Fight ID jodo (/login).")
             return
         if not await db.get_app_value(f"sync_auto_gc_{uid}"):
             async def _bg_group():
@@ -340,7 +340,7 @@ async def cmd_syncmain(bot: Client, msg: Message):
         + "\n".join(f"{i}. {_name(e)}" for i, e in enumerate(engines, 1)) +
         f"\n\nMain ID shamil: <b>{'ON' if inc else 'OFF'}</b> (<code>.syncmain on|off</code>)\n"
         f"Target: <code>{cid or 'set nahi'}</code>\n"
-        "Spare IDs add: <code>.spare</code>")
+        "Fight IDs add: <code>.fightid</code>")
 
 
 SYNC_GROUP_TITLE = "Apex Multiple ID Aura🥵🎤"
@@ -454,9 +454,9 @@ SYNC_HELP = (
     "4️⃣ <code>.syncstop</code> band  |  <code>.syncleave</code> VC chhodo\n"
     "   <code>.syncleave 2</code> sirf ID #2 nikle  |  <code>.synconly 1</code> sirf #1 rahe\n"
     "👻 <code>.syncghost on</code> — sab IDs ka mic OFF dikhe, awaaz chale\n\n"
-    "🎤 Live mic bhi sab spare IDs se same awaaz me jaata hai: <code>.mic on</code>\n"
+    "🎤 Live mic bhi sab Fight IDs se same awaaz me jaata hai: <code>.mic on</code>\n"
     "👤 Phone se main ID se VC sun rahe ho to: <code>.syncmain off</code>\n"
-    "➕ Spare IDs: <code>.spare</code> (max 5)"
+    "➕ Fight IDs: <code>.fightid</code> (max 5)"
 )
 
 
@@ -469,7 +469,7 @@ async def cb_sync_menu(bot: Client, cq):
     engines = await collect_engines(uid, await _include_main(uid))
     text = (SYNC_HELP + f"\n\n🎯 Target: <code>{cid or 'set nahi'}</code>\n"
             f"👥 IDs ready: <b>{len(engines)}</b>")
-    kb = K([[B("➕ Spare IDs", callback_data="mic:panel", style="primary"),
+    kb = K([[B("➕ Fight IDs", callback_data="mic:acct", style="primary"),
              B("🏠 Home", callback_data="menu:home", style="primary")]])
     await safe_answer(cq)
     await edit_screen(cq.message, text, reply_markup=kb)

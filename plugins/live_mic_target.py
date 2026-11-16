@@ -180,8 +180,8 @@ async def retarget_live(uid: int, cid: int, ref=None) -> str:
 async def set_target(msg, uid: int, ref_text: str) -> tuple:
     cid, join_ref = await resolve_group(msg, ref_text, uid, "tgt")
     if not cid:
-        return 0, ("❌ Target group verify nahi hua. Numeric ID tabhi chalega jab bot, main ID "
-                   "ya spare ID group ko dekh sakti ho; warna invite link ya @username bhejein.")
+        return 0, ("❌ Group verify nahi hua. Numeric ID tabhi chalega jab Fight ID us group me ho; "
+                   "warna invite link ya @username bhejo.")
     await save_target(uid, cid, join_ref)
     note = await retarget_live(uid, cid, join_ref)
     return cid, f"✅ Target group set: <code>{cid}</code>" + note
@@ -191,6 +191,11 @@ def request_target_input(uid: int, *, start_after: bool = False, surface: str = 
     mode = "tgt_start" if start_after else ("tgt_web" if surface == "web" else
                                              "tgt_chat" if surface == "chat" else
                                              "tgt_setgc" if surface == "setgc" else "tgt")
+    try:
+        from plugins.vc_commands import cancel_pending_fight_prompt
+        cancel_pending_fight_prompt(int(uid))
+    except Exception:
+        pass
     _await_chat[int(uid)] = (mode, time.time())
 
 
@@ -215,7 +220,7 @@ async def live_mic_target_listener(bot, msg):
     cid, join_ref = await resolve_group(msg, ref, uid) if ref else (0, None)
     if not cid:
         await bot.send_message(msg.chat.id,
-            "❌ Group verify nahi hua. Numeric ID ke liye bot, main ID ya spare ID group ko dekh sake; warna invite link/@username bhejo.",
+            "❌ Group verify nahi hua. Fight ID ko group me add karo, ya invite link/@username bhejo.",
             reply_markup=K([[B("✖ Cancel", callback_data="mic:wcancel")]]))
         return
     _await_chat.pop(uid, None)

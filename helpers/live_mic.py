@@ -2751,16 +2751,25 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
         await ws.close()
         return ws
 
-    uvc = await session_manager.get(user_id)
-    if not uvc:
-        await ws.send_str("error:not_logged_in")
-        await ws.close()
-        return ws
-
-    # Stream through the spare account when one is configured, so the user's
-    # own account can stay in the voice chat on their phone.
+    # Fight ID (spare) ho to awaaz usi se jaati hai.  Main ID zaroori nahi:
+    # sirf Fight ID wale user ke liye Fight ID hi listener + speaker hai.
     _get_relay = getattr(session_manager, "get_relay", None)
     relay = await _get_relay(user_id) if _get_relay else None
+    fight_only = False
+    if relay is not None:
+        try:
+            from helpers.setup_flow import has_fight_id, has_main_id
+            fight_only = (await has_fight_id(user_id)
+                          and not await has_main_id(user_id))
+        except Exception:
+            fight_only = False
+    uvc = None if fight_only else await session_manager.get(user_id)
+    if not uvc:
+        uvc = relay
+    if not uvc:
+        await ws.send_str("error:fight_id_missing — Telegram bot me ⚔️ Fight ID jodo")
+        await ws.close()
+        return ws
 
     settings = await db.get_settings(user_id)
 

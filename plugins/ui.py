@@ -252,9 +252,9 @@ def home_text(name: str, logged_in: bool) -> str:
             f"{greeting}\n"
             f"🔊 Ultra-loud + clear  ·  {'🎙️ Browser Live Mic  ·  ' if mic else ''}🔗 Sync play\n\n"
             "<b>⚡ Quick start</b>\n"
-            "① Start a voice chat in your group\n"
-            f"② {'Open Live Mic and set your target once' if mic else 'Reply to audio with <code>.play</code>'}\n"
-            f"③ {'Open the link in Chrome and tap MIC' if mic else 'Use Player or Sync Play below'}\n\n"
+            "① Group me voice chat start karo\n"
+            f"② {'Live Mic kholo → ⚔️ Fight ID + group ek baar set karo' if mic else 'Audio par reply karke <code>.play</code> bhejo'}\n"
+            f"③ {'Link Chrome me kholo aur MIC dabao' if mic else 'Niche Player ya Sync Play use karo'}\n\n"
             f"<b>Status</b>  {status}"
         )
         tip = ("Target setup: send <code>.setgc</code> in the group, or open Live Mic and enter its chat ID. "
@@ -262,13 +262,15 @@ def home_text(name: str, logged_in: bool) -> str:
     else:
         body = (
             f"{greeting}\n"
-            "🔊 Ultra-loud + clear  ·  🎙️ Browser Live Mic\n\n"
-            "<b>🔐 Connect your Telegram account</b>\n"
-            "① Tap <b>Start Setup</b>\n"
-            "② Send your phone number with country code\n"
-            "③ Enter the Telegram OTP (and 2-step password if enabled)"
+            "🔊 Ultra-loud + clear Live Mic\n\n"
+            "<b>Sirf 3 step:</b>\n"
+            "① <b>⚔️ Fight ID jodo</b> — wo ID jo VC me bolegi\n"
+            "② <b>🎯 Group batao</b> — jisme VC chal rahi hai\n"
+            "③ <b>🎙 Link kholo</b> (Chrome) aur bolo\n\n"
+            "👤 Apni main ID dena <b>zaroori nahi</b>."
         )
-        tip = "Your account session is used to control your own voice chat. You can disconnect it from More → Logout."
+        tip = ("⚔️ Fight ID = koi bhi doosri Telegram ID (number + OTP se judti hai). "
+               "Use apne group me add rakho.")
     return card("🎧", "Apex · VC Fight", body, tip)
 
 def home_kb(is_owner: bool = False, logged_in: bool = False,
@@ -276,7 +278,7 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     mic = _live_mic_on()
     if not logged_in:
         rows = [
-            [B("🔐 Start Setup  ·  2 min", callback_data="menu:login", style="success")],
+            [B("⚔️ Fight ID jodo  ·  Step 1", callback_data="menu:login", style="success")],
             [B("🎬 Video Guide", callback_data="tut:video", style="primary"),
              B("📘 Help", callback_data="menu:tutorial", style="primary")],
         ]
@@ -306,10 +308,10 @@ def home_kb(is_owner: bool = False, logged_in: bool = False,
     return K(rows)
 
 MORE_TEXT = card("☰", "More options",
+                 "⚔️ <b>Fight ID</b> — jo ID VC me bolti hai\n"
+                 "👤 <b>Main ID</b> — aapki apni ID (optional)\n"
                  "🎵 <b>Library</b> — saved audios\n"
-                 "👤 <b>Account</b> — login & plan info\n"
-                 "💎 <b>Premium</b> · 👥 <b>Refer & Earn</b>\n"
-                 "🔁 <b>Re-Login</b> · 🚪 <b>Logout</b>")
+                 "💎 <b>Premium</b> · 👥 <b>Refer & Earn</b>")
 
 def more_kb() -> K:
     return K([
@@ -320,8 +322,9 @@ def more_kb() -> K:
         [B("💎 Premium", callback_data="pay:menu", style="success"),
          B("🎟️ Redeem", callback_data="pay:coupon", style="success")],
         [B("👥 Refer & Earn", callback_data="ref:menu", style="success")],
-        [B("🔁 Re-Login", callback_data="menu:login", style="primary"),
-         B("🚪 Logout", callback_data="menu:logout", style="danger")],
+        [B("⚔️ Fight ID", callback_data="mic:acct", style="primary"),
+         B("👤 Main ID", callback_data="menu:mainid", style="primary")],
+        [B("🚪 Main ID Logout", callback_data="menu:logout", style="danger")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
 
@@ -329,19 +332,23 @@ def back_kb(target: str = "menu:home") -> K:
     return K([[B("⬅ Back", callback_data=target, style="primary"),
                B("🏠 Home", callback_data="menu:home", style="primary")]])
 
-LOGIN_INTRO = card("🔐", "Connect account",
-    "<b>①</b> Phone number bhejo <i>(country code ke saath, jaise +91…)</i>\n"
-    "<b>②</b> Telegram ka OTP bot ko bhejo\n"
-    "<b>③</b> 2-step password ho to wo bhi",
+# Main ID = user ki apni Telegram ID.  OPTIONAL: Live Mic sirf ⚔️ Fight ID se
+# chal jata hai.  Main ID sirf Player / Sync Play / Library ke liye hai.
+LOGIN_INTRO = card("👤", "Main ID (optional)",
+    "Main ID = <b>aapki apni</b> Telegram ID.\n"
+    "🎤 Live Mic ke liye ye <b>zaroori nahi</b> — wahan sirf ⚔️ Fight ID chahiye.\n\n"
+    "Main ID se extra milta hai: ▶️ Player · 🔗 Sync Play · 🎵 Library\n\n"
+    "<b>①</b> Number bhejo <i>(+91…)</i>  <b>②</b> OTP  <b>③</b> 2-step password (ho to)",
     "Session sirf aapke VC control ke liye use hota hai. Kabhi bhi 🚪 Logout kar sakte ho.")
+MAIN_ID_INTRO = LOGIN_INTRO
 
 def login_kb() -> K:
+    """Main ID screen: sirf EK login button (pehle 2 confusing options the)."""
     rows = [
-        [B("📱 Phone se Login", callback_data="login:phone", style="success")],
-        [B("👥 Multiple ID Login", callback_data="mic:acct")],
-        [B("🏠 Home", callback_data="menu:home", style="primary")],
+        [B("📱 Main ID login (number + OTP)", callback_data="login:phone", style="success")],
+        [B("⚔️ Fight ID", callback_data="mic:acct", style="primary"),
+         B("🏠 Home", callback_data="menu:home", style="primary")],
     ]
-    rows.extend(source_button())
     return K(rows)
 
 CANCEL_KB = K([[B("✖️ Cancel", callback_data="login:cancel", style="danger")]])
@@ -419,7 +426,7 @@ def mic_text(s: dict, mic_on: bool = False, mic_title: str = "",
 def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K:
     if not logged_in:
         return K([
-            [B("🔐 Login karein", callback_data="menu:login", style="success")],
+            [B("⚔️ Fight ID jodo", callback_data="mic:acct", style="success")],
             [B("🏠 Home", callback_data="menu:home", style="primary")],
         ])
     return K([
@@ -440,8 +447,8 @@ def mic_kb(mic_on: bool = False, logged_in: bool = False, ss: bool = False) -> K
          B("🎵 Bass +", callback_data="mic:bass:5", style="primary")],
         [B("🔁 Echo", callback_data="mic:echo:toggle", style="primary"),
          B("✅ Apply", callback_data="mic:apply", style="success")],
-        [B("👥 Spare ID", callback_data="mic:acct", style="primary"),
-         B("💬 Spare Chat", callback_data="mic:chat", style="primary")],
+        [B("⚔️ Fight ID", callback_data="mic:acct", style="primary"),
+         B("💬 Fight Chat", callback_data="mic:chat", style="primary")],
         [B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
 

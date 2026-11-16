@@ -15,6 +15,7 @@ from plugins.ui import B
 
 HELP = (
     "🎤 <b>Live Mic · Browser Studio</b>\n\n"
+    "0. ⚔️ Fight ID jodo: <code>.fightid</code> (main ID zaroori nahi)\n"
     "1. Group me <code>.setgc</code>, ya DM me <code>.mic chat</code> / <code>.setgc</code>\n"
     "2. <code>.mic on</code> — target na ho to bot chat ID pooch lega\n"
     "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
@@ -143,12 +144,16 @@ async def run_web_mic(msg, action: str, args=()):
         await mic_notify(msg, HELP, disable_web_page_preview=True)
         return
 
-    uvc = await get_engine(msg)
+    from plugins.vc_commands import get_mic_engine
+    from helpers.setup_flow import has_fight_id
+    # Main ID zaroori nahi: Fight ID ho to wahi VC me bolti hai.
+    uvc = await get_mic_engine(msg)
     if not uvc:
         return
     from helpers import sudo as _sudo
     sudo_trial = False
-    if await _sudo.is_sudo_mode(uid):
+    own_fight = await has_fight_id(uid)
+    if not own_fight and await _sudo.is_sudo_mode(uid):
         # Bina login: verified group zaroori + trial ho to 1 use katega.
         from plugins.sudo import gate_sudo_use
         if not await gate_sudo_use(msg):
@@ -160,9 +165,10 @@ async def run_web_mic(msg, action: str, args=()):
         request_target_input(uid, start_after=True)
         await mic_notify(
             msg,
-            "🎯 <b>Live Mic target group ID bhejo</b>\n\n"
-            "Is private chat mein group ID, <code>@username</code> ya invite link bhejo.\n"
-            "Main group verify karke target save karunga aur uske baad mic link bhejunga.\n"
+            "🎯 <b>Step 2: Group batao</b>\n\n"
+            "Jis group me VC chal rahi hai uska <b>invite link</b>, <code>@username</code> "
+            "ya group ID yahin bhejo.\n"
+            "Group verify hote hi mic link aa jayega.\n"
             "<i>Prompt 5 minute active rahega; cancel: <code>.mic cancel</code></i>",
         )
         return
@@ -175,7 +181,7 @@ async def run_web_mic(msg, action: str, args=()):
         if sudo_trial:
             await _sudo.refund_trial(uid)
         return
-    # Playing ID (spare if set, else main) ko group me pahunchao.
+    # Bolne wali ID (Fight ID, warna main) ko group me pahunchao.
     try:
         from plugins.live_mic_target import ensure_in_target, target_ref
         ref, _ = await target_ref(uid, cid)
@@ -189,20 +195,24 @@ async def run_web_mic(msg, action: str, args=()):
     kb = K([[B("🎙 MIC KHOLO (Chrome)", url=url)],
             [B("⏹ Mic OFF", callback_data="mic:off")]])
     await mic_notify(msg,
-                     "🎤 <b>Live Mic ready — ULTRA LOUD</b>\n\n"
+                     "🎤 <b>Step 3: Live Mic ready — ULTRA LOUD</b>\n\n"
                      f"🎯 Group: <code>{cid}</code>\n\n"
                      "👇 Button dabao → <b>Chrome</b> me khulega → 🎙 dabao → bolo.\n"
+                     "⚔️ Aapki awaaz <b>Fight ID</b> se VC me jayegi — "
+                     "link kisi bhi phone/browser par chalega.\n"
                      "🎧 <b>Earphone lagao</b> = sabse tez + saaf.\n\n"
                      f"<i>Link private hai, kisi ko mat bhejna.</i>\n<code>{_html.escape(url)}</code>",
                      reply_markup=kb, disable_web_page_preview=True)
 
 
 async def web_mic_panel(uid: int):
-    """v82: ek saaf Live Mic control panel (web browser mic)."""
+    """v92: simple Live Mic panel — ① Fight ID ② Group ③ MIC ON."""
     from helpers import live_mic
+    from helpers.setup_flow import has_fight_id
     s = live_mic.get_session(uid)
     live = live_mic.has_live_socket(uid)
     tgt = await db.get_app_value(f"mic_chat_{uid}")
+    fight = await has_fight_id(uid) or bool(await session_manager.assistant_string(uid))
     try:
         from helpers import live_mic_v79 as v79
         mm = s.audio_mode if s else v79.get_mode()
@@ -210,29 +220,37 @@ async def web_mic_panel(uid: int):
         mm = "loudest"
     state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
         "🟡 Link khula, mic band" if s else "⚪ OFF")
-    text = ("🎙️ <b>APEX LIVE MIC</b>  <i>· Browser Studio</i>\n"
+    text = ("🎙️ <b>APEX LIVE MIC</b>\n"
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
-            f"<b>SESSION</b>  {state}\n"
-            f"<b>TARGET</b>   <code>{tgt or 'Not set · choose a group ID'}</code>\n"
-            f"<b>SOUND</b>    {dict(loudest='⚡ LOUDEST · phone speaker max', phone='📱 PHONE · tez + saaf', bass='🔊 BASS · tez + bhari').get(mm, '⚡ LOUDEST')}\n"
+            f"{'✅' if fight else '①'} <b>Fight ID</b>  "
+            f"{'judi hui' if fight else '— pehle jodo (zaroori)'}\n"
+            f"{'✅' if tgt else '②'} <b>Group</b>     "
+            f"{f'<code>{_html.escape(str(tgt))}</code>' if tgt else '— set nahi'}\n"
+            f"{'🟢' if live else '③'} <b>Mic</b>       {state}\n"
+            f"🔊 <b>Sound</b>     {dict(loudest='⚡ LOUDEST', phone='📱 PHONE · saaf', bass='🔊 BASS · bhari').get(mm, '⚡ LOUDEST')}\n"
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
-            "<b>Quick setup</b>  ·  Chrome + mic permission\n"
-            "🎧 Headset reduces echo  ·  Keep input meter out of red\n"
-            "Your private link stays yours. Share it with no one.")
-    rows = [[B("🎯 Set target group", callback_data="mic:wtarget", style="primary")],
-            [B("🧭 Setup / status", callback_data="mic:wsetup", style="primary")]]
+            "Link <b>Chrome</b> me kholo · 🎧 earphone = kam echo\n"
+            "<i>Main ID zaroori nahi — Fight ID hi VC me bolti hai. Link kisi ko mat bhejna.</i>")
+    rows = []
+    if not fight:
+        rows.append([B("⚔️ Fight ID jodo  ·  Step 1", callback_data="mic:acct", style="success")])
     if s or live:
         rows.append([B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
                      B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
-    else:
+    elif fight:
         rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
+    tgt_row = [B("🎯 Group badlo" if tgt else "🎯 Group set karo", callback_data="mic:wtarget",
+                 style="primary")]
+    if fight:
+        tgt_row.append(B("⚔️ Fight ID", callback_data="mic:acct", style="primary"))
+    rows.append(tgt_row)
     rows.append([B("⚡ LOUDEST", callback_data="mic:wmode:loudest",
                    style="success" if mm == "loudest" else "primary"),
                  B("📱 PHONE", callback_data="mic:wmode:phone",
                    style="success" if mm == "phone" else "primary"),
                  B("🔊 BASS", callback_data="mic:wmode:bass",
                    style="success" if mm == "bass" else "primary")])
-    rows.append([B("🔄 Refresh", callback_data="mic:panel", style="primary"),
+    rows.append([B("🔄 Refresh", callback_data="mic:wsetup", style="primary"),
                  B("📘 Guide", callback_data="tut:livemic", style="primary"),
                  B("❓ Help", callback_data="mic:whelp", style="primary")])
     rows.append([B("🏠 Home", callback_data="menu:home", style="primary")])

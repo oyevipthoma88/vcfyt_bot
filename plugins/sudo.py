@@ -61,7 +61,7 @@ async def _ref_progress(uid: int) -> tuple[int, int]:
 # ══════════════════════════ USER SCREENS ══════════════════════════════
 
 def _options_rows(s: dict, bot_username: str = "") -> list:
-    rows = [[B("🔐 Apna Login (unlimited)", callback_data="menu:login", style="success")],
+    rows = [[B("⚔️ Apni Fight ID jodo (unlimited)", callback_data="menu:login", style="success")],
             [B("👥 Refer 5 = Premium", callback_data="ref:menu", style="success")]]
     sup = sudo.support_url(s)
     if sup:
@@ -96,7 +96,7 @@ async def paywall_screen(uid: int) -> tuple[str, K]:
                 "② Apne group ka link bhejo (<code>t.me/...</code> ya <code>@username</code>)\n"
                 "③ Sudo ID group me aa kar verify karegi\n"
                 "④ <b>.play</b> ya <b>🎤 Live Mic</b> — jo chahiye\n\n"
-                f"{LINE}\nTrial ke baad: apna login, ya <b>{need} referrals</b> = Premium, "
+                f"{LINE}\nTrial ke baad: apni ⚔️ Fight ID, ya <b>{need} referrals</b> = Premium, "
                 "ya Support GC join karke owner se Sudo lo.")
         rows = [[B(f"🎁 Free Trial Start · {t['limit']} uses", callback_data="sudo:trial", style="success")]]
         rows += _options_rows(s)
@@ -114,7 +114,7 @@ async def paywall_screen(uid: int) -> tuple[str, K]:
     if mode == sudo.TRIAL_OVER:
         body = (f"Aapke <b>{t['limit']} free uses</b> khatam ho gaye.\n\n"
                 "Aage use karne ke 3 tareeke:\n"
-                "① <b>Apna Login</b> — apni ID se unlimited\n"
+                "① <b>⚔️ Apni Fight ID</b> jodo — unlimited Live Mic\n"
                 f"② <b>{need} dosto ko refer</b> karo — Premium active (bina login unlimited)\n"
                 f"   👥 Abhi: <b>{refs}/{need}</b>\n"
                 "③ <b>Support GC join</b> karo aur owner se <b>Sudo</b> lo")
@@ -136,68 +136,79 @@ async def paywall_screen(uid: int) -> tuple[str, K]:
 
 
 async def home_override(uid: int, name: str = "", notice: str = ""):
-    """Home screen for non-logged users (start.py).
+    """Home screen for users without a Main ID login (start.py).
 
-    v90 ne poora purana home (Login / Setup / Guide) hata kar sirf trial
-    paywall dikha diya tha. Ab user ko DONO raaste saaf dikhte hain:
-      🔐 Apna Login  — apni ID, unlimited (purana flow, jaisa tha)
-      🎁 Free Trial  — bina login, owner ki Sudo ID se
-    User khud choose karta hai."""
+    v92 SIMPLE: ek hi main raasta — ⚔️ Fight ID jodo (wo ID jo VC me bolti hai).
+    Main ID optional hai.  Fight ID jud gayi to seedha 🎙 Live Mic button.
+    Owner ki Sudo IDs wala Free Trial sirf chhota secondary option hai."""
     from plugins.ui import source_button
+    from helpers.setup_flow import has_fight_id
     mode = await sudo.engine_mode(uid, fresh=True)
     if mode in (sudo.OWNER, sudo.SELF):
         # Login ho chuka (cache purana tha) — normal home hi sahi hai.
         from plugins.ui import home_kb, home_text
         return home_text(name or "friend", True), home_kb(Config.is_owner(uid), True)
-    s = await sudo.settings()
+    fight = await has_fight_id(uid)
     t = await sudo.trial_state(uid)
     has_ids = bool(await sudo.accounts())
     refs, need = await _ref_progress(uid)
     gc_id, _, gc_title = await sudo.get_gc(uid)
     greeting = f"👋 Hey <b>{_esc(name or 'friend')}</b>"
-    trial_ok = has_ids or mode in (sudo.TRIAL, sudo.SUDO, sudo.PREMIUM)
 
-    lines = [greeting, "🔊 Ultra-loud + clear  ·  🎙️ Browser Live Mic", ""]
+    lines = [greeting, "🔊 Ultra-loud + clear Live Mic", ""]
     if notice:
         lines += [notice, ""]
-    lines += ["<b>Kaise use karna hai? — aap choose karo</b>", "",
-              "🔐 <b>Apna Login</b>  <i>(recommended · unlimited)</i>",
-              "   Phone + OTP — 2 min. Apni ID se apna VC control."]
-    if trial_ok:
-        lines += ["",
-                  f"🎁 <b>Free Trial</b>  <i>(bina login · {t['limit']} uses)</i>",
-                  "   Sirf group link bhejo — owner ki Sudo ID aa kar chalayegi."]
+    if fight:
+        tgt = await db.get_app_value(f"mic_chat_{uid}")
+        lines += ["✅ <b>Fight ID judi hui hai</b>",
+                  f"{'✅' if tgt else '②'} <b>Group</b> {('<code>' + _esc(tgt) + '</code>') if tgt else '— Live Mic me set karo'}",
+                  "③ <b>🎙 Live Mic</b> dabao → link Chrome me kholo → bolo",
+                  "",
+                  "👤 Main ID <b>zaroori nahi</b> (sirf Player / Library ke liye)."]
+    else:
+        lines += ["<b>Sirf 3 step:</b>",
+                  "① <b>⚔️ Fight ID jodo</b> — wo ID jo VC me bolegi",
+                  "② <b>🎯 Group batao</b> — jisme VC chal rahi hai",
+                  "③ <b>🎙 Link kholo</b> (Chrome) aur bolo",
+                  "",
+                  "👤 Apni main ID dena <b>zaroori nahi</b>."]
 
+    status = ""
     if mode == sudo.TRIAL:
         status = f"🎁 Trial active · <b>{t['left']}/{t['limit']}</b> uses baaki"
-    elif mode == sudo.TRIAL_OVER:
-        status = (f"⛔ Trial khatam · Login karo, ya <b>{need}</b> referrals = Premium "
+    elif mode == sudo.TRIAL_OVER and not fight:
+        status = (f"⛔ Trial khatam · Fight ID jodo, ya <b>{need}</b> referrals = Premium "
                   f"(abhi {refs}/{need})")
     elif mode == sudo.SUDO:
         status = f"👑 Sudo active · till {format_until(await sudo.sudo_until(uid))}"
     elif mode == sudo.PREMIUM:
         from helpers.access_control import premium_info
         p = await premium_info(uid)
-        status = f"💎 Premium active (bina login) · till {format_until(p.get('until'))}"
-    else:
-        status = "⚪ Abhi login nahi hai"
-    if gc_id and mode in (sudo.TRIAL, sudo.SUDO, sudo.PREMIUM):
+        status = f"💎 Premium active · till {format_until(p.get('until'))}"
+    if status and gc_id and mode in (sudo.TRIAL, sudo.SUDO, sudo.PREMIUM):
         status += f"\n🎯 Group: {_esc(gc_title) or gc_id} ✅"
-    lines += ["", f"<b>Status</b>  {status}"]
+    if status:
+        lines += ["", f"<b>Status</b>  {status}"]
     text = card("🎧", "Apex · VC Fight", "\n".join(lines),
-                "Login session sirf aapke VC control ke liye use hota hai. Kabhi bhi 🚪 Logout kar sakte ho.")
+                "⚔️ Fight ID = koi bhi doosri Telegram ID (number + OTP se judti hai). "
+                "Use apne group me add rakho.")
 
-    rows = [[B("🔐 Apna Login  ·  2 min", callback_data="menu:login", style="success")]]
-    if mode == sudo.NONE and has_ids:
-        rows.append([B(f"🎁 Free Trial  ·  {t['limit']} uses (bina login)",
-                       callback_data="sudo:trial", style="success")])
-    elif mode == sudo.TRIAL:
-        rows.append([B(f"🎁 Trial Panel  ·  {t['left']}/{t['limit']} baaki",
-                       callback_data="sudo:home", style="success")])
-    elif mode in sudo.UNLIMITED_MODES:
-        rows.append([B("👑 Sudo Panel  ·  Play / Live Mic", callback_data="sudo:home", style="success")])
-    elif mode == sudo.TRIAL_OVER:
-        rows.append([B("⛔ Trial khatam  ·  Options", callback_data="sudo:home", style="danger")])
+    if fight:
+        rows = [[B("🎙 Live Mic shuru karo", callback_data="mic:panel", style="success")],
+                [B("⚔️ Fight ID", callback_data="mic:acct", style="primary"),
+                 B("👤 Main ID (optional)", callback_data="menu:mainid", style="primary")]]
+    else:
+        rows = [[B("⚔️ Fight ID jodo  ·  Step 1", callback_data="menu:login", style="success")]]
+        if mode == sudo.NONE and has_ids:
+            rows.append([B(f"🎁 ID nahi hai? Free Trial · {t['limit']} uses",
+                           callback_data="sudo:trial", style="primary")])
+        elif mode == sudo.TRIAL:
+            rows.append([B(f"🎁 Trial Panel  ·  {t['left']}/{t['limit']} baaki",
+                           callback_data="sudo:home", style="primary")])
+        elif mode in sudo.UNLIMITED_MODES:
+            rows.append([B("👑 Sudo Panel  ·  Play / Live Mic", callback_data="sudo:home", style="success")])
+        elif mode == sudo.TRIAL_OVER:
+            rows.append([B("⛔ Trial khatam  ·  Options", callback_data="sudo:home", style="danger")])
     rows.append([B("🎬 Video Guide", callback_data="tut:video", style="primary"),
                  B("📘 Help", callback_data="menu:tutorial", style="primary")])
     rows.append([B("👥 Refer & Earn", callback_data="ref:menu", style="primary"),
@@ -213,18 +224,18 @@ async def no_engine_notice(msg) -> None:
     if mode in sudo.SUDO_ENGINE_MODES:
         if not await sudo.accounts():
             text = ("⚠️ <b>Abhi koi Sudo ID add nahi hai</b>\n\n"
-                    "Owner ne Sudo ID set nahi ki. Thodi der baad try karo ya apna 🔐 Login karo.")
+                    "Owner ne Sudo ID set nahi ki. Thodi der baad try karo ya apni ⚔️ Fight ID jodo.")
         elif await sudo.all_busy(uid):
             text = ("⏳ <b>Saari Sudo IDs abhi dusre groups me busy hain</b>\n\n"
-                    "1-2 minute baad try karo, ya apna 🔐 Login karo (kabhi wait nahi).")
+                    "1-2 minute baad try karo, ya apni ⚔️ Fight ID jodo (kabhi wait nahi).")
         else:
             text = ("⏳ <b>Sudo ID connect ho rahi hai…</b>\n\n"
                     "10-20 second baad dobara try karo. Baar-baar aaye to Support GC me batao.")
-        await mic_notify(msg, text, reply_markup=K([[B("🔐 Apna Login", callback_data="menu:login")]]))
+        await mic_notify(msg, text, reply_markup=K([[B("⚔️ Fight ID jodo", callback_data="menu:login")]]))
         return
     if mode == sudo.NONE:
         text, kb = await home_override(uid, getattr(msg.from_user, "first_name", ""),
-                                       notice="🔒 <b>Iske liye Login ya Free Trial chahiye.</b>")
+                                       notice="🔒 <b>Iske liye ⚔️ Fight ID (ya Free Trial) chahiye.</b>")
     else:
         text, kb = await paywall_screen(uid)
     await mic_notify(msg, text, reply_markup=kb)

@@ -65,8 +65,9 @@ HELP = {
             ".mic chat -1001234567890\n.mic on"),
     "chat": ([], ".mic chat [group_id | @username | invite_link]",
              "Live Mic target group verify karke set karta hai.", ".mic chat -1001234567890"),
-    "micaccount": ([], ".micaccount", "Spare mic account ki jaankari / setup.", ".micaccount"),
-    "spare": ([], ".spare join|mute|unmute|leave", "Spare ID ko VC me control karta hai.", ".spare join"),
+    "micaccount": ([], ".micaccount", "⚔️ Fight ID (VC me bolne wali ID) jodo / dekho.", ".micaccount"),
+    "fightid": ([], ".fightid", "⚔️ Fight ID jodo — Live Mic ke liye bas yahi chahiye (main ID optional).", ".fightid"),
+    "spare": ([], ".spare join|mute|unmute|leave", "Fight ID ko VC me baithata / uthata hai.", ".spare join"),
     "myboost": (["livegain", "livevolume"], ".myboost <1-20000>", "Aapke account ki live mic gain.", ".myboost 500"),
     "syncplay": (["allplay", "splay"], ".syncplay  (recording reply karke)  |  .syncplay <tag>",
                  "Main ID + saari spare IDs target VC me EK SAATH, same awaaz me recording bajati hain (0 delay).",
@@ -157,7 +158,8 @@ _KNOWN_EXTRA = {"ghostmic", "start", "login", "logout", "mystatus", "settings", 
                 "referral", "owner", "users", "stats", "broadcast", "restart", "ban",
                 "unban", "setsource", "clearsource", "setprice", "grant", "revoke",
                 "pending", "addcoupon", "delcoupon", "listcoupons", "redeemlogs", "setqr", "clearqr",
-                "addfsub", "delfsub", "listfsub", "clearfsub", "fyt", "fight"}
+                "addfsub", "delfsub", "listfsub", "clearfsub", "fyt", "fight",
+                "fightid", "mainlogin", "mainid"}
 _DOT_WORD = re.compile(r"^\.([a-zA-Z]{2,15})\b")
 
 

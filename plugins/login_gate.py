@@ -20,18 +20,16 @@ def _gated(_, __, cq):
 
 
 GATE_TEXT = (
-    "🔒 <b>Pehle Login karo</b>\n"
+    "🔒 <b>Ye control 👤 Main ID ke baad khulta hai</b>\n"
     f"{LINE}\n"
-    "Ye control sirf login ke baad khulta hai.\n\n"
-    "1️⃣ <b>🔐 Login</b> dabao\n"
-    "2️⃣ Phone number bhejo (+91…)\n"
-    "3️⃣ OTP bhejo — bas ho gaya!\n"
-    f"{LINE}\n"
-    "Login ke baad Player, Live Mic, Audio aur Library sab unlock ho jayenge."
+    "🎤 Live Mic ke liye sirf ⚔️ Fight ID kaafi hai.\n"
+    "▶️ Player / Audio / Library ke liye 👤 Main ID (optional) jodo.\n"
+    f"{LINE}"
 )
 
 GATE_KB = K([
-    [B("🔐 Login — Start here", callback_data="menu:login", style="success")],
+    [B("⚔️ Fight ID — Live Mic", callback_data="menu:login", style="success")],
+    [B("👤 Main ID login", callback_data="menu:mainid", style="primary")],
     [B("📘 How to use", callback_data="menu:tutorial", style="primary"),
      B("🏠 Home", callback_data="menu:home", style="primary")],
 ])
@@ -45,6 +43,11 @@ async def login_gate(bot, cq):
     from plugins.start import _is_logged_in
     if await _is_logged_in(user.id):
         return
+    # Live Mic sirf ⚔️ Fight ID se bhi chalta hai — main ID ke bina.
+    if re.match(r"^mic:", cq.data or ""):
+        from helpers.setup_flow import has_fight_id
+        if await has_fight_id(user.id):
+            return
     from helpers import sudo as _sudo
     if await _sudo.is_sudo_mode(user.id):
         # Sudo user sirf apne verified group ke controls chala sakta hai.
@@ -55,10 +58,10 @@ async def login_gate(bot, cq):
         await safe_answer(cq, "🔒 Ye aapka verified group nahi hai", show_alert=True)
         cq.stop_propagation()
         return
-    # Live Mic sirf Spare ID se bhi chalta hai — main login ke bina.
+    # Live Mic sirf Fight ID se bhi chalta hai — main login ke bina.
     if re.match(r"^mic:", cq.data or ""):
         return
-    await safe_answer(cq, "🔒 Login ya Free Trial chahiye", show_alert=False)
+    await safe_answer(cq, "🔒 Main ID login ya Free Trial chahiye", show_alert=False)
     try:
         # Purana login screen + Free Trial option — user khud choose kare.
         mode = await _sudo.engine_mode(user.id)
@@ -69,7 +72,7 @@ async def login_gate(bot, cq):
             from plugins.sudo import home_override
             text, kb = await home_override(
                 user.id, user.first_name or "friend",
-                notice="🔒 <b>Ye control Login ke baad (ya Free Trial me) khulta hai.</b>")
+                notice="🔒 <b>Ye control 👤 Main ID login ke baad (ya Free Trial me) khulta hai.</b>")
         await edit_screen(cq.message, text, reply_markup=kb)
     except Exception:
         try:

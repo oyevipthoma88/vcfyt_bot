@@ -26,7 +26,7 @@ from helpers.vc_manager import AUTO_PRESET, VOL_MAX, VOL_NORMAL, session_manager
 LINE = "━" * 28
 
 LOGIN_KB = K([
-    [B("🔹 Login karein", callback_data="menu:login")],
+    [B("👤 Main ID login", callback_data="menu:mainid")],
     [B("🔹 Tutorial", callback_data="menu:tutorial")],
 ])
 
@@ -1416,15 +1416,20 @@ async def cb_mic(bot: Client, cq):
     uid = cq.from_user.id
     _, action, *rest = cq.data.split(":")
 
-    uvc = await _cb_engine(uid)
+    # FIGHT-ID-ONLY MODE: Main ID ke bina bhi Live Mic chalta hai — user ki
+    # apni ⚔️ Fight ID hi listener + speaker dono banti hai.  Fight ID wale
+    # (bina main ID) user ke liye owner ki Sudo ID beech me nahi aati.
+    from helpers.setup_flow import has_fight_id, has_main_id
+    uvc = None
+    if await has_main_id(uid) or not await has_fight_id(uid):
+        uvc = await _cb_engine(uid)
     if not uvc:
-        # SPARE-ONLY MODE: main ID login ke bina bhi Live Mic chalta hai —
-        # spare ID hi listener + speaker dono banti hai.
         uvc = await session_manager.get_relay(uid)
-    if not uvc and action not in {"acct", "panel", "noop", "wtarget", "wcancel", "whelp", "wsetup"}:
+    if not uvc and action not in {"acct", "panel", "noop", "wtarget", "wcancel", "whelp", "wsetup", "won"}:
+        await start_fight_setup(uid)
         text, kb = await spare_screen(uid)
-        await edit_screen(cq.message, "🎤 <b>Live Mic ke liye sirf Spare ID chahiye</b> — main ID login zaroori nahi.\n\n" + text, reply_markup=kb)
-        await safe_answer(cq, "Pehle Spare ID add karo")
+        await edit_screen(cq.message, "🎤 <b>Live Mic ke liye sirf ⚔️ Fight ID chahiye</b> — main ID zaroori nahi.\n\n" + text, reply_markup=kb)
+        await safe_answer(cq, "Pehle Fight ID jodo")
         return
 
     if action == "noop":
@@ -1491,7 +1496,7 @@ async def cb_mic(bot: Client, cq):
         sub = rest[0] if rest else ""
         if sub == "off":
             _spare_chat.pop(uid, None)
-            await safe_answer(cq, "Spare chat mode OFF")
+            await safe_answer(cq, "Fight chat mode OFF")
         elif sub == "on":
             cid = await _spare_chat_target(uid)
             if not cid:
@@ -1499,7 +1504,7 @@ async def cb_mic(bot: Client, cq):
                                   show_alert=True)
             else:
                 _spare_chat[uid] = cid
-                await safe_answer(cq, "Spare chat mode ON")
+                await safe_answer(cq, "Fight chat mode ON")
         else:
             await safe_answer(cq)
         text, kb = await spare_chat_screen(uid)
@@ -1508,12 +1513,18 @@ async def cb_mic(bot: Client, cq):
 
     if action == "acct":
         sub = rest[0] if rest else ""
-        if sub == "phone":
+        if sub == "":
+            # Fight ID nahi hai to seedha number step (extra button tap nahi).
+            await start_fight_setup(uid)
+            await safe_answer(cq)
+        elif sub == "phone":
+            _clear_other_prompts(uid)
             await _spare_cancel(uid)
             _mic_login[uid] = {"stage": "phone"}
             await safe_answer(cq)
         elif sub == "string":
             await _spare_cancel(uid)
+            _clear_other_prompts(uid)
             _mic_login[uid] = {"stage": "string"}
             await safe_answer(cq)
         elif sub == "cancel":
@@ -1522,30 +1533,31 @@ async def cb_mic(bot: Client, cq):
         elif sub == "remove":
             await _spare_cancel(uid)
             await _spare_remove(uid)
-            await safe_answer(cq, "Spare account hata diya")
+            await safe_answer(cq, "Fight ID hata di")
         elif sub == "add":
             from helpers.access_control import can_multi_spare
             if not await session_manager.assistant_string(uid):
-                await safe_answer(cq, "Pehle main Spare ID lagao", show_alert=True)
+                await safe_answer(cq, "Pehle ek Fight ID jodo", show_alert=True)
             elif not await can_multi_spare(uid):
-                await safe_answer(cq, "🔒 Multi Spare sirf Premium users ke liye hai. "
+                await safe_answer(cq, "🔒 Multi Fight ID sirf Premium users ke liye hai. "
                                   "Premium lo ya owner se baat karo.", show_alert=True)
             else:
                 used = set(await session_manager.spare_slots(uid))
                 free = next((n for n in range(2, session_manager.MAX_SPARES + 1)
                              if n not in used), None)
                 if free is None:
-                    await safe_answer(cq, f"Max {session_manager.MAX_SPARES} spare ID ho gayi",
+                    await safe_answer(cq, f"Max {session_manager.MAX_SPARES} Fight ID ho gayi",
                                       show_alert=True)
                 else:
                     await _spare_cancel(uid)
+                    _clear_other_prompts(uid)
                     _mic_login[uid] = {"stage": "phone", "slot": free}
-                    await safe_answer(cq, f"Spare #{free}: number ya session string bhejo")
+                    await safe_answer(cq, f"Fight ID #{free}: number ya session string bhejo")
         elif sub == "rm" and len(rest) > 1 and rest[1].isdigit() and int(rest[1]) > 1:
             slot = int(rest[1])
             await session_manager.drop_relay(uid, slot)
             await db.delete_app_value(session_manager.spare_key(uid, slot))
-            await safe_answer(cq, f"Spare #{slot} hata diya")
+            await safe_answer(cq, f"Fight ID #{slot} hata di")
         else:
             await safe_answer(cq)
         text, kb = await spare_screen(uid)
@@ -1592,9 +1604,10 @@ async def cb_mic(bot: Client, cq):
     if action == "on":
         from helpers import sudo as _sudo
         if not await session_manager.assistant_string(uid) and not await _sudo.is_sudo_mode(uid):
+            await start_fight_setup(uid)
             text, kb = await spare_screen(uid)
             await edit_screen(cq.message, text, reply_markup=kb)
-            await safe_answer(cq, "Pehle Spare ID login karein")
+            await safe_answer(cq, "Pehle Fight ID jodo")
             return
         # Browser Live Mic link.
         class _MicCallbackMessage:
@@ -1904,43 +1917,44 @@ async def cmd_relaystatus(bot: Client, msg: Message):
 _mic_login: dict = {}
 
 SPARE_WHY = (
-    "🎤 <b>Spare Mic Account</b>\n\n"
-    "Live mic ke liye <b>2 account</b> chahiye:\n"
-    "├ aapka account — VC me baitha rahega\n"
-    "└ spare account — isse aawaz VC me jayegi\n\n"
-    "Telegram ek account ko ek hi VC me rehne deta hai, isliye spare ke bina "
-    "aap khud VC se bahar fek diye jate hain.\n\n"
+    "⚔️ <b>FIGHT ID</b>\n"
+    "Fight ID = wo Telegram ID jo VC me <b>aapki awaaz bolegi</b>.\n"
+    "• Koi bhi <b>doosri</b> Telegram ID chalegi (apni main ID nahi)\n"
+    "• Isko apne group me add rakho\n"
+    "• 👤 Main ID dena <b>zaroori nahi</b>\n\n"
 )
 
 
 def spare_setup_kb(pending: bool = False) -> K:
     if pending:
         return K([
-            [B("❌ Cancel", callback_data="mic:acct:cancel")],
-            [B("⬅ Back", callback_data="mic:panel")],
+            [B("❌ Cancel", callback_data="mic:acct:cancel", style="danger")],
+            [B("🏠 Home", callback_data="menu:home", style="primary")],
         ])
     return K([
-        [B("📱 Phone se login (easy)", callback_data="mic:acct:phone")],
-        [B("🔑 Session string se", callback_data="mic:acct:string")],
-        [B("⬅ Back", callback_data="mic:panel")],
+        [B("📱 Fight ID jodo (number + OTP)", callback_data="mic:acct:phone", style="success")],
+        [B("🔑 Session string se", callback_data="mic:acct:string", style="primary")],
+        [B("🏠 Home", callback_data="menu:home", style="primary")],
     ])
 
 
 def spare_ready_kb(extra_slots=()) -> K:
-    rows = [[B("➕ Extra Spare ID (Multi)", callback_data="mic:acct:add", style="success")]]
+    rows = [[B("🎙 Live Mic shuru karo  ·  Step 2", callback_data="mic:panel", style="success")],
+            [B("➕ Aur Fight ID (Multi)", callback_data="mic:acct:add", style="primary")]]
     for slot in extra_slots:
-        rows.append([B(f"🗑 Spare #{slot} hatao", callback_data=f"mic:acct:rm:{slot}",
+        rows.append([B(f"🗑 Fight ID #{slot} hatao", callback_data=f"mic:acct:rm:{slot}",
                        style="danger")])
     rows += [
-        [B("♻ Main spare badlo", callback_data="mic:acct:phone")],
-        [B("🗑 Main spare hatao", callback_data="mic:acct:remove", style="danger")],
-        [B("⬅ Back", callback_data="mic:panel")],
+        [B("♻ Fight ID badlo", callback_data="mic:acct:phone", style="primary"),
+         B("🗑 Fight ID hatao", callback_data="mic:acct:remove", style="danger")],
+        [B("👤 Main ID (optional)", callback_data="menu:mainid", style="primary"),
+         B("🏠 Home", callback_data="menu:home", style="primary")],
     ]
     return K(rows)
 
 
 async def _multi_spare_lines(uid: int):
-    """(text, extra_slots) — extra spare IDs ki list for the spare screen."""
+    """(text, extra_slots) — extra Fight IDs ki list for the Fight ID screen."""
     from helpers.access_control import can_multi_spare, multi_spare_premium_only
     slots = [x for x in await session_manager.spare_slots(uid) if x > 1]
     lines = []
@@ -1951,63 +1965,132 @@ async def _multi_spare_lines(uid: int):
     allowed = await can_multi_spare(uid)
     lock = ("🔓 Free" if not await multi_spare_premium_only()
             else ("💎 Premium ✅" if allowed else "🔒 Sirf Premium"))
-    text = (f"\n\n👥 <b>Multi Spare</b> ({lock}) — {1 + len(slots)}/"
+    text = (f"\n\n👥 <b>Multi Fight ID</b> ({lock}) — {1 + len(slots)}/"
             f"{session_manager.MAX_SPARES} ID ek saath bolengi\n"
-            + ("\n".join(lines) if lines else "├ koi extra spare nahi") +
-            "\n└ Sab spare ID target group me add honi chahiye.")
+            + ("\n".join(lines) if lines else "├ koi extra Fight ID nahi") +
+            "\n└ Sab Fight ID target group me add honi chahiye.")
     return text, slots
 
 
 async def spare_screen(uid: int):
-    """(text, keyboard) for the spare-account screen."""
-    from plugins.ui import GEN_NAME
+    """(text, keyboard) for the Fight ID screen."""
     st = _mic_login.get(uid)
     if st:
         stage = st.get("stage")
+        slot = int(st.get("slot", 1) or 1)
+        which = "Fight ID" if slot <= 1 else f"Extra Fight ID #{slot}"
         if stage == "phone":
             return (SPARE_WHY +
-                    "📱 <b>Spare account ka number bhejein</b> — country code ke saath, "
-                    "jaise <code>+919876543210</code>.\n"
-                    "Bas yahin normal message me likh dein.\n\n"
-                    "<i>Aapka message turant delete ho jayega.</i>",
+                    f"📱 <b>{which} ka number bhejo</b> — country code ke saath\n"
+                    "Jaise: <code>+919876543210</code>\n\n"
+                    "<i>Session string hai? Wo bhi yahin paste kar sakte ho. "
+                    "Aapka message turant delete ho jayega.</i>",
                     spare_setup_kb(True))
         if stage == "code":
             return (SPARE_WHY +
-                    "📩 <b>OTP</b> us account ke Telegram par bhej diya hai.\n"
-                    "Ab OTP yahin bhej dein, jaise <code>12345</code>.\n\n"
+                    f"📩 <b>OTP bheja gaya</b> — {which} ke Telegram par.\n"
+                    "OTP yahin bhejo, jaise <code>12345</code>.\n\n"
                     "<i>Message auto-delete ho jayega.</i>",
                     spare_setup_kb(True))
         if stage == "string":
             return (SPARE_WHY +
-                    "🔑 Spare account ka pura <b>Pyrogram session string</b> bhejein.\n"
-                    f"String {GEN_NAME} se bana sakte hain — ya aasan tarika: "
-                    "Cancel karke <b>📱 Phone se login</b> use karein.",
+                    f"🔑 {which} ka pura <b>Pyrogram session string</b> paste karo.\n"
+                    "String nahi hai? Cancel karke <b>📱 number se</b> jodo — wo aasan hai.",
                     spare_setup_kb(True))
         return (SPARE_WHY +
-                "🔐 Is account par <b>2-Step Verification</b> ON hai — uska password "
-                "yahin bhejein.\n\n<i>Message auto-delete ho jayega.</i>",
+                "🔐 Is ID par <b>2-Step Verification</b> ON hai — uska password "
+                "yahin bhejo.\n\n<i>Message auto-delete ho jayega.</i>",
                 spare_setup_kb(True))
 
     current = await session_manager.assistant_string(uid)
     if not current:
         return (SPARE_WHY +
-                "Niche <b>📱 Phone se login</b> dabayein — sirf number aur OTP lagega. "
-                "Koi session string dhoondhne ki zaroorat nahi.",
+                "Niche <b>📱 Fight ID jodo</b> dabao — sirf number aur OTP lagega.",
                 spare_setup_kb())
     relay = await session_manager.get_relay(uid)
     if not relay:
         return (SPARE_WHY +
-                "⚠️ Spare account set hai par uska login fail ho raha hai. "
-                "Phone se dobara login karein ya hata dein.",
+                "⚠️ Fight ID set hai par connect nahi ho rahi. "
+                "♻ Dobara jodo ya 🗑 hatao.",
                 spare_ready_kb())
     multi_text, extra_slots = await _multi_spare_lines(uid)
     return (
-        "🎤 <b>Spare Mic Account</b> — ✅ ready\n\n"
+        "⚔️ <b>FIGHT ID</b> — ✅ ready\n\n"
         f"├ Name: <code>{relay.account_name}</code>\n"
         f"└ ID: <code>{relay.account_id}</code>\n\n"
-        "Live mic isi account se VC me jayega aur aap VC me hi rahenge.\n"
-        "<i>Dhyan: is spare account ko us group me add karein.</i>" + multi_text,
+        "<b>Agla step 👇</b> 🎙 Live Mic shuru karo → group batao → link kholo.\n"
+        "<i>Fight ID ko us group me add rakho.</i>" + multi_text,
         spare_ready_kb(extra_slots))
+
+
+def _clear_other_prompts(uid: int) -> None:
+    """Fight ID ka number/OTP kisi aur prompt (target group, main login,
+    trial group link) me na chala jaye."""
+    try:
+        from plugins.live_mic_target import _await_chat
+        _await_chat.pop(uid, None)
+    except Exception:
+        pass
+    try:
+        from plugins.login import CONVERSATION
+        CONVERSATION.pop(uid, None)
+    except Exception:
+        pass
+    try:
+        from plugins.sudo import clear_await
+        clear_await(uid)
+    except Exception:
+        pass
+
+
+async def start_fight_setup(uid: int) -> None:
+    """Fight ID nahi hai to flow seedha 'number bhejo' step se shuru (1 tap kam)."""
+    from helpers.setup_flow import has_fight_id
+    if uid in _mic_login or await session_manager.assistant_string(uid):
+        return
+    if await has_fight_id(uid):
+        return
+    _clear_other_prompts(uid)
+    _mic_login[uid] = {"stage": "phone"}
+
+
+def cancel_pending_fight_prompt(uid: int) -> None:
+    """Number step (abhi koi OTP client nahi) pending ho to hata do."""
+    st = _mic_login.get(uid)
+    if st and not st.get("client") and st.get("stage") in {"phone", "string"}:
+        _mic_login.pop(uid, None)
+
+
+async def get_mic_engine(msg):
+    """Live Mic ke liye engine: Main ID ho to wahi, warna user ki ⚔️ Fight ID.
+
+    Main ID zaroori nahi — Fight ID + private browser link kaafi hai.
+    """
+    from helpers.setup_flow import has_fight_id, has_main_id
+    from helpers import sudo as _sudo
+    uid = msg.from_user.id
+    if await has_main_id(uid):
+        return await get_engine(msg)
+    relay = None
+    try:
+        relay = await session_manager.get_relay(uid)
+    except Exception:
+        relay = None
+    if relay is not None and await has_fight_id(uid):
+        return relay
+    if await _sudo.is_sudo_mode(uid):
+        return await get_engine(msg)
+    if relay is not None:
+        return relay
+    await mic_notify(
+        msg,
+        "⚔️ <b>Pehle Fight ID jodo</b>\n\n"
+        "Live Mic ke liye sirf ek Fight ID chahiye — wo ID jo VC me bolegi.\n"
+        "Number + OTP, bas 1 minute. Main ID zaroori nahi.",
+        reply_markup=K([[B("⚔️ Fight ID jodo", callback_data="mic:acct", style="success")],
+                        [B("🏠 Home", callback_data="menu:home", style="primary")]]),
+    )
+    return None
 
 
 async def _spare_cancel(uid: int):
@@ -2032,12 +2115,12 @@ async def _spare_save(uid: int, session_str: str, account_id: int = None,
     if slot > 1:
         return await _spare_save_extra(uid, session_str, account_id, slot)
     if account_id is not None and account_id == uid:
-        return False, ("❌ Ye aapka hi account hai. Spare mic account <b>alag</b> hona "
-                       "chahiye, warna wahi purani problem rahegi.")
+        return False, ("❌ Ye aapki main ID hai. ⚔️ Fight ID <b>alag (doosri)</b> ID "
+                       "honi chahiye.")
     own = await db.get_user(uid)
     if own and (own.get("string_session") or "").strip() == session_str:
-        return False, ("❌ Ye wahi account hai jisse aap login hain. Spare mic account "
-                       "<b>alag</b> account ka hona chahiye.")
+        return False, ("❌ Ye wahi ID hai jisse aap login hain. ⚔️ Fight ID "
+                       "<b>alag (doosri)</b> ID honi chahiye.")
     await db.set_app_value(f"assistant_session_{uid}", session_str)
     await session_manager.drop_relay(uid)
     relay = await session_manager.get_relay(uid)
@@ -2046,25 +2129,25 @@ async def _spare_save(uid: int, session_str: str, account_id: int = None,
         return False, "❌ Account save hua par connect nahi ho paya. Dobara try karein."
     if relay.account_id == uid:
         await _spare_remove(uid)
-        return False, "❌ Ye aapka hi account hai. Spare mic account alag hona chahiye."
-    return True, ("✅ <b>Spare mic account set!</b>\n\n"
+        return False, "❌ Ye aapki main ID hai. ⚔️ Fight ID alag (doosri) ID honi chahiye."
+    return True, ("✅ <b>Fight ID jud gayi!</b>\n\n"
                   f"├ Name: <code>{relay.account_name}</code>\n"
                   f"└ ID: <code>{relay.account_id}</code>\n\n"
-                  "Ab 🎤 <b>Mic ON</b> par aawaz is account se VC me jayegi aur aapka "
-                  "account VC me hi rahega.\n\n"
-                  "<i>Zaroori: is spare account ko us group me add karein.</i>")
+                  "<b>Agla step 👇</b> 🎙 Live Mic shuru karo → group batao → "
+                  "link Chrome me kholo aur bolo.\n\n"
+                  "<i>Zaroori: Fight ID ko us group me add rakho.</i>")
 
 
 async def _spare_save_extra(uid: int, session_str: str, account_id, slot: int):
     """Multi-spare slot (2..MAX) save — main ID / dusre spare se alag ho."""
     if account_id is not None and account_id == uid:
-        return False, "❌ Ye aapka hi account hai. Extra spare alag account ka ho."
+        return False, "❌ Ye aapki main ID hai. Extra Fight ID alag ID honi chahiye."
     own = await db.get_user(uid)
     if own and (own.get("string_session") or "").strip() == session_str:
         return False, "❌ Ye wahi account hai jisse aap login hain."
     for other in await session_manager.spare_slots(uid):
         if other != slot and await session_manager.assistant_string(uid, other) == session_str:
-            return False, f"❌ Ye account pehle se Spare #{other} me laga hai."
+            return False, f"❌ Ye ID pehle se Fight ID #{other} me lagi hai."
     key = session_manager.spare_key(uid, slot)
     await db.set_app_value(key, session_str)
     relay = await session_manager.get_relay(uid, slot)
@@ -2080,11 +2163,11 @@ async def _spare_save_extra(uid: int, session_str: str, account_id, slot: int):
     if relay.account_id == uid or relay.account_id in used:
         await session_manager.drop_relay(uid, slot)
         await db.delete_app_value(key)
-        return False, "❌ Ye account aapka ya pehle se laga spare hai — alag ID lagao."
-    return True, (f"✅ <b>Extra Spare #{slot} set!</b>\n\n"
+        return False, "❌ Ye ID aapki main ID hai ya pehle se Fight ID me lagi hai — alag ID lagao."
+    return True, (f"✅ <b>Extra Fight ID #{slot} jud gayi!</b>\n\n"
                   f"├ Name: <code>{relay.account_name}</code>\n"
                   f"└ ID: <code>{relay.account_id}</code>\n\n"
-                  "Agli baar 🟢 <b>Mic ON</b> par ye ID bhi main spare ke saath "
+                  "Agli baar 🟢 <b>Mic ON</b> par ye ID bhi pehli Fight ID ke saath "
                   "<b>ek saath</b> target VC me bolegi.\n"
                   "<i>Is ID ko target group me add karna zaroori hai.</i>")
 
@@ -2188,7 +2271,7 @@ async def spare_login_listener(bot: Client, msg: Message):
                            disable_web_page_preview=True)
 
 
-@Client.on_message(HAS_USER & cmd_prefix(r"micaccount\b", flags=re.IGNORECASE) & filters.private)
+@Client.on_message(HAS_USER & cmd_prefix(r"(micaccount|fightid)\b", flags=re.IGNORECASE) & filters.private)
 async def cmd_micaccount(bot: Client, msg: Message):
     """Spare account setup — number/OTP se, ya session string se."""
     uid = msg.from_user.id
@@ -2199,14 +2282,13 @@ async def cmd_micaccount(bot: Client, msg: Message):
         await _spare_cancel(uid)
         await _spare_remove(uid)
         await msg.reply_text(
-            "🗑 <b>Spare mic account hata diya.</b>\n\n"
-            "Ab live mic aapke apne account se jayega — dhyan rahe, us waqt "
-            "aapka account phone wali VC se bahar ho jayega.")
+            "🗑 <b>Fight ID hata di.</b>\n\n"
+            "Live Mic ke liye nayi ⚔️ Fight ID jodo: <code>.fightid</code>")
         return
 
     if arg.lower() == "cancel":
         await _spare_cancel(uid)
-        await msg.reply_text("❎ Mic account login cancel kar diya.")
+        await msg.reply_text("❎ Fight ID jodna cancel kar diya.")
         return
 
     if arg and arg.lower() != "status":
@@ -2220,6 +2302,7 @@ async def cmd_micaccount(bot: Client, msg: Message):
                                disable_web_page_preview=True)
         return
 
+    await start_fight_setup(uid)
     text, kb = await spare_screen(uid)
     await msg.reply_text(text, reply_markup=kb, disable_web_page_preview=True)
 
@@ -2232,13 +2315,13 @@ async def cmd_spare(bot: Client, msg: Message):
     action = parts[1].lower() if len(parts) > 1 else "help"
     if action not in {"join", "sit", "leave", "left", "mute", "unmute"}:
         await msg.reply_text(
-            "🪑 <b>Spare ID in VC</b>\n\n"
-            "• <code>.spare join</code> — spare ID VC me baith jaye (mic OFF)\n"
+            "🪑 <b>Fight ID in VC</b>\n\n"
+            "• <code>.spare join</code> — Fight ID VC me baith jaye (mic OFF)\n"
             "• <code>.spare join -100xxx</code> — kisi aur group me\n"
             "• <code>.spare mute</code> / <code>.spare unmute</code> — TG mic icon\n"
-            "• <code>.spare leave</code> — spare ID VC se nikal jaye\n"
+            "• <code>.spare leave</code> — Fight ID VC se nikal jaye\n"
             "   (live mic chalu ho tab bhi chalega — mic band + VC exit)\n\n"
-            "<code>.mic off</code> karne par bhi spare ID VC me baithi rehti hai.")
+            "<code>.mic off</code> karne par bhi Fight ID VC me baithi rehti hai.")
         return
     uid = msg.from_user.id
     relay = await session_manager.get_relay(uid)
@@ -2264,8 +2347,8 @@ async def cmd_spare(bot: Client, msg: Message):
                     await fn(cid); ok = True; break
                 except Exception:
                     pass
-        await msg.reply_text(("🔇 Spare mic icon OFF" if action == "mute" else "🎙 Spare mic icon ON") if ok
-                             else "❌ Spare ID VC me nahi hai. Pehle <code>.spare join</code>.")
+        await msg.reply_text(("🔇 Fight ID mic icon OFF" if action == "mute" else "🎙 Fight ID mic icon ON") if ok
+                             else "❌ Fight ID VC me nahi hai. Pehle <code>.spare join</code>.")
         return
     if action in {"leave", "left"} and is_active(uid):
         # Force exit: live mic band karo AUR spare ID ko VC se bahar nikalo.
@@ -2279,20 +2362,20 @@ async def cmd_spare(bot: Client, msg: Message):
                 pass
         await unpark_relay(relay, cid)
         await msg.reply_text(
-            "👋 <b>Spare ID VC se nikal gayi</b> aur live mic band ho gaya: "
+            "👋 <b>Fight ID VC se nikal gayi</b> aur live mic band ho gaya: "
             f"<code>{cid}</code>")
         return
     if is_active(msg.from_user.id):
-        await msg.reply_text("Live mic chal raha hai — spare ID pehle se VC me hai. Pehle <code>.mic off</code>.")
+        await msg.reply_text("Live mic chal raha hai — Fight ID pehle se VC me hai. Pehle <code>.mic off</code>.")
         return
     if action in {"join", "sit"}:
         ok = await park_relay(relay, cid)
         await msg.reply_text(
-            f"🪑 Spare ID VC me baith gayi (mic OFF): <code>{cid}</code>" if ok else
-            "❌ Join nahi hua. Check: group me VC chalu hai aur spare ID group ki member hai.")
+            f"🪑 Fight ID VC me baith gayi (mic OFF): <code>{cid}</code>" if ok else
+            "❌ Join nahi hua. Check: group me VC chalu hai aur Fight ID group ki member hai.")
     else:
         await unpark_relay(relay, cid)
-        await msg.reply_text(f"👋 Spare ID VC se nikal gayi: <code>{cid}</code>")
+        await msg.reply_text(f"👋 Fight ID VC se nikal gayi: <code>{cid}</code>")
 
 
 @Client.on_message(HAS_USER & cmd_prefix(r"(target|settarget|tgt)\b", flags=re.IGNORECASE) & (filters.group | filters.private))
@@ -2524,13 +2607,13 @@ async def spare_chat_screen(uid: int):
     on = uid in _spare_chat
     cid = _spare_chat.get(uid) or await _spare_chat_target(uid)
     text = (
-        "💬 <b>Spare ID se Chat</b>\n\n"
+        "💬 <b>Fight ID se Chat</b>\n\n"
         f"Status: <b>{'🟢 ON' if on else '🔴 OFF'}</b>\n"
         f"Group: <code>{cid or 'set nahi'}</code>\n\n"
-        "ON karne ke baad is DM me jo bhi likhoge, wo <b>spare account</b> "
+        "ON karne ke baad is DM me jo bhi likhoge, wo <b>Fight ID</b> "
         "se group me jayega.\n\n"
         "Shortcut: <code>.say teri aawaz nahi aa rahi</code>\n"
-        "Kisi msg ko reply karke <code>.say ...</code> = spare ID us msg ko reply karegi."
+        "Kisi msg ko reply karke <code>.say ...</code> = Fight ID us msg ko reply karegi."
     )
     kb = K([
         [B("🔴 Chat mode OFF" if on else "🟢 Chat mode ON",
@@ -2543,7 +2626,7 @@ async def spare_chat_screen(uid: int):
 async def _send_via_spare(uid: int, cid: int, text: str, reply_to: int = None):
     relay = await session_manager.get_relay(uid)
     if not relay or not getattr(relay, "client", None):
-        return "❌ Spare account login nahi hai. Mic panel → Spare Mic Account."
+        return "❌ Fight ID judi nahi hai. Home → ⚔️ Fight ID jodo."
     try:
         kwargs = {"disable_web_page_preview": True}
         if reply_to:
@@ -2551,8 +2634,8 @@ async def _send_via_spare(uid: int, cid: int, text: str, reply_to: int = None):
         await relay.client.send_message(cid, text, **kwargs)
         return None
     except Exception as e:
-        return f"❌ Spare ID se msg nahi gaya: <code>{html.escape(str(e))}</code>\n" \
-               "(Spare ID group me member honi chahiye aur muted nahi.)"
+        return f"❌ Fight ID se msg nahi gaya: <code>{html.escape(str(e))}</code>\n" \
+               "(Fight ID group me member honi chahiye aur muted nahi.)"
 
 
 @Client.on_message(HAS_USER & cmd_prefix(r"say\b", flags=re.IGNORECASE) & (filters.group | filters.private))
