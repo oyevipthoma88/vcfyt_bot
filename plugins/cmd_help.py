@@ -15,6 +15,9 @@ from plugins.ui import HAS_USER
 
 # name: (aliases, usage lines, description, example)
 HELP = {
+    "guide": (["setup"], ".guide  (bot DM me /guide bhi)",
+              "Setup Guide: kya ho gaya ✅, abhi kya karna hai 👉 — aur ek button jo seedha us step par le jaata hai.",
+              ".guide"),
     "play": ([], ".play  |  .play <tag>  |  .play <tag> <chat_id>  |  .play <chat_id>",
              "Audio/video ko reply karke VC me chalata hai. Group me chat ID ki zarurat nahi.",
              "Audio reply karke: .play\n.play intro -1001234567890"),
@@ -40,7 +43,7 @@ HELP = {
     "volume": (["vol"], ".volume <0-3000>", "Playback volume (1000+ = overdrive).", ".vol 3000"),
     "gain": ([], ".gain <0-500>", "Loudness gain.", ".gain 150"),
     "bass": ([], ".bass <0-100>", "Bass level.", ".bass 20"),
-    "treble": ([], ".treble <0-100>", "Awaaz ki clarity/sharpness.", ".treble 70"),
+    "treble": ([], ".treble <0-120>", "Awaaz ki clarity/sharpness.", ".treble 70"),
     "voice": ([], ".voice female|male|normal", "Voice profile badalta hai.", ".voice male"),
     "boost": ([], ".boost <0-10>", "Loudness stage.", ".boost 10"),
     "echo": ([], ".echo on|off", "Echo effect on/off.", ".echo off"),
@@ -113,7 +116,7 @@ def help_text(word: str) -> str:
     body = (f"<blockquote>{desc}</blockquote>{alias_line}\n\n"
             f"🛠 <b>Kaise use karein</b>\n<code>{usage}</code>\n\n"
             f"✨ <b>Example</b>\n<pre>{example}</pre>")
-    return card("ℹ️", f".{key}", body, "Dot (.), slash (/) aur ! teeno chalte hain.")
+    return card("ℹ️", f".{key}", body, "<code>.</code> har jagah chalta hai · <code>/</code> sirf bot ke DM me.")
 
 
 def _suggest(word: str) -> str:

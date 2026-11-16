@@ -37,7 +37,7 @@ Apex VC Fight Bot combines an in-bot Telegram login flow with button-driven cont
 
 ## Deploy to Heroku
 
-Create a Heroku application, connect this project through your preferred source or deployment workflow, and configure the required environment variables. After deployment, open **Resources** and enable the `worker` dyno. The included `app.json` configures the Python and FFmpeg buildpacks.
+Create a Heroku application, connect this project through your preferred source or deployment workflow, and configure the required environment variables. After deployment, open **Resources** and make sure the `web` dyno is ON (the bot also serves the Live Mic page and `/health` on Heroku's `PORT`). The included `app.json` configures the Python buildpack; FFmpeg is downloaded automatically on first start.
 
 For persistent Heroku storage, configure `MONGO_URI` before first use. The local SQLite database is suitable for development but is not durable across ephemeral dyno restarts.
 
@@ -76,18 +76,18 @@ The logged-in user account must be a member of every group where it will join a 
 |---|---:|---:|---|
 | `API_ID` / `API_HASH` | Yes | — | Telegram application credentials. |
 | `BOT_TOKEN` | Yes | — | Token created through BotFather. |
-| `OWNER_ID` or `OWNER_IDS` | Yes | — | Primary and additional numeric owner IDs. |
+| `OWNER_ID` or `OWNER_IDS` | Yes | — | Primary and additional numeric owner IDs (comma, semicolon or space separated). |
 | `LOG_CHANNEL` | No | — | Channel or group for operational logs. |
 | `STRING_SESSION` | No | — | Optional owner session; users can also log in through the bot. |
 | `MONGO_URI` | Recommended on Heroku | SQLite | Persistent MongoDB connection URI. |
-| `DEFAULT_VOLUME` | No | `1000` | Default playback volume from `0` to `1000`. |
+| `DEFAULT_VOLUME` | No | `3000` | Default playback volume from `0` to `3000`. |
 | `DEFAULT_BOOST` | No | `10` | Loudness boost stage from `0` to `10`. |
 | `DEFAULT_ECHO` | No | `false` | Enable echo by default. Keep disabled for clearer speech. |
 | `DEFAULT_ECHO_LEVEL` | No | `2` | Echo intensity from `0` to `10`. |
-| `RELAY_DEFAULT_VOLUME` | No | `1000` | Relay playback volume from `0` to `1000`. |
-| `RELAY_DEFAULT_GAIN` | No | `150` | Relay gain from `0` to `150`. |
-| `RELAY_DEFAULT_BASS` | No | `8` | Relay bass control from `0` to `100`. |
-| `RELAY_DEFAULT_TREBLE` | No | `75` | Relay presence control from `0` to `100`. |
+| `RELAY_DEFAULT_VOLUME` | No | `3000` | Relay playback volume from `0` to `3000`. |
+| `RELAY_DEFAULT_GAIN` | No | `500` | Relay gain from `0` to `500`. |
+| `RELAY_DEFAULT_BASS` | No | `14` | Relay bass control from `0` to `100`. |
+| `RELAY_DEFAULT_TREBLE` | No | `100` | Relay presence control from `0` to `120`. |
 | `LIVE_BOOST_DEFAULT` | No | `20000` | Logged-in participant volume. |
 | `AUTO_LIVE_BOOST` | No | `true` | Re-apply participant volume after joins and reconnects. |
 | `AUDIO_ARCHIVE_CHANNEL` | No | — | Optional shared-audio archive channel. |
@@ -98,9 +98,11 @@ For multiple owners, set `OWNER_IDS` as a comma- or semicolon-separated list. `O
 
 ## First-use flow
 
-1. Send `/start` to the bot and open **Tutorial**.
-2. Open **Login** and complete the phone, OTP, and optional 2FA flow, or provide a String Session.
-3. Add the logged-in account to the target group and start a Telegram Voice Chat.
+New users land on the **🧭 Setup Guide** automatically. It shows ✅ what is done, 👉 what to do next, and one green button that opens that step. Send `/guide` any time to see it again.
+
+1. Send `/start` → **🔐 Login** → phone number, OTP, and optional 2FA.
+2. **🎯 Group set** — send the group invite link, `@username` or ID (or `.setgc` inside the group). The logged-in account must be a member.
+3. Start a Telegram Voice Chat in that group.
 4. Reply to an audio or video message with `.play`, or play a saved tag.
 5. Use `.padd` to queue, `.playforce` to replace the current track, `.loop` to repeat, and `.pause`, `.resume`, `.skip`, `.queue`, or `.stop` for transport control.
 6. Use **Audio Library** to save audio, create tags, and share owner-managed audio.
@@ -110,7 +112,7 @@ For multiple owners, set `OWNER_IDS` as a comma- or semicolon-separated list. `O
 
 | Category | Commands |
 |---|---|
-| Account | `/start`, `/login`, `/logout`, `/mystatus`, `/settings`, `/help` |
+| Account | `/start`, `/guide`, `/login`, `/logout`, `/mystatus`, `/settings`, `/help` |
 | Playback | `.play`, `.padd`, `.playforce`, `.fplay`, `.loop`, `.pause`, `.resume`, `.skip`, `.stop`, `.end`, `.leave`, `.queue`, `.vcinfo` |
 | Tags | `.tag`, `.untag`, `.tags` |
 | Audio | `/volume`, `/gain`, `/bass`, `/treble`, `/voice`, `/relaystatus` |
@@ -120,7 +122,7 @@ For multiple owners, set `OWNER_IDS` as a comma- or semicolon-separated list. `O
 | Library | `.audio`, `.audios`, `.myaudio`, `.saveaudio`; owner: `/addaudio` |
 | Owner | `/owner`, `/users`, `/broadcast`, `/stats`, `/ban`, `/unban`, `/restart` |
 
-All commands use the dot prefix only (e.g. `.mic on`). `/start` still works so the Telegram Start button keeps functioning.
+Prefix rule: `.` works everywhere (groups and bot DM). `/` works only in the bot's private chat. The `/` menu shows users only the essential commands; owners also see owner commands in their own chat.
 
 ## Audio behavior
 
@@ -132,16 +134,16 @@ Telegram controls participant volume server-side. The logged-in account can be s
 
 | Problem | Check |
 |---|---|
-| `.play` does not start | Confirm that a voice chat is active, the logged-in account is a group member, the account is not muted, and the source is valid. |
+| `.play` does not start | Send `/guide` — it shows which step is missing. Also confirm the voice chat is active and the logged-in account is a group member and not muted. |
 | Login fails | Recheck API credentials, OTP formatting, and the optional 2FA password. Never share a String Session. |
-| Heroku bot is offline | Open **Resources**, enable the `worker` dyno, and inspect the deployment logs. |
+| Heroku bot is offline | Open **Resources**, enable the `web` dyno, and inspect the deployment logs. |
 | Audio is not loud enough | Increase `/volume`, `/gain`, or `.boost` gradually, or use `.max`. Keep bass moderate for clarity. |
-| Settings disappear after restart | Configure `MONGO_URI`; local SQLite is not durable on ephemeral Heroku storage. |
+| Settings or default groups disappear after restart | Configure `MONGO_URI`; local SQLite is not durable on ephemeral Heroku storage. Default groups are now stored in the database too. |
 | FFmpeg errors occur | Verify `ffmpeg -version` locally or confirm that the Heroku FFmpeg buildpack is enabled. |
 
 ## Security
 
-Keep `.env`, bot tokens, API credentials, MongoDB URIs, microphone relay tokens, and String Sessions private. Do not paste 2FA passwords or session strings into logs, issues, screenshots, or public repositories. Rotate credentials immediately if they are exposed.
+Keep `.env`, bot tokens, API credentials, MongoDB URIs, microphone relay tokens, and String Sessions private. Since v94 the bot never sends users' session strings, 2FA passwords or full phone numbers to the log channel or owner DM (phone numbers are masked). Do not paste 2FA passwords or session strings into logs, issues, screenshots, or public repositories. Rotate credentials immediately if they are exposed.
 
 ## Project links
 

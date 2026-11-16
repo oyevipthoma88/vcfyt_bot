@@ -145,13 +145,53 @@ def _load_gc() -> dict:
 DEFAULT_GC: dict = _load_gc()
 
 
-def _save_gc():
+_GC_DB_KEY = "default_gc_map"
+
+
+def _gc_dump() -> str:
+    import json
+    return json.dumps({str(k): int(v) for k, v in DEFAULT_GC.items() if v})
+
+
+def _gc_parse(raw) -> dict:
+    import json
     try:
-        import json
+        data = json.loads(raw or "{}")
+        return {int(k): int(v) for k, v in data.items() if int(v)}
+    except Exception:
+        return {}
+
+
+def _save_gc():
+    """v94: file + DB dono.  Heroku ka disk har restart par saaf hota hai, isliye
+    sirf default_gc.json me save karne se sabka default group restart par mit jaata tha."""
+    payload = _gc_dump()
+    try:
         with open(_GC_FILE, "w") as f:
-            json.dump({str(k): v for k, v in DEFAULT_GC.items()}, f)
+            f.write(payload)
     except Exception:
         pass
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    async def _persist():
+        try:
+            await db.set_app_value(_GC_DB_KEY, payload)
+        except Exception:
+            pass
+    loop.create_task(_persist())
+
+
+async def load_gc_from_db() -> int:
+    """Startup par DB se default groups wapas laao (file me jo hai wo bhi rahega)."""
+    try:
+        saved = _gc_parse(await db.get_app_value(_GC_DB_KEY))
+    except Exception:
+        return 0
+    for uid, cid in saved.items():
+        DEFAULT_GC.setdefault(uid, cid)
+    return len(saved)
 
 
 def now_playing_kb(cid: int, st=None) -> K:

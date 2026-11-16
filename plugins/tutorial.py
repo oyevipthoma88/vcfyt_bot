@@ -10,16 +10,18 @@ from plugins.ui import LINE, back_kb, edit_screen, safe_answer, source_button
 
 from plugins.ui import card as _card
 TUTORIAL_MENU_TEXT = _card("📘", "Help & Tutorial",
-    "🚀 <b>Naye ho?</b> → <b>Quick Start</b> (2 min)\n"
+    "🧭 <b>Naye ho?</b> → <b>Setup Guide</b> — bot khud batata hai agla step\n"
     "🎤 <b>Live Mic</b> → phone se bolo, VC me tez + saaf\n"
     "▶️ <b>Play & Queue</b> → audio chalao\n"
     "🎚️ <b>Audio Settings</b> → sound tuning\n"
     "❓ <b>FAQ / Fixes</b> → koi dikkat? yahan dekho",
-    "Shortcut: <code>.help mic</code> · <code>.help ss</code> · <code>.play ?</code>")
+    "<code>.</code> har jagah chalta hai, <code>/</code> sirf bot DM me. "
+    "Shortcut: <code>.help mic</code> · <code>.play ?</code>")
 
 def tutorial_kb() -> K:
     rows = [
-        [B("🎬 Video Tutorial (1 min)", callback_data="tut:video", style="success")],
+        [B("🧭 Setup Guide — agla step", callback_data="guide:open", style="success")],
+        [B("🎬 Video Tutorial (1 min)", callback_data="tut:video", style="primary")],
         [B("🚀 Quick Start", callback_data="tut:quick"),
          B("🔐 Setup / Login", callback_data="tut:setup")],
         [B("🎤 Live Mic — Web (tez + saaf)", callback_data="tut:livemic", style="success")],
@@ -39,22 +41,24 @@ def tutorial_kb() -> K:
 
 SECTIONS = {
     "quick": (
-        "🚀 <b>Quick Start — 2 minute setup</b>\n\n"
+        "🚀 <b>Quick Start — 3 step</b>\n\n"
         f"{LINE}\n"
-        "1️⃣ <code>.start</code> → <b>🔐 Start Setup</b> → phone, OTP (aur 2FA) bhejo.\n"
-        "2️⃣ Logged-in ID ko target group me add karo.\n"
-        "3️⃣ Group me <code>.setgc</code> bhejo <i>(sirf ek baar)</i>.\n"
-        "4️⃣ Group me Voice Chat start karo.\n"
-        "5️⃣ Audio pe reply karke <code>.play</code> — ya <b>🎤 Live Mic</b> se khud bolo.\n"
+        "1️⃣ <b>🔐 Login</b> — Home → 🔐 Login → apna number (+91…) → OTP "
+        "(<code>1 2 3 4 5</code> jaise space ke saath) → 2-step password (ho to).\n"
+        "2️⃣ <b>🎯 Group set</b> — <code>/guide</code> → 🎯 Group set karo → invite link / "
+        "@username / ID bhejo. <i>(Ya group ke andar <code>.setgc</code>)</i>\n"
+        "    ⚠️ Aapki logged-in ID us group ki member honi chahiye.\n"
+        "3️⃣ <b>🎙 Group me Voice Chat start karo</b>, phir:\n"
+        "    • 🎤 <b>Live Mic</b> — <code>.mic on</code> → link <b>Chrome</b> me kholo → 🎙 dabao\n"
+        "    • ▶️ <b>Audio</b> — group me kisi audio par reply karke <code>.play</code>\n"
         f"{LINE}\n\n"
-        "⚡ Sabse tez playback: <code>.tez</code> / <code>.max</code>\n"
-        "🎤 Live mic: <code>.mic on</code> → link Chrome me kholo → 🎙 dabao\n"
-        "🔁 Repeat: <code>.loop</code>  ·  ⏹ Band: <code>.stop</code>"
+        "⚡ Sabse tez: <code>.tez</code>  ·  🔁 Repeat: <code>.loop</code>  ·  ⏹ Band: <code>.stop</code>\n"
+        "🧭 Kabhi bhi atke? <code>/guide</code> — bot batayega agla step."
     ),
     "setup": (
         "🔐 <b>Setup — 4 steps</b>\n\n"
         f"{LINE}\n"
-        "1️⃣ <b>Login</b> — Home → 🔐 Login → Phone se Login\n"
+        "1️⃣ <b>Login</b> — Home → 🔐 Login → number + OTP\n"
         "2️⃣ Jis group mein VC chalana hai, wahan <b>aapka logged-in "
         "account</b> member hona chahiye.\n"
         "3️⃣ Group mein <b>Voice Chat start</b> karein.\n"
@@ -96,8 +100,8 @@ SECTIONS = {
         "<code>.loud 0-18</code> — extra loudness\n"
         "<code>.ss on|off</code> — fake PC mic setup screen share\n"
         f"{LINE}\n\n"
-        "▶ <b>Dot aur slash dono chalte hain</b> — <code>.play</code> ya "
-        "<code>.play</code>, jo aasan lage."
+        "▶ <b>Prefix:</b> group me sirf <code>.</code> (jaise <code>.play</code>); "
+        "bot ke DM me <code>/</code> bhi chalta hai."
     ),
     "tags": (
         "🏷️ <b>Tags — apni favourite audio save karein</b>\n\n"
@@ -113,8 +117,8 @@ SECTIONS = {
         "🎚️ <b>Audio Settings — high bhi, low bhi</b>\n\n"
         f"{LINE}\n"
         "<code>.volume &lt;0-3000&gt;</code> — playback volume (default 3000)\n"
-        "<code>.gain &lt;0-500&gt;</code> — loudness gain (default 300)\n"
-        "<code>.bass &lt;0-100&gt;</code> — controlled bass (default 10)\n"
+        "<code>.gain &lt;0-500&gt;</code> — loudness gain (default 500)\n"
+        "<code>.bass &lt;0-100&gt;</code> — controlled bass (default 14)\n"
         "<code>.treble &lt;0-120&gt;</code> — voice clarity/presence (default 100)\n"
         "<code>.voice female|male|normal</code> — voice profile\n"
         "<code>.relaystatus</code> — current relay settings\n"
@@ -239,7 +243,7 @@ SECTIONS = {
     "cmds": (
         "📜 <b>ALL COMMANDS</b>\n"
         f"<code>{LINE}</code>\n"
-        "<i>Har command <code>.</code> ya <code>/</code> se chalti hai · detail: <code>.help play</code></i>\n\n"
+        "<i><code>.</code> har jagah · <code>/</code> sirf bot DM me · detail: <code>.help play</code></i>\n\n"
         "⚡ <b>Sabse tez awaaz</b>\n<blockquote><code>.tez</code> · <code>.loudmode</code> · <code>.micmode</code> · <code>.max</code></blockquote>\n"
         "▶️ <b>Playback</b>\n<blockquote><code>.play</code> <code>.padd</code> <code>.fplay</code> <code>.loop</code>\n"
         "<code>.pause</code> <code>.resume</code> <code>.skip</code> <code>.stop</code> <code>.queue</code>\n"
@@ -252,7 +256,7 @@ SECTIONS = {
         "<code>.micaccount</code> <code>.spare join|mute|unmute|leave</code></blockquote>\n"
         "🔗 <b>Multi-ID</b>\n<blockquote><code>.syncplay</code></blockquote>\n"
         "🏷️ <b>Tags & Library</b>\n<blockquote><code>.tag</code> <code>.untag</code> <code>.tags</code> <code>.audio</code> <code>.saveaudio</code></blockquote>\n"
-        "👤 <b>Account & Premium</b>\n<blockquote><code>.start</code> <code>.login</code> <code>.logout</code> <code>.mystatus</code>\n"
+        "👤 <b>Account & Premium</b>\n<blockquote><code>.guide</code> <code>.start</code> <code>.login</code> <code>.logout</code> <code>.mystatus</code>\n"
         "<code>.redeem</code> <code>.referral</code></blockquote>\n"
         "👑 <b>Owner</b>\n<blockquote expandable>.owner .users .stats .broadcast .restart .ban .unban\n"
         ".setsource .clearsource .setlog .logtest .setprice .grant .revoke .pending\n"
@@ -301,7 +305,7 @@ async def send_tutorial_video(message) -> bool:
         return False
 
 
-@Client.on_message(HAS_USER & dm_cmd(["video", "guide", "tutorial"]) & filters.private)
+@Client.on_message(HAS_USER & dm_cmd(["video", "tutorial"]) & filters.private)
 async def cmd_video(bot: Client, msg: Message):
     if not await send_tutorial_video(msg):
         await msg.reply_text(TUTORIAL_MENU_TEXT, reply_markup=tutorial_kb())

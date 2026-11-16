@@ -12,6 +12,27 @@ def _int_value(raw: str) -> int:
     except (TypeError, ValueError):
         return 0
 
+def _float(name: str, default: float) -> float:
+    """Galat env value (jaise "abc") par crash nahi — default."""
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+def _clamp_int(name: str, default: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, _int(name, default)))
+
+def _ids(raw: str) -> set:
+    """OWNER_IDS: comma / semicolon / space separated. Galat token skip.
+    Pehle sirf "," par split hota tha -> "123;456" par bot start hi nahi hota tha."""
+    import re
+    out = set()
+    for tok in re.split(r"[,;\s]+", raw or ""):
+        tok = tok.strip()
+        if tok.lstrip("-").isdigit() and int(tok) > 0:
+            out.add(int(tok))
+    return out
+
 def _bool(name: str, default: bool = True) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -37,7 +58,7 @@ class Config:
     BOT_TOKEN: str = _s("BOT_TOKEN", "")
 
     OWNER_ID: int = _int("OWNER_ID", 0)
-    OWNER_IDS: tuple[int, ...] = tuple(sorted({int(x) for x in os.environ.get("OWNER_IDS", "").split(",") if x.strip()} | ({OWNER_ID} if OWNER_ID else set())))
+    OWNER_IDS: tuple[int, ...] = tuple(sorted(_ids(os.environ.get("OWNER_IDS", "")) | ({OWNER_ID} if OWNER_ID else set())))
 
     
 
@@ -57,13 +78,14 @@ class Config:
     SESSION_BOT_USERNAME: str = os.environ.get("SESSION_BOT_USERNAME", "Session_generator_1bot")
     SESSION_BOT_LINK: str = f"https://t.me/{SESSION_BOT_USERNAME}"
 
-    DEFAULT_VOLUME: int = 3000
+    # app.json / .env me DEFAULT_VOLUME diya hota tha par code 3000 hardcode tha.
+    DEFAULT_VOLUME: int = _clamp_int("DEFAULT_VOLUME", 3000, 0, 3000)
     DEFAULT_BASS: int = _int("DEFAULT_BASS", 14)
     DEFAULT_ECHO: bool = _bool("DEFAULT_ECHO", False)
     DEFAULT_ECHO_LEVEL: int = _int("DEFAULT_ECHO_LEVEL", 2)
     DEFAULT_BOOST: int = _int("DEFAULT_BOOST", 10)
 
-    RELAY_DEFAULT_VOLUME: int = 3000
+    RELAY_DEFAULT_VOLUME: int = _clamp_int("RELAY_DEFAULT_VOLUME", 3000, 0, 3000)
     RELAY_DEFAULT_GAIN: int = max(0, min(500, _int("RELAY_DEFAULT_GAIN", 500)))
     RELAY_DEFAULT_BASS: int = _int("RELAY_DEFAULT_BASS", 14)
     RELAY_DEFAULT_TREBLE: int = _int("RELAY_DEFAULT_TREBLE", 100)
@@ -72,8 +94,8 @@ class Config:
     LOUD_EXTRA_DB: int = _int("LOUD_EXTRA_DB", 30)
 
     # v53 full-scale playback: every played file is pushed to this peak.
-    PLAY_CEILING_DB: float = max(-3.0, min(0.0, float(os.environ.get("PLAY_CEILING_DB", "") or -1.5)))
-    PLAY_PUSH_DB: float = max(0.0, min(24.0, float(os.environ.get("PLAY_PUSH_DB", "") or 18.0)))
+    PLAY_CEILING_DB: float = max(-3.0, min(0.0, _float("PLAY_CEILING_DB", -1.5)))
+    PLAY_PUSH_DB: float = max(0.0, min(24.0, _float("PLAY_PUSH_DB", 18.0)))
     PLAY_ALLOW_QUIET: bool = _bool("PLAY_ALLOW_QUIET", False)
     ULTRA_LOUD: bool = _bool("ULTRA_LOUD", True)
 
@@ -85,10 +107,10 @@ class Config:
     MIC_BLINK_DEFAULT: bool = _bool("MIC_BLINK_DEFAULT", False)
     MIC_BLINK_SECONDS: int = _int("MIC_BLINK_SECONDS", 5)
     # Human mode timings (non-admin group "bot or human?" mute check).
-    HUMAN_HAND_DELAY_MIN: float = float(os.environ.get("HUMAN_HAND_DELAY_MIN", "") or 2.0)
-    HUMAN_HAND_DELAY_MAX: float = float(os.environ.get("HUMAN_HAND_DELAY_MAX", "") or 3.0)
-    HUMAN_RESUME_DELAY_MIN: float = float(os.environ.get("HUMAN_RESUME_DELAY_MIN", "") or 10.0)
-    HUMAN_RESUME_DELAY_MAX: float = float(os.environ.get("HUMAN_RESUME_DELAY_MAX", "") or 15.0)
+    HUMAN_HAND_DELAY_MIN: float = _float("HUMAN_HAND_DELAY_MIN", 2.0)
+    HUMAN_HAND_DELAY_MAX: float = _float("HUMAN_HAND_DELAY_MAX", 3.0)
+    HUMAN_RESUME_DELAY_MIN: float = _float("HUMAN_RESUME_DELAY_MIN", 10.0)
+    HUMAN_RESUME_DELAY_MAX: float = _float("HUMAN_RESUME_DELAY_MAX", 15.0)
 
     SCREEN_SHARE_ENABLED: bool = _bool("SCREEN_SHARE_ENABLED", True)
     SS_WIDTH: int = _int("SS_WIDTH", 1920)

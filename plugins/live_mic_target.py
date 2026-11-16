@@ -190,7 +190,8 @@ async def set_target(msg, uid: int, ref_text: str) -> tuple:
 def request_target_input(uid: int, *, start_after: bool = False, surface: str = "chat") -> None:
     mode = "tgt_start" if start_after else ("tgt_web" if surface == "web" else
                                              "tgt_chat" if surface == "chat" else
-                                             "tgt_setgc" if surface == "setgc" else "tgt")
+                                             "tgt_setgc" if surface == "setgc" else
+                                             "tgt_guide" if surface == "guide" else "tgt")
     try:
         from plugins.vc_commands import cancel_pending_fight_prompt
         cancel_pending_fight_prompt(int(uid))
@@ -210,7 +211,7 @@ async def live_mic_target_listener(bot, msg):
     if time.time() - since > _AWAIT_TTL:
         _await_chat.pop(uid, None)
         await bot.send_message(msg.chat.id,
-                               "⌛ Group ID prompt expire ho gaya. Dobara <code>.mic chat</code> ya <code>.setgc</code> bhejo.")
+                               "⌛ Group ID prompt expire ho gaya. Dobara <code>/guide</code> ya <code>.setgc</code> bhejo.")
         return
     ref = (cmd_text(msg).strip().split()[0] if cmd_text(msg).strip() else "")
     try:
@@ -226,10 +227,17 @@ async def live_mic_target_listener(bot, msg):
     _await_chat.pop(uid, None)
     await save_target(uid, cid, join_ref)
     note = await retarget_live(uid, cid, join_ref)
-    if mode == "tgt_setgc":
+    if mode in ("tgt_setgc", "tgt_guide"):
         from plugins.vc_commands import DEFAULT_GC, _save_gc
         DEFAULT_GC[uid] = cid
         _save_gc()
+    if mode == "tgt_guide":
+        # v94: Setup Guide se aaya -> wapas guide par, agla step dikhao.
+        from helpers.onboarding import guide_screen
+        text, kb = await guide_screen(uid, msg.from_user.first_name or "friend")
+        await bot.send_message(msg.chat.id, f"✅ Group set: <code>{cid}</code>{note}\n\n" + text,
+                               reply_markup=kb, disable_web_page_preview=True)
+        return
     if mode == "tgt_start":
         await bot.send_message(msg.chat.id, f"✅ Live Mic target set: <code>{cid}</code>{note}")
         from plugins.web_mic import run_web_mic

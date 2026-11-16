@@ -40,6 +40,39 @@ async def _is_logged_in(user_id: int) -> bool:
             return True
     return False
 
+WELCOME_LINE = (
+    "🎉 <b>Welcome!</b> Ye bot aapki Telegram ID se group <b>Voice Chat</b> me "
+    "tez + saaf awaaz chalata hai — audio ya 🎤 live mic.\n"
+    "Bas 3 step hai 👇\n\n"
+)
+
+
+async def build_home(user):
+    """Home screen (text, markup) — setup adhoora ho to sabse upar 🧭 Next step."""
+    logged = await _is_logged_in(user.id)
+    uvc = session_manager.users.get(user.id)
+    active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
+    text = home_text(user.first_name or "friend", logged)
+    markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
+    if not logged and not Config.is_owner(user.id):
+        # Bina login: Free Trial / Sudo / Referral wala home
+        from plugins.sudo import home_override
+        text, markup = await home_override(user.id, user.first_name or "friend")
+    try:
+        from helpers.onboarding import home_hint_row, setup_state
+        hint = home_hint_row(await setup_state(user.id))
+        if hint:
+            rows = list(markup.inline_keyboard)
+            btn = [B(lbl, callback_data=cb, style=st) for (lbl, cb, st) in hint]
+            # Logged-out: Login button pehle (wahi step ① hai), guide uske neeche.
+            pos = 1 if not logged else 0
+            rows.insert(min(pos, len(rows)), btn)
+            markup = K(rows)
+    except Exception:
+        pass
+    return text, markup
+
+
 @Client.on_message(HAS_USER & dm_cmd("start") & filters.private)
 async def cmd_start(bot: Client, msg: Message):
     user = msg.from_user
@@ -63,15 +96,13 @@ async def cmd_start(bot: Client, msg: Message):
 
     from helpers.feature_flags import refresh_flags
     await refresh_flags()
-    logged = await _is_logged_in(user.id)
-    uvc = session_manager.users.get(user.id)
-    active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
-    text = home_text(user.first_name or "friend", logged)
-    markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
-    if not logged and not Config.is_owner(user.id):
-        # Bina login: Free Trial / Sudo / Referral wala home
-        from plugins.sudo import home_override
-        text, markup = await home_override(user.id, user.first_name or "friend")
+    if not existing:
+        # v94: bilkul naya user -> seedha Setup Guide (ek hi hara button, koi confusion nahi).
+        from helpers.onboarding import guide_screen
+        text, markup = await guide_screen(user.id, user.first_name or "friend")
+        text = WELCOME_LINE + text
+    else:
+        text, markup = await build_home(user)
     sent = False
     if Config.START_PIC:
         try:
@@ -87,14 +118,7 @@ async def cb_home(bot, cq):
     user = cq.from_user
     from helpers.feature_flags import refresh_flags
     await refresh_flags()
-    logged = await _is_logged_in(user.id)
-    uvc = session_manager.users.get(user.id)
-    active_chat_id = next((cid for cid, st in uvc.chats.items() if st.is_playing), None) if uvc else None
-    text = home_text(user.first_name or "friend", logged)
-    markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
-    if not logged and not Config.is_owner(user.id):
-        from plugins.sudo import home_override
-        text, markup = await home_override(user.id, user.first_name or "friend")
+    text, markup = await build_home(user)
     await edit_screen(cq.message, text, reply_markup=markup,
                       disable_web_page_preview=True)
     await safe_answer(cq)

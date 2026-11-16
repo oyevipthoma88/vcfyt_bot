@@ -91,44 +91,45 @@ def validate_config():
         sys.exit(1)
     logger.info(f"Log channel: {Config.LOG_CHANNEL}")
 
-BOT_COMMANDS = [
-    BotCommand("start", " Home menu"), BotCommand("login", "🔐 Login (number + OTP)"), BotCommand("fightid", "⚔️ Fight ID (optional, Live Mic)"),
-    BotCommand("logout", " Session hataayein"), BotCommand("settings", " Audio settings panel"), BotCommand("volume", " Playback volume 0-1000"),
-    BotCommand("gain", " Relay gain 0-150"), BotCommand("bass", " Bass 0-100"), BotCommand("treble", " Treble 0-100"), BotCommand("voice", " Voice profile"),
-    BotCommand("relaystatus", " Relay audio status"), BotCommand("myboost", " Live mic gain"), BotCommand("livegain", " Live mic gain alias"),
-    BotCommand("mic", " Live mic boost on/off"), BotCommand("auto", " Real maximum playback preset"), BotCommand("ultra", " Maximum clear playback preset"),
-    BotCommand("mystatus", " Aapki info"), BotCommand("help", " Tutorial & commands"), BotCommand("audio", " Audio Library — send items to DM"),
-    BotCommand("saveaudio", " Save replied audio"), BotCommand("owner", " Owner panel"), BotCommand("addaudio", " Add shared Bot Audio (owner)"),
-    BotCommand("users", " All users (owner)"), BotCommand("broadcast", " Broadcast (owner)"), BotCommand("stats", " Stats (owner)"),
-    BotCommand("restart", " Restart (owner)"), BotCommand("cleandb", "🧹 Clean DB bloated quota (owner)"), BotCommand("logtest", " Log channel test (owner)"), BotCommand("setsource", " Set Source Code URL (owner)"),
-    BotCommand("clearsource", " Remove Source Code button (owner)"), BotCommand("stop", "⏹ Stop and leave VC"), BotCommand("end", "⏹ End playback session"),
-    BotCommand("qclear", " Clear queue"), BotCommand("qremove", " Remove track from queue"), BotCommand("qshuffle", " Shuffle queue"),
-    BotCommand("setlog", " Log channel set (owner)"),
-    BotCommand("addfsub", "🔒 Must-join channel add (owner)"),
-    BotCommand("delfsub", "🔒 Must-join channel remove (owner)"),
-    BotCommand("listfsub", "🔒 Must-join channels list (owner)"),
-    BotCommand("clearfsub", "🔒 Must-join channels clear (owner)"),
-    BotCommand("setprice", "💳 Set plan price (owner)"),
-    BotCommand("grant", "💳 Grant premium (owner)"),
-    BotCommand("revoke", "💳 Revoke premium (owner)"),
-    BotCommand("addcoupon", "🎟️ Create coupon (owner)"),
-    BotCommand("delcoupon", "🎟️ Delete coupon (owner)"),
-    BotCommand("listcoupons", "🎟️ List coupons (owner)"),
-    BotCommand("setqr", "💳 Set QR code (owner)"),
-    BotCommand("clearqr", "💳 Remove QR code (owner)"),
-    BotCommand("pending", "📋 Pending payment requests (owner)"),
-    BotCommand("redeem", "🎟️ Redeem coupon code"),
-    BotCommand("plans", "💳 View premium plans"),
-    BotCommand("referral", "👥 Referral link & rewards"),
-    BotCommand("vcjoin", "🎛 VC Joiner panel (owner)"),
-    BotCommand("setvc", "🎯 Target VC add (owner)"),
-    BotCommand("delvc", "🗑 Target VC remove (owner)"),
-    BotCommand("sudo", "👑 Sudo / Free Trial (bina login)"),
-    BotCommand("addsudo", "👑 Sudo do: id [days] (owner)"),
-    BotCommand("rmsudo", "👑 Sudo hatao (owner)"),
-    BotCommand("sudolist", "👑 Sudo users (owner)"),
-    BotCommand("resettrial", "🎁 Trial reset (owner)"),
+# v94: "/" menu me 60+ commands (owner wale bhi) sabko dikhte the -> naye user confuse.
+# Ab users ko sirf zaroori commands, owner ko unke DM me poori list.
+USER_COMMANDS = [
+    BotCommand("start", "🏠 Home menu"),
+    BotCommand("guide", "🧭 Setup guide — agla step kya hai"),
+    BotCommand("login", "🔐 Login (number + OTP)"),
+    BotCommand("help", "📘 Tutorial & commands"),
+    BotCommand("mystatus", "👤 Aapka account / plan"),
+    BotCommand("settings", "🎚️ Sound settings"),
+    BotCommand("fightid", "⚔️ Fight ID (optional, Live Mic)"),
+    BotCommand("audio", "🎵 Audio Library"),
+    BotCommand("sudo", "🎁 Free Trial / Sudo (bina login)"),
+    BotCommand("plans", "💎 Premium plans"),
+    BotCommand("redeem", "🎟️ Coupon redeem"),
+    BotCommand("referral", "👥 Refer & earn"),
+    BotCommand("logout", "🚪 Logout"),
 ]
+
+OWNER_COMMANDS = [
+    BotCommand("owner", "👑 Owner panel"), BotCommand("users", "👥 All users"),
+    BotCommand("stats", "📊 Stats"), BotCommand("broadcast", "📢 Broadcast"),
+    BotCommand("restart", "♻️ Restart"), BotCommand("addaudio", "🎵 Shared audio add"),
+    BotCommand("cleandb", "🧹 DB clean"), BotCommand("logtest", "🧪 Log channel test"),
+    BotCommand("setlog", "📡 Log channel set"), BotCommand("setsource", "💻 Source URL set"),
+    BotCommand("clearsource", "💻 Source button hatao"),
+    BotCommand("addfsub", "🔒 Must-join add"), BotCommand("delfsub", "🔒 Must-join remove"),
+    BotCommand("listfsub", "🔒 Must-join list"), BotCommand("clearfsub", "🔒 Must-join clear"),
+    BotCommand("setprice", "💳 Plan price"), BotCommand("grant", "💳 Premium do"),
+    BotCommand("revoke", "💳 Premium hatao"), BotCommand("pending", "📋 Pending payments"),
+    BotCommand("addcoupon", "🎟️ Coupon banao"), BotCommand("delcoupon", "🎟️ Coupon delete"),
+    BotCommand("listcoupons", "🎟️ Coupons list"), BotCommand("setqr", "💳 QR set"),
+    BotCommand("clearqr", "💳 QR hatao"), BotCommand("vcjoin", "🎛 VC Joiner panel"),
+    BotCommand("setvc", "🎯 Target VC add"), BotCommand("delvc", "🗑 Target VC remove"),
+    BotCommand("addsudo", "👑 Sudo do: id [days]"), BotCommand("rmsudo", "👑 Sudo hatao"),
+    BotCommand("sudolist", "👑 Sudo users"), BotCommand("resettrial", "🎁 Trial reset"),
+]
+
+# Purane imports ke liye (kuch plugins/tests BOT_COMMANDS padhte the).
+BOT_COMMANDS = USER_COMMANDS + OWNER_COMMANDS
 
 def _new_bot() -> StyledBotClient:
     return StyledBotClient("vcbot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, parse_mode=ParseMode.HTML, plugins=dict(root="plugins"))
@@ -187,6 +188,11 @@ async def main():
     _install_loop_guard()
     validate_config()
     await db.connect()
+    try:  # v94: default groups DB se (Heroku restart par mit-te the)
+        from plugins.vc_commands import load_gc_from_db
+        await load_gc_from_db()
+    except Exception as exc:
+        logger.warning("Could not load default groups: %r", exc)
     try:  # v63: .playdb/.masterdb/.ceiling survive restarts/redeploys
         from helpers.playback_v63 import load_saved_db_settings
         _owner = Config.primary_owner()
@@ -247,8 +253,17 @@ async def main():
 
     try:
         from pyrogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
-        await bot.set_bot_commands(BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())  # "/" menu sirf DM
+        await bot.set_bot_commands(USER_COMMANDS, scope=BotCommandScopeAllPrivateChats())  # "/" menu sirf DM
         await bot.delete_bot_commands(scope=BotCommandScopeAllGroupChats())
+    except Exception as exc:
+        logger.warning("Could not set user command menu: %r", exc)
+    try:
+        from pyrogram.types import BotCommandScopeChat
+        for oid in Config.OWNER_IDS:
+            try:
+                await bot.set_bot_commands(USER_COMMANDS + OWNER_COMMANDS, scope=BotCommandScopeChat(oid))
+            except Exception:
+                pass  # owner ne abhi bot start nahi kiya
     except Exception:
         pass
 
