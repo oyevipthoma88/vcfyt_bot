@@ -66,7 +66,7 @@ HELP = {
     "chat": ([], ".mic chat [group_id | @username | invite_link]",
              "Live Mic target group verify karke set karta hai.", ".mic chat -1001234567890"),
     "micaccount": ([], ".micaccount", "⚔️ Fight ID (VC me bolne wali ID) jodo / dekho.", ".micaccount"),
-    "fightid": ([], ".fightid", "⚔️ Fight ID jodo — Live Mic ke liye bas yahi chahiye (main ID optional).", ".fightid"),
+    "fightid": ([], ".fightid", "⚔️ Fight ID (optional) — doosri ID Live Mic me bole, aapka phone VC me rahe.", ".fightid"),
     "spare": ([], ".spare join|mute|unmute|leave", "Fight ID ko VC me baithata / uthata hai.", ".spare join"),
     "myboost": (["livegain", "livevolume"], ".myboost <1-20000>", "Aapke account ki live mic gain.", ".myboost 500"),
     "syncplay": (["allplay", "splay"], ".syncplay  (recording reply karke)  |  .syncplay <tag>",

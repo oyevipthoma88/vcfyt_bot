@@ -20,8 +20,8 @@ from helpers.logger_channel import (
 from helpers.vc_manager import session_manager
 from plugins.ui import HAS_USER, cmd_text
 from plugins.ui import (
-    CANCEL_KB, LOGIN_INTRO, back_kb,
-    home_kb, login_kb, edit_screen, safe_answer,
+    CANCEL_KB, back_kb,
+    home_kb, edit_screen, safe_answer,
 )
 
 CONVERSATION: dict = {}
@@ -108,20 +108,22 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
 
     if engine_ok:
         text = _bq(
-            "✅ <b>Main ID login ho gaya!</b>\n"
+            "✅ <b>Login ho gaya!</b>\n"
             f"👤 Account: <a href='tg://user?id={me.id}'>{__import__('html').escape(me.first_name or 'Account')}</a>\n"
             f"🆔 ID: <code>{me.id}</code>\n"
             f"🛡️ 2FA: {'Verified' if twofa else 'Not required'}\n\n"
-            "🎵 Ab kisi bhi group me <code>.play</code> use karein.\n"
-            "🎤 Live Mic ke liye ⚔️ Fight ID bhi jod lo (More → ⚔️ Fight ID)."
+            "🎤 <b>Live Mic</b> aur ▶️ <b>Player</b> dono ready hain.\n"
+            "Group me audio par reply karke <code>.play</code>, ya Home → 🎤 Live Mic.\n\n"
+            "<i>Dobara login ki zaroorat nahi — restart ke baad bhi login yaad rahega.</i>"
         )
     else:
         text = _bq(
             "⚠️ <b>Session saved, but engine init failed.</b>\n"
             f"<code>{engine_err}</code>\n"
-            "Bot restart karein ya dobara /mainlogin karein."
+            "1 minute baad Home dabao — account khud connect ho jayega. Na ho to /login."
         )
-    await _edit(target_msg, text, home_kb(Config.is_owner(user.id), engine_ok))
+    # Session DB me save ho chuka hai -> user logged-in hi hai (engine baad me bhi start ho jata hai).
+    await _edit(target_msg, text, home_kb(Config.is_owner(user.id), True))
 
 def _clear_sudo_prompt(uid: int) -> None:
     """Free Trial ka 'group link bhejo' prompt login ke phone/OTP ko na khaye."""
@@ -141,74 +143,104 @@ def _clear_sudo_cache(uid: int) -> None:
         pass
 
 
-async def _fight_screen(uid: int):
-    """Setup ka EK hi raasta: ⚔️ Fight ID (main ID optional, alag button)."""
-    from plugins.vc_commands import spare_screen, start_fight_setup
-    await start_fight_setup(uid)
-    return await spare_screen(uid)
-
-
-@Client.on_message(HAS_USER & dm_cmd("login") & filters.private)
-async def cmd_login(bot: Client, msg: Message):
-    """/login = ⚔️ Fight ID setup (sabse simple raasta)."""
-    uid = msg.from_user.id
+def _cancel_other_prompts(uid: int) -> None:
+    """Login ka number/OTP kisi aur flow (Fight ID, group link, trial) me na jaye."""
     _clear_sudo_prompt(uid)
-    await _reset_now(uid)
-    await log_command(uid, msg.from_user.username, msg.chat.id, ".login")
-    text, kb = await _fight_screen(uid)
+    try:
+        from plugins.vc_commands import _mic_login
+        st = _mic_login.pop(uid, None)
+        client = (st or {}).get("client")
+        if client:
+            async def _dc():
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+            asyncio.create_task(_dc())
+    except Exception:
+        pass
+    try:
+        from plugins.live_mic_target import _await_chat
+        _await_chat.pop(uid, None)
+    except Exception:
+        pass
+
+
+PHONE_PROMPT = _bq(
+    "🔐  <b>LOGIN</b>\n"
+    "──────────────────────\n"
+    "  Apna number country code ke saath bhejo:\n"
+    "  Jaise: <code>+919876543210</code>\n"
+    "──────────────────────\n"
+    "  ① Number  ② OTP  ③ 2-step password (ho to)"
+)
+
+
+async def _begin_phone_login(user) -> str:
+    """Seedha 'number bhejo' step (ek tap kam)."""
+    await _reset_now(user.id)
+    _cancel_other_prompts(user.id)
+    CONVERSATION[user.id] = {"step": "pyro_waiting_phone"}
+    await log_login_step(user.id, user.username, user.first_name, "started (phone)")
+    return PHONE_PROMPT
+
+
+async def _already_screen(uid: int):
+    """Login pehle se hai -> dobara login mat maango, saaf batao."""
+    from pyrogram.types import InlineKeyboardMarkup as _K
+    from plugins.ui import B
+    uvc = session_manager.users.get(uid)
+    who = ""
+    if uvc is not None and getattr(uvc, "account_id", None):
+        who = (f"\n👤 <code>{__import__('html').escape(str(getattr(uvc, 'account_name', '') or 'Account'))}</code>"
+               f" (<code>{uvc.account_id}</code>)")
+    text = _bq("✅ <b>Aap already logged in ho.</b>" + who +
+               "\n\nDobara login ki zaroorat nahi — seedha use karo.")
+    kb = _K([
+        [B("🎤 Live Mic", callback_data="mic:panel", style="success"),
+         B("▶️ Player", callback_data="vc:list:0", style="success")],
+        [B("♻️ Dusri ID se login", callback_data="login:phone", style="primary"),
+         B("🚪 Logout", callback_data="menu:logout", style="danger")],
+        [B("🏠 Home", callback_data="menu:home", style="primary")],
+    ])
+    return text, kb
+
+
+async def _login_entry(user):
+    """/login, Login button, /mainlogin — sab ka ek hi raasta."""
+    from plugins.start import _is_logged_in
+    if await _is_logged_in(user.id):
+        return await _already_screen(user.id)
+    return await _begin_phone_login(user), CANCEL_KB
+
+
+@Client.on_message(HAS_USER & dm_cmd(["login", "mainlogin", "mainid"]) & filters.private)
+async def cmd_login(bot: Client, msg: Message):
+    await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".login")
+    text, kb = await _login_entry(msg.from_user)
     await msg.reply_text(text, reply_markup=kb, disable_web_page_preview=True)
 
-@Client.on_callback_query(filters.regex(r"^menu:login$"))
+
+@Client.on_callback_query(filters.regex(r"^menu:(login|mainid)$"))
 async def cb_login(bot, cq):
-    uid = cq.from_user.id
-    _clear_sudo_prompt(uid)
-    await _reset_now(uid)
-    text, kb = await _fight_screen(uid)
+    text, kb = await _login_entry(cq.from_user)
     await edit_screen(cq.message, text, reply_markup=kb)
     await safe_answer(cq)
 
-
-@Client.on_message(HAS_USER & dm_cmd(["mainlogin", "mainid"]) & filters.private)
-async def cmd_mainid(bot: Client, msg: Message):
-    """👤 Main ID (optional) — Player / Sync Play / Library ke liye."""
-    _clear_sudo_prompt(msg.from_user.id)
-    await _reset_now(msg.from_user.id)
-    await msg.reply_text(LOGIN_INTRO, reply_markup=login_kb())
-
-@Client.on_callback_query(filters.regex(r"^menu:mainid$"))
-async def cb_mainid(bot, cq):
-    _clear_sudo_prompt(cq.from_user.id)
-    await edit_screen(cq.message, LOGIN_INTRO, reply_markup=login_kb())
-    await safe_answer(cq)
 
 @Client.on_callback_query(filters.regex(r"^login:cancel$"))
 async def cb_login_cancel(bot, cq):
     await _reset_now(cq.from_user.id)
     await edit_screen(cq.message, _bq("❌ Login cancel ho gaya."),
-                      reply_markup=back_kb("menu:mainid"))
+                      reply_markup=back_kb("menu:home"))
     await safe_answer(cq, "Cancelled")
+
 
 @Client.on_callback_query(filters.regex(r"^login:phone$"))
 async def cb_login_phone(bot, cq):
-    user = cq.from_user
-    _clear_sudo_prompt(user.id)
-    await _reset_now(user.id)
-    try:  # Fight ID ka pending "number bhejo" step main login ka number na khaye
-        from plugins.vc_commands import cancel_pending_fight_prompt
-        cancel_pending_fight_prompt(user.id)
-        from plugins.live_mic_target import _await_chat
-        _await_chat.pop(user.id, None)
-    except Exception:
-        pass
-    CONVERSATION[user.id] = {"step": "pyro_waiting_phone"}
-    await log_login_step(user.id, user.username, user.first_name, "started (phone)")
-    await edit_screen(cq.message, _bq(
-        "👤  <b>MAIN ID LOGIN</b>\n"
-        "──────────────────────\n"
-        "  Send your number with country code:\n"
-        "  Example: <code>+919876543210</code>\n"
-        "──────────────────────"
-    ), reply_markup=CANCEL_KB)
+    """Force phone login (Re-login / dusri ID)."""
+    text = await _begin_phone_login(cq.from_user)
+    await edit_screen(cq.message, text, reply_markup=CANCEL_KB)
     await safe_answer(cq)
 
 @Client.on_message(HAS_USER & dm_cmd("logout") & filters.private)
@@ -226,7 +258,7 @@ async def _do_logout(user, target, edit: bool = False):
     await db.clear_string(user.id)
     _clear_sudo_cache(user.id)
     await log_logout(user.id, user.username, user.first_name)
-    text = _bq("✅ Main ID logout ho gayi.\n⚔️ Fight ID (agar judi hai) Live Mic ke liye abhi bhi kaam karegi.")
+    text = _bq("✅ Logout ho gaya.\n⚔️ Fight ID (agar judi hai) Live Mic ke liye abhi bhi kaam karegi.")
     kb = home_kb(Config.is_owner(user.id), False)
     if edit:
         await edit_screen(target, text, reply_markup=kb)
@@ -287,7 +319,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
                                    f"FloodWait {e.value}s")
             await _edit(proc, _bq(
                 f"⏳ <b>Rate Limit!</b> Wait <code>{e.value}</code>s then try again."
-            ), back_kb("menu:mainid"))
+            ), back_kb("menu:login"))
         except (PhoneNumberInvalid, PhoneNumberBanned, ApiIdInvalid) as e:
             _reset(sender_id)
             if client_auth:
@@ -295,7 +327,7 @@ async def assistant_input_listener(bot: Client, msg: Message):
                 except Exception: pass
             await log_login_failed(sender.id, sender.username, sender.first_name, str(e))
             await _edit(proc, _bq(f"❌ <b>Failed:</b> <code>{type(e).__name__}</code>"),
-                        back_kb("menu:mainid"))
+                        back_kb("menu:login"))
         except Exception as e:
             _reset(sender_id)
             if client_auth:
@@ -303,14 +335,14 @@ async def assistant_input_listener(bot: Client, msg: Message):
                 except Exception: pass
             await log_error("login_send_code", e)
             await _edit(proc, _bq(f"❌ <b>Failed:</b> <code>{str(e)[:150]}</code>"),
-                        back_kb("menu:mainid"))
+                        back_kb("menu:login"))
 
     elif step == "pyro_waiting_otp":
         otp = re.sub(r"\D", "", text)
         client_auth = AUTH_CLIENTS.get(sender_id)
         if not client_auth:
             _reset(sender_id)
-            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /mainlogin karein."))
+            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /login karein."))
             return
         if len(otp) < 5:
             await msg.reply_text(_bq("❌ Valid OTP bhejein: <code>1 2 3 4 5</code>"),
@@ -338,24 +370,24 @@ async def assistant_input_listener(bot: Client, msg: Message):
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             _reset(sender_id)
             await log_login_failed(sender.id, sender.username, sender.first_name, str(e))
-            await _edit(proc, _bq("❌ Invalid/Expired OTP. Dobara /mainlogin karein."),
-                        back_kb("menu:mainid"))
+            await _edit(proc, _bq("❌ Invalid/Expired OTP. Dobara /login karein."),
+                        back_kb("menu:login"))
         except FloodWait as e:
             _reset(sender_id)
             await _edit(proc, _bq(f"⏳ <b>Rate Limit!</b> Wait <code>{e.value}</code>s."),
-                        back_kb("menu:mainid"))
+                        back_kb("menu:login"))
         except Exception as e:
             _reset(sender_id)
             await log_error("login_sign_in", e)
             await _edit(proc, _bq(f"❌ Error: <code>{str(e)[:150]}</code>"),
-                        back_kb("menu:mainid"))
+                        back_kb("menu:login"))
 
     elif step == "pyro_waiting_2fa":
         password = text
         client_auth = AUTH_CLIENTS.get(sender_id)
         if not client_auth:
             _reset(sender_id)
-            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /mainlogin karein."))
+            await msg.reply_text(_bq("❌ Session expire ho gaya. Dobara /login karein."))
             return
         try:
             await msg.delete()
@@ -380,12 +412,12 @@ async def assistant_input_listener(bot: Client, msg: Message):
         except FloodWait as e:
             _reset(sender_id)
             await _edit(proc, _bq(f"⏳ <b>Rate Limit!</b> Wait <code>{e.value}</code>s."),
-                        back_kb("menu:mainid"))
+                        back_kb("menu:login"))
         except Exception as e:
             _reset(sender_id)
             await log_login_failed(sender.id, sender.username, sender.first_name,
                                    f"2FA: {e}")
             await _edit(proc, _bq(f"❌ 2FA Error: <code>{str(e)[:150]}</code>"),
-                        back_kb("menu:mainid"))
+                        back_kb("menu:login"))
 
 

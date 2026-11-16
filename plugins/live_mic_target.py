@@ -180,7 +180,7 @@ async def retarget_live(uid: int, cid: int, ref=None) -> str:
 async def set_target(msg, uid: int, ref_text: str) -> tuple:
     cid, join_ref = await resolve_group(msg, ref_text, uid, "tgt")
     if not cid:
-        return 0, ("❌ Group verify nahi hua. Numeric ID tabhi chalega jab Fight ID us group me ho; "
+        return 0, ("❌ Group verify nahi hua. Numeric ID tabhi chalega jab bolne wali ID (Login / Fight ID) us group me ho; "
                    "warna invite link ya @username bhejo.")
     await save_target(uid, cid, join_ref)
     note = await retarget_live(uid, cid, join_ref)
@@ -220,7 +220,7 @@ async def live_mic_target_listener(bot, msg):
     cid, join_ref = await resolve_group(msg, ref, uid) if ref else (0, None)
     if not cid:
         await bot.send_message(msg.chat.id,
-            "❌ Group verify nahi hua. Fight ID ko group me add karo, ya invite link/@username bhejo.",
+            "❌ Group verify nahi hua. Apni ID / Fight ID ko group me add karo, ya invite link/@username bhejo.",
             reply_markup=K([[B("✖ Cancel", callback_data="mic:wcancel")]]))
         return
     _await_chat.pop(uid, None)

@@ -1,16 +1,23 @@
-"""Guided setup steps for browser-based Live Mic.
+"""Setup model (v93) — ek hi saaf raasta.
 
-Simple model (v92):
-  ⚔️ Fight ID  = wo Telegram ID jo VC me bolti hai  -> ZAROORI (Live Mic ke liye)
-  👤 Main ID   = user ki apni ID                    -> OPTIONAL (Player/Sync/Library)
-Live Mic sirf Fight ID + private browser link se chal jata hai.
+  🔐 Login     = user ki APNI Telegram ID (number + OTP).  PRIMARY.
+                 Isse sab khulta hai: ▶️ Player · 🎤 Live Mic · 🔗 Sync · 🎵 Library
+  ⚔️ Fight ID  = OPTIONAL doosri ID jo Live Mic me bolti hai, taaki user ka
+                 apna phone VC me bana rahe.  Login ke bina bhi Live Mic chala
+                 sakti hai (Fight-ID-only mode).
+  🎁 Free Trial = bina login, owner ki Sudo ID se kuch uses.
+
+Rule: koi bhi ek "awaaz wali ID" (Login / Fight ID / Sudo) ho to Live Mic
+ready hai — user se dobara login kabhi nahi maanga jaata.
 """
 
+LOGIN_LABEL = "🔐 Login"
 FIGHT_LABEL = "⚔️ Fight ID"
-MAIN_LABEL = "👤 Main ID"
+MAIN_LABEL = LOGIN_LABEL  # purane imports ke liye
 
 
 def mic_setup_step(logged, spare, source, target) -> str:
+    """Legacy (main-login) guided step: login -> tgt -> ready."""
     if not logged:
         return "login"
     if not target:
@@ -19,7 +26,7 @@ def mic_setup_step(logged, spare, source, target) -> str:
 
 
 def fight_step(fight: bool, target) -> str:
-    """Next step for the simple Live Mic flow: fight -> tgt -> ready."""
+    """Fight-ID-only flow: fight -> tgt -> ready."""
     if not fight:
         return "fight"
     if not target:
@@ -27,8 +34,19 @@ def fight_step(fight: bool, target) -> str:
     return "ready"
 
 
+def speaker_label(main: bool, fight: bool, sudo_mode: bool) -> str:
+    """Live Mic me awaaz kis ID se jayegi (user ko dikhane ke liye)."""
+    if fight:
+        return "⚔️ Fight ID"
+    if main:
+        return "🔐 Aapki ID"
+    if sudo_mode:
+        return "🎁 Sudo ID (trial)"
+    return ""
+
+
 async def has_main_id(uid) -> bool:
-    """User ne apni Main ID se login kiya hai (ya owner ka env session)."""
+    """User ne apni ID se login kiya hai (ya owner ka env session)."""
     try:
         from helpers.sudo import has_own_session
         return bool(await has_own_session(int(uid)))
@@ -45,3 +63,20 @@ async def has_fight_id(uid) -> bool:
         return bool((raw or "").strip())
     except Exception:
         return False
+
+
+async def account_state(uid) -> dict:
+    """{main, fight, sudo, ready} — ek jagah se poora setup status."""
+    main = await has_main_id(uid)
+    fight = await has_fight_id(uid)
+    sudo_mode = False
+    if not main:
+        try:
+            from helpers import sudo as _sudo
+            mode = await _sudo.engine_mode(int(uid))
+            # TRIAL_OVER ko shared engine milta hai par use gated hai -> ready nahi
+            sudo_mode = mode in (_sudo.SUDO, _sudo.PREMIUM, _sudo.TRIAL)
+        except Exception:
+            sudo_mode = False
+    return {"main": main, "fight": fight, "sudo": sudo_mode,
+            "ready": bool(main or fight or sudo_mode)}

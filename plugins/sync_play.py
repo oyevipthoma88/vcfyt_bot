@@ -254,7 +254,7 @@ async def cmd_syncplay(bot: Client, msg: Message):
             return
         engines = await collect_engines(uid, await _include_main(uid))
         if not engines:
-            await stat.edit_text("❌ Koi ID nahi mili. Pehle ⚔️ Fight ID jodo (/login).")
+            await stat.edit_text("❌ Koi ID nahi mili. Pehle /login karo (ya ⚔️ .fightid jodo).")
             return
         if not await db.get_app_value(f"sync_auto_gc_{uid}"):
             async def _bg_group():

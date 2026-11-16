@@ -92,7 +92,7 @@ def validate_config():
     logger.info(f"Log channel: {Config.LOG_CHANNEL}")
 
 BOT_COMMANDS = [
-    BotCommand("start", " Home menu"), BotCommand("login", " Apna account login karein"),
+    BotCommand("start", " Home menu"), BotCommand("login", "🔐 Login (number + OTP)"), BotCommand("fightid", "⚔️ Fight ID (optional, Live Mic)"),
     BotCommand("logout", " Session hataayein"), BotCommand("settings", " Audio settings panel"), BotCommand("volume", " Playback volume 0-1000"),
     BotCommand("gain", " Relay gain 0-150"), BotCommand("bass", " Bass 0-100"), BotCommand("treble", " Treble 0-100"), BotCommand("voice", " Voice profile"),
     BotCommand("relaystatus", " Relay audio status"), BotCommand("myboost", " Live mic gain"), BotCommand("livegain", " Live mic gain alias"),
@@ -256,7 +256,10 @@ async def main():
     await log_startup(me.username, restored, total_users)
 
     try:
-        await bot.send_message(primary_owner, f" <b>Bot Online</b>\n├ Bot: @{me.username}\n├ Users: {total_users}\n└ Sessions restored: {restored}\n\n" + (" <b>Log channel:</b> working " if not log_problem else f" <b>Log channel problem</b>\n{log_problem}"))
+        db_warn = ("" if getattr(db, "_use_mongo", False) else
+                   "\n\n⚠️ <b>MONGO_URI set nahi hai</b> — Heroku restart par sabke login mit jayenge "
+                   "aur users ko dobara login karna padega. Config Vars me MONGO_URI daalo.")
+        await bot.send_message(primary_owner, f" <b>Bot Online</b>\n├ Bot: @{me.username}\n├ Users: {total_users}\n└ Sessions restored: {restored}\n\n" + (" <b>Log channel:</b> working " if not log_problem else f" <b>Log channel problem</b>\n{log_problem}") + db_warn)
     except Exception:
         pass
 

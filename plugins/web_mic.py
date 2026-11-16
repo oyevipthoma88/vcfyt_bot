@@ -15,7 +15,7 @@ from plugins.ui import B
 
 HELP = (
     "🎤 <b>Live Mic · Browser Studio</b>\n\n"
-    "0. ⚔️ Fight ID jodo: <code>.fightid</code> (main ID zaroori nahi)\n"
+    "0. 🔐 <code>/login</code> karo — ya sirf Live Mic ke liye ⚔️ <code>.fightid</code>\n"
     "1. Group me <code>.setgc</code>, ya DM me <code>.mic chat</code> / <code>.setgc</code>\n"
     "2. <code>.mic on</code> — target na ho to bot chat ID pooch lega\n"
     "3. Link <b>Chrome</b> me kholo (Telegram ke andar wala browser nahi) → 🎙 dabao → bolo\n\n"
@@ -190,6 +190,10 @@ async def run_web_mic(msg, action: str, args=()):
         await ensure_in_target(getattr(eng, "client", None), int(cid), ref)
     except Exception:
         pass
+    speaker_note = ("⚔️ Aapki awaaz <b>Fight ID</b> se VC me jayegi — aapka phone VC me bana rahega.\n"
+                    if await has_fight_id(uid) or await session_manager.assistant_string(uid) else
+                    "🔐 Aapki awaaz <b>aapki ID</b> se VC me jayegi "
+                    "(phone wala VC chhod dega — chaho to ⚔️ Fight ID jodo).\n")
     token = await live_mic.generate_token(uid, cid)
     url = f"{base.rstrip('/')}/?token={token}"
     kb = K([[B("🎙 MIC KHOLO (Chrome)", url=url)],
@@ -198,21 +202,25 @@ async def run_web_mic(msg, action: str, args=()):
                      "🎤 <b>Step 3: Live Mic ready — ULTRA LOUD</b>\n\n"
                      f"🎯 Group: <code>{cid}</code>\n\n"
                      "👇 Button dabao → <b>Chrome</b> me khulega → 🎙 dabao → bolo.\n"
-                     "⚔️ Aapki awaaz <b>Fight ID</b> se VC me jayegi — "
-                     "link kisi bhi phone/browser par chalega.\n"
+                     f"{speaker_note}"
                      "🎧 <b>Earphone lagao</b> = sabse tez + saaf.\n\n"
                      f"<i>Link private hai, kisi ko mat bhejna.</i>\n<code>{_html.escape(url)}</code>",
                      reply_markup=kb, disable_web_page_preview=True)
 
 
 async def web_mic_panel(uid: int):
-    """v92: simple Live Mic panel — ① Fight ID ② Group ③ MIC ON."""
+    """v93 Live Mic panel — ① ID (Login / Fight ID / Trial) ② Group ③ MIC ON.
+
+    Login wale user se Fight ID kabhi zaroori nahi maangi jaati."""
     from helpers import live_mic
-    from helpers.setup_flow import has_fight_id
+    from helpers.setup_flow import account_state, speaker_label
     s = live_mic.get_session(uid)
     live = live_mic.has_live_socket(uid)
     tgt = await db.get_app_value(f"mic_chat_{uid}")
-    fight = await has_fight_id(uid) or bool(await session_manager.assistant_string(uid))
+    acc = await account_state(uid)
+    fight = acc["fight"] or bool(await session_manager.assistant_string(uid))
+    ready = acc["ready"] or fight
+    who = speaker_label(acc["main"], fight, acc["sudo"])
     try:
         from helpers import live_mic_v79 as v79
         mm = s.audio_mode if s else v79.get_mode()
@@ -220,29 +228,37 @@ async def web_mic_panel(uid: int):
         mm = "loudest"
     state = "🟢 <b>LIVE</b> — awaaz ja rahi hai" if live else (
         "🟡 Link khula, mic band" if s else "⚪ OFF")
+    if ready:
+        hint = ("<i>💡 ⚔️ Fight ID (optional) jodo to aapka phone VC me bana rahega.</i>"
+                if acc["main"] and not fight else
+                "<i>Link kisi ko mat bhejna.</i>")
+    else:
+        hint = "<i>🔐 Login karo (sab features) — ya sirf Live Mic ke liye ⚔️ Fight ID jodo.</i>"
     text = ("🎙️ <b>APEX LIVE MIC</b>\n"
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
-            f"{'✅' if fight else '①'} <b>Fight ID</b>  "
-            f"{'judi hui' if fight else '— pehle jodo (zaroori)'}\n"
+            f"{'✅' if ready else '①'} <b>ID</b>        "
+            f"{who if ready else '— Login ya Fight ID'}\n"
             f"{'✅' if tgt else '②'} <b>Group</b>     "
             f"{f'<code>{_html.escape(str(tgt))}</code>' if tgt else '— set nahi'}\n"
             f"{'🟢' if live else '③'} <b>Mic</b>       {state}\n"
             f"🔊 <b>Sound</b>     {dict(loudest='⚡ LOUDEST', phone='📱 PHONE · saaf', bass='🔊 BASS · bhari').get(mm, '⚡ LOUDEST')}\n"
             "<code>━━━━━━━━━━━━━━━━━━━━━━━━</code>\n"
             "Link <b>Chrome</b> me kholo · 🎧 earphone = kam echo\n"
-            "<i>Main ID zaroori nahi — Fight ID hi VC me bolti hai. Link kisi ko mat bhejna.</i>")
+            f"{hint}")
     rows = []
-    if not fight:
-        rows.append([B("⚔️ Fight ID jodo  ·  Step 1", callback_data="mic:acct", style="success")])
+    if not ready:
+        rows.append([B("🔐 Login", callback_data="menu:login", style="success"),
+                     B("⚔️ Fight ID", callback_data="mic:acct", style="primary")])
     if s or live:
         rows.append([B("⏹ Mic OFF", callback_data="mic:off", style="danger"),
                      B("🚪 OFF + Leave", callback_data="mic:wleave", style="danger")])
-    elif fight:
+    elif ready:
         rows.append([B("🎙 MIC ON — link do", callback_data="mic:won", style="success")])
     tgt_row = [B("🎯 Group badlo" if tgt else "🎯 Group set karo", callback_data="mic:wtarget",
                  style="primary")]
-    if fight:
-        tgt_row.append(B("⚔️ Fight ID", callback_data="mic:acct", style="primary"))
+    if ready:
+        tgt_row.append(B("⚔️ Fight ID" if fight else "⚔️ Fight ID (optional)",
+                         callback_data="mic:acct", style="primary"))
     rows.append(tgt_row)
     rows.append([B("⚡ LOUDEST", callback_data="mic:wmode:loudest",
                    style="success" if mm == "loudest" else "primary"),

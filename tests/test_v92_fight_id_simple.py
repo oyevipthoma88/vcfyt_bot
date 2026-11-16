@@ -1,4 +1,4 @@
-"""v92: simple setup — ⚔️ Fight ID zaroori, 👤 Main ID optional.
+"""v92: Fight-ID-only mode (still supported in v93; login-first rules in test_v93).
 
   * /start (bina login) = sirf EK setup button (⚔️ Fight ID), 2 login options nahi
   * Main ID screen me sirf ek login button, "Multiple ID Login" hata diya
@@ -50,24 +50,6 @@ def fresh_db(tmp_path, monkeypatch):
     return d
 
 
-def test_logged_out_home_has_single_setup_step():
-    from plugins.ui import home_kb, home_text
-    kb = home_kb(False, False)
-    cbs = _callbacks(kb)
-    assert cbs.count("menu:login") == 1
-    assert "login:phone" not in cbs and "mic:acct" not in cbs
-    assert "Fight ID" in _labels(kb)[0]
-    assert "zaroori nahi" in home_text("A", False)
-
-
-def test_main_id_screen_has_one_login_option_only():
-    from plugins.ui import login_kb, LOGIN_INTRO
-    labels = _labels(login_kb())
-    assert _callbacks(login_kb()).count("login:phone") == 1
-    assert not any("Multiple" in t for t in labels)
-    assert "optional" in LOGIN_INTRO.lower()
-
-
 def test_more_menu_names_fight_and_main_id():
     from plugins.ui import more_kb
     cbs = _callbacks(more_kb())
@@ -79,14 +61,6 @@ def test_fight_step_order():
     assert fight_step(False, -100123) == "fight"
     assert fight_step(True, None) == "tgt"
     assert fight_step(True, -100123) == "ready"
-
-
-def test_home_without_fight_id_starts_with_fight_step(fresh_db):
-    import plugins.sudo as ps
-    _, kb = _run(ps.home_override(700, "A"))
-    cbs = _callbacks(kb)
-    assert cbs[0] == "menu:login"
-    assert "mic:panel" not in cbs
 
 
 def test_home_with_fight_id_goes_straight_to_live_mic(fresh_db):
@@ -119,20 +93,3 @@ def test_mic_engine_uses_fight_id_without_main_id(fresh_db, monkeypatch):
     assert _run(vc.get_mic_engine(msg)) is relay
 
 
-def test_mic_engine_asks_for_fight_id_when_nothing_set(fresh_db, monkeypatch):
-    import plugins.vc_commands as vc
-    from helpers.vc_manager import session_manager
-    sent = []
-
-    async def no_relay(uid, slot=1):
-        return None
-
-    async def notify(msg, text, **kw):
-        sent.append((text, kw.get("reply_markup")))
-
-    monkeypatch.setattr(session_manager, "get_relay", no_relay)
-    monkeypatch.setattr(vc, "mic_notify", notify)
-    msg = SimpleNamespace(from_user=SimpleNamespace(id=703))
-    assert _run(vc.get_mic_engine(msg)) is None
-    assert "Fight ID" in sent[0][0]
-    assert "mic:acct" in _callbacks(sent[0][1])

@@ -26,8 +26,8 @@ from helpers.vc_manager import AUTO_PRESET, VOL_MAX, VOL_NORMAL, session_manager
 LINE = "━" * 28
 
 LOGIN_KB = K([
-    [B("👤 Main ID login", callback_data="menu:mainid")],
-    [B("🔹 Tutorial", callback_data="menu:tutorial")],
+    [B("🔐 Login", callback_data="menu:login", style="success")],
+    [B("📘 Help", callback_data="menu:tutorial", style="primary")],
 ])
 
 LIMIT_KB = K([
@@ -1426,10 +1426,8 @@ async def cb_mic(bot: Client, cq):
     if not uvc:
         uvc = await session_manager.get_relay(uid)
     if not uvc and action not in {"acct", "panel", "noop", "wtarget", "wcancel", "whelp", "wsetup", "won"}:
-        await start_fight_setup(uid)
-        text, kb = await spare_screen(uid)
-        await edit_screen(cq.message, "🎤 <b>Live Mic ke liye sirf ⚔️ Fight ID chahiye</b> — main ID zaroori nahi.\n\n" + text, reply_markup=kb)
-        await safe_answer(cq, "Pehle Fight ID jodo")
+        await edit_screen(cq.message, NEED_ACCOUNT_TEXT, reply_markup=need_account_kb())
+        await safe_answer(cq, "Pehle Login ya Fight ID")
         return
 
     if action == "noop":
@@ -1602,12 +1600,11 @@ async def cb_mic(bot: Client, cq):
         return
 
     if action == "on":
-        from helpers import sudo as _sudo
-        if not await session_manager.assistant_string(uid) and not await _sudo.is_sudo_mode(uid):
-            await start_fight_setup(uid)
-            text, kb = await spare_screen(uid)
-            await edit_screen(cq.message, text, reply_markup=kb)
-            await safe_answer(cq, "Pehle Fight ID jodo")
+        from helpers.setup_flow import account_state
+        acc = await account_state(uid)
+        if not acc["ready"] and not await session_manager.assistant_string(uid):
+            await edit_screen(cq.message, NEED_ACCOUNT_TEXT, reply_markup=need_account_kb())
+            await safe_answer(cq, "Pehle Login ya Fight ID")
             return
         # Browser Live Mic link.
         class _MicCallbackMessage:
@@ -1917,11 +1914,11 @@ async def cmd_relaystatus(bot: Client, msg: Message):
 _mic_login: dict = {}
 
 SPARE_WHY = (
-    "⚔️ <b>FIGHT ID</b>\n"
-    "Fight ID = wo Telegram ID jo VC me <b>aapki awaaz bolegi</b>.\n"
-    "• Koi bhi <b>doosri</b> Telegram ID chalegi (apni main ID nahi)\n"
+    "⚔️ <b>FIGHT ID</b>  <i>(optional)</i>\n"
+    "Fight ID = ek <b>doosri</b> Telegram ID jo Live Mic me aapki awaaz bolegi —\n"
+    "aapka apna phone VC me bana rahega.\n"
     "• Isko apne group me add rakho\n"
-    "• 👤 Main ID dena <b>zaroori nahi</b>\n\n"
+    "• Galti se apni ID daal di? Koi baat nahi — wo seedha 🔐 Login ban jayegi\n\n"
 )
 
 
@@ -1947,7 +1944,7 @@ def spare_ready_kb(extra_slots=()) -> K:
     rows += [
         [B("♻ Fight ID badlo", callback_data="mic:acct:phone", style="primary"),
          B("🗑 Fight ID hatao", callback_data="mic:acct:remove", style="danger")],
-        [B("👤 Main ID (optional)", callback_data="menu:mainid", style="primary"),
+        [B("🔐 Login", callback_data="menu:login", style="primary"),
          B("🏠 Home", callback_data="menu:home", style="primary")],
     ]
     return K(rows)
@@ -2054,6 +2051,15 @@ async def start_fight_setup(uid: int) -> None:
     _mic_login[uid] = {"stage": "phone"}
 
 
+async def _after_save_kb(uid: int) -> K:
+    """Save ke baad: Fight ID judi -> Fight ID screen, warna (Login ban gaya) Home."""
+    from helpers.setup_flow import has_fight_id
+    if await has_fight_id(uid):
+        return spare_ready_kb()
+    from plugins.ui import home_kb
+    return home_kb(Config.is_owner(uid), True)
+
+
 def cancel_pending_fight_prompt(uid: int) -> None:
     """Number step (abhi koi OTP client nahi) pending ho to hata do."""
     st = _mic_login.get(uid)
@@ -2082,15 +2088,22 @@ async def get_mic_engine(msg):
         return await get_engine(msg)
     if relay is not None:
         return relay
-    await mic_notify(
-        msg,
-        "⚔️ <b>Pehle Fight ID jodo</b>\n\n"
-        "Live Mic ke liye sirf ek Fight ID chahiye — wo ID jo VC me bolegi.\n"
-        "Number + OTP, bas 1 minute. Main ID zaroori nahi.",
-        reply_markup=K([[B("⚔️ Fight ID jodo", callback_data="mic:acct", style="success")],
-                        [B("🏠 Home", callback_data="menu:home", style="primary")]]),
-    )
+    await mic_notify(msg, NEED_ACCOUNT_TEXT, reply_markup=need_account_kb())
     return None
+
+
+NEED_ACCOUNT_TEXT = (
+    "🔐 <b>Live Mic ke liye ek ID chahiye</b>\n\n"
+    "• <b>🔐 Login</b> — apni ID (number + OTP) · sab features\n"
+    "• <b>⚔️ Fight ID</b> — koi doosri ID · sirf Live Mic\n\n"
+    "Dono me bas 1 minute lagta hai."
+)
+
+
+def need_account_kb() -> K:
+    return K([[B("🔐 Login", callback_data="menu:login", style="success"),
+               B("⚔️ Fight ID", callback_data="mic:acct", style="primary")],
+              [B("🏠 Home", callback_data="menu:home", style="primary")]])
 
 
 async def _spare_cancel(uid: int):
@@ -2114,13 +2127,13 @@ async def _spare_save(uid: int, session_str: str, account_id: int = None,
     session_str = (session_str or "").strip()
     if slot > 1:
         return await _spare_save_extra(uid, session_str, account_id, slot)
-    if account_id is not None and account_id == uid:
-        return False, ("❌ Ye aapki main ID hai. ⚔️ Fight ID <b>alag (doosri)</b> ID "
-                       "honi chahiye.")
     own = await db.get_user(uid)
     if own and (own.get("string_session") or "").strip() == session_str:
-        return False, ("❌ Ye wahi ID hai jisse aap login hain. ⚔️ Fight ID "
-                       "<b>alag (doosri)</b> ID honi chahiye.")
+        return False, ("ℹ️ Aap isi ID se already 🔐 logged in ho — Live Mic isi se chal jayega.\n"
+                       "⚔️ Fight ID ke liye koi <b>doosri</b> ID chahiye (optional).")
+    if account_id is not None and account_id == uid:
+        # User ne apni hi ID daal di: OTP barbaad mat karo, isko Login bana do.
+        return await promote_to_login(uid, session_str)
     await db.set_app_value(f"assistant_session_{uid}", session_str)
     await session_manager.drop_relay(uid)
     relay = await session_manager.get_relay(uid)
@@ -2129,13 +2142,36 @@ async def _spare_save(uid: int, session_str: str, account_id: int = None,
         return False, "❌ Account save hua par connect nahi ho paya. Dobara try karein."
     if relay.account_id == uid:
         await _spare_remove(uid)
-        return False, "❌ Ye aapki main ID hai. ⚔️ Fight ID alag (doosri) ID honi chahiye."
+        return await promote_to_login(uid, session_str)
     return True, ("✅ <b>Fight ID jud gayi!</b>\n\n"
                   f"├ Name: <code>{relay.account_name}</code>\n"
                   f"└ ID: <code>{relay.account_id}</code>\n\n"
                   "<b>Agla step 👇</b> 🎙 Live Mic shuru karo → group batao → "
                   "link Chrome me kholo aur bolo.\n\n"
                   "<i>Zaroori: Fight ID ko us group me add rakho.</i>")
+
+
+async def promote_to_login(uid: int, session_str: str):
+    """Fight ID flow me user ki APNI ID aayi -> use 🔐 Login (main) bana do."""
+    try:
+        await db.update_string(uid, session_str)
+        try:
+            from helpers import sudo as _sudo
+            _sudo._cache_clear(uid)
+        except Exception:
+            pass
+        try:
+            await session_manager.add(uid, session_str)
+        except Exception as e:
+            await log_error("promote_to_login", e)
+    except Exception as e:
+        await log_error("promote_to_login_save", e)
+        return False, f"❌ Login save nahi hua: <code>{str(e)[:120]}</code>"
+    return True, ("✅ <b>Login ho gaya!</b>\n\n"
+                  "Ye aapki apni ID thi, isliye isse <b>🔐 Login</b> kar diya — "
+                  "OTP barbaad nahi hua.\n\n"
+                  "🎤 Live Mic + ▶️ Player ab ready.\n"
+                  "<i>⚔️ Fight ID optional hai — chaho to baad me koi doosri ID jodo.</i>")
 
 
 async def _spare_save_extra(uid: int, session_str: str, account_id, slot: int):
@@ -2266,7 +2302,7 @@ async def spare_login_listener(bot: Client, msg: Message):
     except Exception:
         pass
     reply, done = await _spare_handle_text(uid, cmd_text(msg))
-    kb = spare_ready_kb() if done else spare_setup_kb(uid in _mic_login)
+    kb = (await _after_save_kb(uid)) if done else spare_setup_kb(uid in _mic_login)
     await bot.send_message(msg.chat.id, reply, reply_markup=kb,
                            disable_web_page_preview=True)
 
@@ -2297,7 +2333,7 @@ async def cmd_micaccount(bot: Client, msg: Message):
         except Exception:
             pass
         reply, done = await _spare_handle_text(uid, arg)
-        kb = spare_ready_kb() if done else spare_setup_kb(uid in _mic_login)
+        kb = (await _after_save_kb(uid)) if done else spare_setup_kb(uid in _mic_login)
         await bot.send_message(msg.chat.id, reply, reply_markup=kb,
                                disable_web_page_preview=True)
         return

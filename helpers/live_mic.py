@@ -2767,7 +2767,7 @@ async def _handle_ws(request: web.Request) -> web.WebSocketResponse:
     if not uvc:
         uvc = relay
     if not uvc:
-        await ws.send_str("error:fight_id_missing — Telegram bot me ⚔️ Fight ID jodo")
+        await ws.send_str("error:not_logged_in — Telegram bot me /login karein (ya ⚔️ Fight ID jodo)")
         await ws.close()
         return ws
 
