@@ -78,6 +78,7 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
     account = _account_dict(me, twofa)
     await db.add_user(user.id, user.username or "", user.first_name or "")
     await db.update_string(user.id, string_session)
+    _clear_sudo_cache(user.id)
 
     if phone:
         account["phone"] = phone
@@ -121,14 +122,34 @@ async def _deploy(bot, target_msg, user, string_session: str, me, *,
         )
     await _edit(target_msg, text, home_kb(Config.is_owner(user.id), engine_ok))
 
+def _clear_sudo_prompt(uid: int) -> None:
+    """Free Trial ka 'group link bhejo' prompt login ke phone/OTP ko na khaye."""
+    try:
+        from plugins.sudo import clear_await
+        clear_await(uid)
+    except Exception:
+        pass
+
+
+def _clear_sudo_cache(uid: int) -> None:
+    """Login/Logout ke turant baad mode (self <-> trial) sahi dikhe."""
+    try:
+        from helpers import sudo as _sudo
+        _sudo._cache_clear(uid)
+    except Exception:
+        pass
+
+
 @Client.on_message(HAS_USER & dm_cmd("login") & filters.private)
 async def cmd_login(bot: Client, msg: Message):
+    _clear_sudo_prompt(msg.from_user.id)
     await _reset_now(msg.from_user.id)
     await log_command(msg.from_user.id, msg.from_user.username, msg.chat.id, ".login")
     await msg.reply_text(LOGIN_INTRO, reply_markup=login_kb())
 
 @Client.on_callback_query(filters.regex(r"^menu:login$"))
 async def cb_login(bot, cq):
+    _clear_sudo_prompt(cq.from_user.id)
     await edit_screen(cq.message, LOGIN_INTRO, reply_markup=login_kb())
     await safe_answer(cq)
 
@@ -142,6 +163,7 @@ async def cb_login_cancel(bot, cq):
 @Client.on_callback_query(filters.regex(r"^login:phone$"))
 async def cb_login_phone(bot, cq):
     user = cq.from_user
+    _clear_sudo_prompt(user.id)
     await _reset_now(user.id)
     CONVERSATION[user.id] = {"step": "pyro_waiting_phone"}
     await log_login_step(user.id, user.username, user.first_name, "started (phone)")
@@ -167,6 +189,7 @@ async def _do_logout(user, target, edit: bool = False):
     await _reset_now(user.id)
     await session_manager.remove(user.id)
     await db.clear_string(user.id)
+    _clear_sudo_cache(user.id)
     await log_logout(user.id, user.username, user.first_name)
     text = _bq("✅ Music session removed.\nDobara 📱 Login karein jab chahein.")
     kb = home_kb(Config.is_owner(user.id), False)

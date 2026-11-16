@@ -10,7 +10,9 @@ Owner side: Owner Panel -> 👑 Sudo
   Sudo ID add (string ya phone+OTP), list/remove, sudo users,
   trial uses, support GC, requests approve/reject.
 """
+import asyncio
 import html
+import logging
 import re
 import time
 from types import SimpleNamespace
@@ -23,6 +25,8 @@ from helpers import sudo
 from helpers.access_control import format_until
 from helpers.database import db
 from plugins.ui import B, HAS_USER, LINE, card, cmd_text, dm_cmd, edit_screen, safe_answer
+
+logger = logging.getLogger("vcbot.sudo.ui")
 
 _AWAIT_TTL = 600
 _await: dict = {}          # uid -> {"kind": str, "ts": float, ...}
@@ -131,9 +135,75 @@ async def paywall_screen(uid: int) -> tuple[str, K]:
     return card("👑", "Sudo access", body), K(rows)
 
 
-async def home_override(uid: int):
-    """Home screen for non-logged users (start.py)."""
-    return await paywall_screen(uid)
+async def home_override(uid: int, name: str = "", notice: str = ""):
+    """Home screen for non-logged users (start.py).
+
+    v90 ne poora purana home (Login / Setup / Guide) hata kar sirf trial
+    paywall dikha diya tha. Ab user ko DONO raaste saaf dikhte hain:
+      🔐 Apna Login  — apni ID, unlimited (purana flow, jaisa tha)
+      🎁 Free Trial  — bina login, owner ki Sudo ID se
+    User khud choose karta hai."""
+    from plugins.ui import source_button
+    mode = await sudo.engine_mode(uid, fresh=True)
+    if mode in (sudo.OWNER, sudo.SELF):
+        # Login ho chuka (cache purana tha) — normal home hi sahi hai.
+        from plugins.ui import home_kb, home_text
+        return home_text(name or "friend", True), home_kb(Config.is_owner(uid), True)
+    s = await sudo.settings()
+    t = await sudo.trial_state(uid)
+    has_ids = bool(await sudo.accounts())
+    refs, need = await _ref_progress(uid)
+    gc_id, _, gc_title = await sudo.get_gc(uid)
+    greeting = f"👋 Hey <b>{_esc(name or 'friend')}</b>"
+    trial_ok = has_ids or mode in (sudo.TRIAL, sudo.SUDO, sudo.PREMIUM)
+
+    lines = [greeting, "🔊 Ultra-loud + clear  ·  🎙️ Browser Live Mic", ""]
+    if notice:
+        lines += [notice, ""]
+    lines += ["<b>Kaise use karna hai? — aap choose karo</b>", "",
+              "🔐 <b>Apna Login</b>  <i>(recommended · unlimited)</i>",
+              "   Phone + OTP — 2 min. Apni ID se apna VC control."]
+    if trial_ok:
+        lines += ["",
+                  f"🎁 <b>Free Trial</b>  <i>(bina login · {t['limit']} uses)</i>",
+                  "   Sirf group link bhejo — owner ki Sudo ID aa kar chalayegi."]
+
+    if mode == sudo.TRIAL:
+        status = f"🎁 Trial active · <b>{t['left']}/{t['limit']}</b> uses baaki"
+    elif mode == sudo.TRIAL_OVER:
+        status = (f"⛔ Trial khatam · Login karo, ya <b>{need}</b> referrals = Premium "
+                  f"(abhi {refs}/{need})")
+    elif mode == sudo.SUDO:
+        status = f"👑 Sudo active · till {format_until(await sudo.sudo_until(uid))}"
+    elif mode == sudo.PREMIUM:
+        from helpers.access_control import premium_info
+        p = await premium_info(uid)
+        status = f"💎 Premium active (bina login) · till {format_until(p.get('until'))}"
+    else:
+        status = "⚪ Abhi login nahi hai"
+    if gc_id and mode in (sudo.TRIAL, sudo.SUDO, sudo.PREMIUM):
+        status += f"\n🎯 Group: {_esc(gc_title) or gc_id} ✅"
+    lines += ["", f"<b>Status</b>  {status}"]
+    text = card("🎧", "Apex · VC Fight", "\n".join(lines),
+                "Login session sirf aapke VC control ke liye use hota hai. Kabhi bhi 🚪 Logout kar sakte ho.")
+
+    rows = [[B("🔐 Apna Login  ·  2 min", callback_data="menu:login", style="success")]]
+    if mode == sudo.NONE and has_ids:
+        rows.append([B(f"🎁 Free Trial  ·  {t['limit']} uses (bina login)",
+                       callback_data="sudo:trial", style="success")])
+    elif mode == sudo.TRIAL:
+        rows.append([B(f"🎁 Trial Panel  ·  {t['left']}/{t['limit']} baaki",
+                       callback_data="sudo:home", style="success")])
+    elif mode in sudo.UNLIMITED_MODES:
+        rows.append([B("👑 Sudo Panel  ·  Play / Live Mic", callback_data="sudo:home", style="success")])
+    elif mode == sudo.TRIAL_OVER:
+        rows.append([B("⛔ Trial khatam  ·  Options", callback_data="sudo:home", style="danger")])
+    rows.append([B("🎬 Video Guide", callback_data="tut:video", style="primary"),
+                 B("📘 Help", callback_data="menu:tutorial", style="primary")])
+    rows.append([B("👥 Refer & Earn", callback_data="ref:menu", style="primary"),
+                 B("💎 Premium", callback_data="pay:menu", style="primary")])
+    rows.extend(source_button())
+    return text, K(rows)
 
 
 async def no_engine_notice(msg) -> None:
@@ -152,7 +222,11 @@ async def no_engine_notice(msg) -> None:
                     "10-20 second baad dobara try karo. Baar-baar aaye to Support GC me batao.")
         await mic_notify(msg, text, reply_markup=K([[B("🔐 Apna Login", callback_data="menu:login")]]))
         return
-    text, kb = await paywall_screen(uid)
+    if mode == sudo.NONE:
+        text, kb = await home_override(uid, getattr(msg.from_user, "first_name", ""),
+                                       notice="🔒 <b>Iske liye Login ya Free Trial chahiye.</b>")
+    else:
+        text, kb = await paywall_screen(uid)
     await mic_notify(msg, text, reply_markup=kb)
 
 
@@ -180,7 +254,12 @@ async def gate_sudo_use(msg) -> bool:
     mode = await sudo.engine_mode(uid, fresh=True)
     if mode in (sudo.OWNER, sudo.SELF):
         return True
-    if mode in (sudo.NONE, sudo.TRIAL_OVER):
+    if mode == sudo.NONE:
+        text, kb = await home_override(uid, getattr(msg.from_user, "first_name", ""),
+                                       notice="🔒 <b>Iske liye Login ya Free Trial chahiye.</b>")
+        await mic_notify(msg, text, reply_markup=kb)
+        return False
+    if mode == sudo.TRIAL_OVER:
         text, kb = await paywall_screen(uid)
         await mic_notify(msg, text, reply_markup=kb)
         return False
@@ -224,6 +303,22 @@ async def refund_if_trial(uid: int) -> None:
 _INVITE_RE = re.compile(r"(?:t(?:elegram)?\.me/(?:joinchat/|\+)|^\+)([A-Za-z0-9_-]{6,})")
 _PUBLIC_RE = re.compile(r"(?:t(?:elegram)?\.me/)(?!\+|joinchat/|c/)([A-Za-z][A-Za-z0-9_]{3,})")
 _CLINK_RE = re.compile(r"t\.me/c/(\d{5,})")
+_PHONE_RE = re.compile(r"^\+?\d[\d\s\-()]{6,18}$")
+
+
+def _looks_like_group_ref(ref: str) -> bool:
+    """Group link / @username / -100 chat id. Phone number ya OTP nahi."""
+    ref = (ref or "").strip()
+    if not ref or _PHONE_RE.match(ref) and not ref.startswith("-"):
+        return False
+    return bool(_INVITE_RE.search(ref) and not re.fullmatch(r"\+\d+", ref)
+                or _PUBLIC_RE.search(ref) or _CLINK_RE.search(ref)
+                or re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{3,}", ref)
+                or re.fullmatch(r"-\d{6,}", ref))
+
+
+class _ConnLost(Exception):
+    """Sudo ID ka Telegram connection beech me toot gaya (retry-able)."""
 
 
 async def _resolve_join(client, ref: str):
@@ -276,6 +371,9 @@ async def _resolve_join(client, ref: str):
     except err("FloodWait") as e:
         return None, None, f"⏳ Telegram limit — {getattr(e, 'value', 30)} sec baad try karo."
     except Exception as e:
+        if sudo.is_conn_error(e):
+            # verify_gc fresh Sudo ID connection ke saath dobara try karega
+            raise _ConnLost(e) from e
         return None, None, f"❌ Group join/verify fail: <code>{_esc(e)}</code>"
     return None, None, "❌ Link samajh nahi aaya. <code>https://t.me/...</code> ya <code>@username</code> bhejo."
 
@@ -303,14 +401,48 @@ async def verify_gc(bot, user, ref: str) -> tuple[bool, str, K]:
     uid = user.id
     retry_kb = K([[B("🔁 Dobara Link Bhejo", callback_data="sudo:gc", style="primary"),
                    B("🏠 Home", callback_data="menu:home", style="primary")]])
-    eng = await sudo.engine_for(uid)
-    if not eng or not getattr(eng, "client", None):
-        if await sudo.all_busy(uid):
-            return False, ("⏳ Saari Sudo IDs abhi dusre groups me busy hain. 1-2 min baad link "
-                           "dobara bhejo, ya apna 🔐 Login karo."), retry_kb
-        return False, ("⚠️ Abhi koi Sudo ID available nahi. Owner ne add nahi ki ya connect ho rahi hai.\n"
-                       "Thodi der baad try karo."), retry_kb
-    chat, join_ref, error = await _resolve_join(eng.client, ref)
+    if not _looks_like_group_ref(ref):
+        return False, ("❌ Ye group link nahi lagta.\n"
+                       "<code>https://t.me/+AbCd…</code>, <code>https://t.me/groupname</code> "
+                       "ya <code>@groupname</code> bhejo."), retry_kb
+    if not await sudo.accounts():
+        return False, ("⚠️ <b>Abhi koi Sudo ID add nahi hai</b>\n"
+                       "Owner ne Sudo ID set nahi ki. Tab tak apna 🔐 Login use karo."), retry_kb
+    eng = chat = join_ref = None
+    error = ""
+    last_exc = None
+    for attempt in range(3):
+        eng = await sudo.engine_for(uid)
+        if not eng or not getattr(eng, "client", None):
+            if await sudo.all_busy(uid):
+                return False, ("⏳ Saari Sudo IDs abhi dusre groups me busy hain. 1-2 min baad link "
+                               "dobara bhejo, ya apna 🔐 Login karo."), retry_kb
+            if attempt < 2 and last_exc is not None:
+                await asyncio.sleep(2)
+                continue
+            return False, ("⚠️ Sudo ID abhi connect nahi ho payi. 30 second baad link dobara bhejo.\n"
+                           "Baar-baar aaye to apna 🔐 Login karo ya Support GC me batao."), retry_kb
+        try:
+            chat, join_ref, error = await _resolve_join(eng.client, ref)
+            sudo.mark_healthy(eng)
+            last_exc = None
+            break
+        except _ConnLost as e:
+            last_exc = e.__cause__ or e
+            logger.warning("verify_gc uid=%s attempt=%s: sudo connection lost (%r) — reconnecting",
+                           uid, attempt + 1, last_exc)
+            # Mari hui engine hatao; agla engine_for() fresh connect karega.
+            await sudo.drop_engine(sudo.engine_key(eng))
+            await asyncio.sleep(1 + attempt)
+    if last_exc is not None:
+        try:
+            from helpers.logger_channel import log_error
+            await log_error("sudo_verify_gc_connection", last_exc)
+        except Exception:
+            pass
+        return False, ("⚠️ <b>Sudo ID ka Telegram connection baar-baar toot raha hai.</b>\n"
+                       "Maine 3 baar reconnect try kiya. 1 minute baad link dobara bhejo — "
+                       "ya apna 🔐 Login karo (turant chalega)."), retry_kb
     if error or chat is None or not getattr(chat, "id", None):
         return False, error or "❌ Group verify nahi hua. Invite link bhejo.", retry_kb
     from pyrogram.enums import ChatType
@@ -402,6 +534,16 @@ async def cb_sudo(bot: Client, cq):
 
     if action == "trial":
         mode = await sudo.engine_mode(uid, fresh=True)
+        if mode in (sudo.OWNER, sudo.SELF):
+            await safe_answer(cq, "✅ Aap login ho — trial ki zarurat nahi", show_alert=True)
+            return
+        if mode == sudo.TRIAL_OVER:
+            text, kb = await paywall_screen(uid)
+            await edit_screen(cq.message, text, reply_markup=kb)
+            return await safe_answer(cq, "Trial khatam ho chuka")
+        if not await sudo.accounts():
+            return await safe_answer(cq, "⚠️ Abhi Free Trial available nahi (owner ne Sudo ID add nahi ki). "
+                                         "🔐 Apna Login use karo.", show_alert=True)
         if mode == sudo.NONE:
             st = await sudo.start_trial(uid)
             await safe_answer(cq, f"🎁 Trial start — {st['limit']} free uses", show_alert=False)
@@ -508,6 +650,19 @@ async def _sudo_request(bot: Client, cq):
 
 # ══════════════════════════ TEXT INPUT (users + owner) ═══════════════
 
+def _in_login(uid: int) -> bool:
+    try:
+        from plugins.login import CONVERSATION
+        return int(uid) in CONVERSATION
+    except Exception:
+        return False
+
+
+def clear_await(uid: int) -> None:
+    """Login shuru hote hi pending 'group link bhejo' prompt hata do."""
+    _await.pop(int(uid), None)
+
+
 def _awaiting(_, __, m):
     return bool(m.from_user and _get_await(m.from_user.id))
 
@@ -523,6 +678,18 @@ async def sudo_text_listener(bot: Client, msg: Message):
     text = (msg.text or "").strip()
 
     if kind == "gc":
+        # ROOT FIX (login kharab): Free Trial dabane ke baad user Login karta
+        # to uska phone number / OTP yahi "group link" samajh kar kha liya
+        # jata tha (stop_propagation) -> login kabhi complete nahi hota tha.
+        if _in_login(uid) or not _looks_like_group_ref(text.split()[0] if text else ""):
+            if _in_login(uid) or _PHONE_RE.match(text):
+                _await.pop(uid, None)
+                return          # login.py ko message milne do
+            await msg.reply_text("❌ Ye group link nahi lagta. <code>https://t.me/…</code> ya "
+                                 "<code>@groupname</code> bhejo — ya ✖ Cancel dabao.",
+                                 reply_markup=K([[B("✖ Cancel", callback_data="sudo:cancel",
+                                                    style="danger")]]))
+            msg.stop_propagation()
         _await.pop(uid, None)
         wait = await msg.reply_text("🔎 Sudo ID group join karke verify kar rahi hai…")
         ok, out, kb = await verify_gc(bot, msg.from_user, text.split()[0] if text else "")

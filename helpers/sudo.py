@@ -435,30 +435,104 @@ async def engine_for(uid: int):
     return None
 
 
+# ── connection health ───────────────────────────────────────────────────
+#
+# ROOT CAUSE ("❌ Group join/verify fail: Connection lost"):
+# Sudo IDs ek baar start hokar ghanton idle padi rehti thi. Server/Telegram
+# beech me TCP socket band kar deta hai, lekin pyrogram ka
+# ``client.is_connected`` flag True hi rehta hai (wo sirf connect()/
+# disconnect() par badalta hai). _start_engine sirf ye flag dekh kar wahi
+# mari hui engine wapas de deta tha -> join_chat() ka har retry
+# ``OSError(ConnectionResetError('Connection lost'))`` deta tha aur user ko
+# raw error dikhta tha. Ab reuse se pehle engine ko ek chhota real request
+# (get_me) bhej kar check karte hain; jawab na aaye to engine poori tarah
+# restart hoti hai, aur verify ek connection error par fresh engine ke
+# saath dobara try karta hai.
+
+HEALTH_TTL = 45.0          # seconds a successful probe stays trusted
+PROBE_TIMEOUT = 10.0
+STOP_TIMEOUT = 15.0
+
+_CONN_MARKERS = ("connection lost", "connection reset", "broken pipe", "not connected",
+                 "has not been started", "timed out", "connection closed",
+                 "connection aborted", "eof occurred", "network is unreachable")
+
+
+def is_conn_error(error: BaseException) -> bool:
+    """True for transport/connection failures (not Telegram RPC errors)."""
+    if error is None:
+        return False
+    if isinstance(error, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
+        return True
+    name = type(error).__name__
+    if name in ("MTProtoClientNotConnected", "ClientNotConnected"):
+        return True
+    text = str(error).lower()
+    if isinstance(error, OSError):
+        return True
+    return any(m in text for m in _CONN_MARKERS)
+
+
+async def probe(eng, timeout: float = PROBE_TIMEOUT) -> bool:
+    """Real round-trip to Telegram. ``is_connected`` alone lies."""
+    client = getattr(eng, "client", None)
+    if client is None or not getattr(client, "is_connected", False):
+        return False
+    try:
+        await asyncio.wait_for(client.get_me(), timeout)
+    except Exception as exc:
+        logger.warning("sudo engine %s probe failed: %r", getattr(eng, "label", "?"), exc)
+        return False
+    eng._sudo_ok_at = time.monotonic()
+    return True
+
+
+def mark_healthy(eng) -> None:
+    try:
+        eng._sudo_ok_at = time.monotonic()
+    except Exception:
+        pass
+
+
+async def _stop_quiet(eng) -> None:
+    try:
+        await asyncio.wait_for(eng.stop(), STOP_TIMEOUT)
+    except Exception:
+        pass
+
+
 async def _start_engine(key: str, rows: list):
     from helpers.vc_manager import UserVC, _is_invalid_session
     async with _engine_lock:
         eng = _engines.get(key)
         if eng and eng.client is not None and getattr(eng.client, "is_connected", False):
-            eng.touch()
-            return eng
+            fresh = time.monotonic() - float(getattr(eng, "_sudo_ok_at", 0) or 0) < HEALTH_TTL
+            if fresh or await probe(eng):
+                eng.touch()
+                return eng
+            logger.warning("sudo engine %s socket dead — restarting", key)
         if eng:
-            try:
-                await eng.stop()
-            except Exception:
-                pass
+            await _stop_quiet(eng)
             _engines.pop(key, None)
         row = next((r for r in rows if r.get("key") == key), None)
         if not row:
             return None
-        eng = UserVC(account_owner_id(key), row["session"], label=f"sudo{key[:6]}")
-        try:
-            await eng.start()
-        except Exception as exc:
+        exc = None
+        for attempt in range(2):
+            eng = UserVC(account_owner_id(key), row["session"], label=f"sudo{key[:6]}")
             try:
-                await eng.stop()
-            except Exception:
-                pass
+                await eng.start()
+                exc = None
+                break
+            except Exception as e:
+                exc = e
+                await _stop_quiet(eng)
+                # Network blip par turant 2 min ke liye "dead" mat karo.
+                if attempt == 0 and is_conn_error(e) and not _is_invalid_session(e):
+                    await asyncio.sleep(2)
+                    continue
+                break
+        if exc is not None:
             if _is_invalid_session(exc):
                 await mark_dead(key, exc)
             else:
@@ -466,6 +540,7 @@ async def _start_engine(key: str, rows: list):
                 _dead.add(key)
                 asyncio.get_event_loop().call_later(120, _dead.discard, key)
             return None
+        mark_healthy(eng)
         _engines[key] = eng
         if (row.get("id") or 0) != eng.account_id:
             row.update(id=eng.account_id, name=eng.account_name, username=eng.account_username)
@@ -495,10 +570,11 @@ async def mark_dead(key: str, error: Exception = None) -> None:
 async def drop_engine(key: str) -> None:
     eng = _engines.pop(key, None)
     if eng:
-        try:
-            await eng.stop()
-        except Exception:
-            pass
+        await _stop_quiet(eng)
+
+
+def engine_key(eng) -> str:
+    return account_key(getattr(eng, "string_session", "") or "")
 
 
 def engine_is_sudo(uvc) -> bool:

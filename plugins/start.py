@@ -71,7 +71,7 @@ async def cmd_start(bot: Client, msg: Message):
     if not logged and not Config.is_owner(user.id):
         # Bina login: Free Trial / Sudo / Referral wala home
         from plugins.sudo import home_override
-        text, markup = await home_override(user.id)
+        text, markup = await home_override(user.id, user.first_name or "friend")
     sent = False
     if Config.START_PIC:
         try:
@@ -94,7 +94,7 @@ async def cb_home(bot, cq):
     markup = home_kb(Config.is_owner(user.id), logged, active_chat_id)
     if not logged and not Config.is_owner(user.id):
         from plugins.sudo import home_override
-        text, markup = await home_override(user.id)
+        text, markup = await home_override(user.id, user.first_name or "friend")
     await edit_screen(cq.message, text, reply_markup=markup,
                       disable_web_page_preview=True)
     await safe_answer(cq)

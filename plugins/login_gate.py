@@ -58,11 +58,22 @@ async def login_gate(bot, cq):
     # Live Mic sirf Spare ID se bhi chalta hai — main login ke bina.
     if re.match(r"^mic:", cq.data or ""):
         return
-    await safe_answer(cq, "🔒 Login / Trial chahiye", show_alert=False)
+    await safe_answer(cq, "🔒 Login ya Free Trial chahiye", show_alert=False)
     try:
-        from plugins.sudo import paywall_screen
-        text, kb = await paywall_screen(user.id)
+        # Purana login screen + Free Trial option — user khud choose kare.
+        mode = await _sudo.engine_mode(user.id)
+        if mode == _sudo.TRIAL_OVER:
+            from plugins.sudo import paywall_screen
+            text, kb = await paywall_screen(user.id)
+        else:
+            from plugins.sudo import home_override
+            text, kb = await home_override(
+                user.id, user.first_name or "friend",
+                notice="🔒 <b>Ye control Login ke baad (ya Free Trial me) khulta hai.</b>")
         await edit_screen(cq.message, text, reply_markup=kb)
     except Exception:
-        pass
+        try:
+            await edit_screen(cq.message, GATE_TEXT, reply_markup=GATE_KB)
+        except Exception:
+            pass
     cq.stop_propagation()
