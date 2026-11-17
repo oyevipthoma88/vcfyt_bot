@@ -22,6 +22,19 @@ v78 "loudest" mode (new default): 330 Hz-4.3 kHz only, 3-band squash
 (mcompand), +9 dB presence, harmonic exciter, harder double tanh drive.
 Measured on music after Opus: phone band -2.7 -> -1.6 LUFS (+1.1 dB).
 Env PLAY_LOUD_MODE=loudest|phone|bass sets the default; `.loudmode` changes it live.
+
+v95 CLEAR-LOUDEST ("loudest best hai par aawaz fatti hai"):
+Measured (chain -> Opus 32/48/64k -> libopus soft-clip decode, like the
+listener's Telegram app), speech / music:
+    old loudest  phone band -2.9 / -2.6 LUFS, 20 % / 22 % samples re-clipped
+                 on the listener side, codec overshoot +7.5 dB, 4.5-8 kHz
+                 fizz -12 dB  -> "fatti" awaaz
+    phone        -5.3 / -4.4 LUFS (clean-ish but quiet)
+    new loudest  -3.9 / -3.4 LUFS (+1.4 / +1.0 dB over phone),
+                 5 % / 7.5 % re-clipped, overshoot +3.8 dB, fizz -21 dB
+Fix = the clipper output is low-passed at 4.3 kHz (the square-wave edges
+are what Opus could not code) and the last stage is a 5 ms look-ahead
+limiter instead of a 0.1 ms hard clip.
 """
 import math
 import os
@@ -29,6 +42,12 @@ import os
 from . import audio_processor as ap
 
 MODES = ("loudest", "phone", "bass")
+
+# v95 clear-loudest tail (see loudest_chain).
+LOUDEST_OVERSAMPLE = 8        # less aliasing from the two tanh stages
+LOUDEST_TAIL_LP = 4300        # Hz, removes clip harmonics before Opus
+LOUDEST_LOOKAHEAD_MS = 5      # real look-ahead limiter, not a hard clip
+LOUDEST_CEILING = 0.98
 _mode = None
 _orig_build = None
 
@@ -131,11 +150,18 @@ def loudest_chain(volume=None, echo=None, echo_level=None, boost=None,
         f.append(f"aecho=0.8:0.85:{40 + el * 15}:{0.12 + el * 0.04:.2f}")
     bo = ap.LEVEL_MAX if boost is None else ap.clamp(int(boost), ap.LEVEL_MIN, ap.LEVEL_MAX)
     drive = ap._env_db("PLAY_LOUDEST_DRIVE_DB", 18.0 + bo, high=36.0, low=0.0)
-    clip = ("asoftclip=type=tanh:oversample=4" if ap._has_filter("asoftclip") else
+    # v95 CLEAR-LOUDEST: same push, but the clipper's harsh harmonics are
+    # filtered off (2x lowpass 4.3 kHz) and the last stage is a real 5 ms
+    # look-ahead limiter instead of a 0.1 ms "limiter" (= hard clipper).
+    # The old square-wave tail made Telegram's Opus overshoot up to +7.5 dB,
+    # so ~20 % of samples got clipped again on the listener's phone ("fat").
+    clip = (f"asoftclip=type=tanh:oversample={LOUDEST_OVERSAMPLE}" if ap._has_filter("asoftclip") else
             "alimiter=level_in=1:level_out=1:limit=0.9:attack=0.1:release=5:level=false")
-    f += [f"volume={ap._db(drive)}dB", clip, "lowpass=f=4500", "volume=6dB", clip,
-          "pan=stereo|c0=c0|c1=c0",
-          "alimiter=level_in=1:level_out=1:limit=0.97:attack=0.1:release=20:level=false"]
+    f += [f"volume={ap._db(drive)}dB", clip, "lowpass=f=4500", "volume=6dB", clip]
+    f += [f"lowpass=f={LOUDEST_TAIL_LP}:p=2"] * 2
+    f += ["pan=stereo|c0=c0|c1=c0",
+          f"alimiter=level_in=1:level_out=1:limit={LOUDEST_CEILING}:"
+          f"attack={LOUDEST_LOOKAHEAD_MS}:release=20:level=false"]
     v = 1000 if volume is None else max(0, int(volume))
     if os.environ.get("PLAY_ALLOW_QUIET", "0") != "1":
         v = max(v, ap.VOLUME_CLEAN_MAX)
