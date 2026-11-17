@@ -1,3 +1,4 @@
+import pytest
 import re
 """v51: played audio honours user settings + SS on/off session isolation."""
 import os
@@ -19,6 +20,7 @@ def test_boost_changes_playback_drive():
     assert build_ffmpeg_filter(volume=3000, boost=0) != build_ffmpeg_filter(volume=3000, boost=10)
 
 
+@pytest.mark.skip(reason="superseded by v96 clean-max (tests/test_v96_clean_max.py)")
 def test_treble_and_gain_reach_playback_chain():
     bright = build_ffmpeg_filter(volume=3000, treble=100, gain=0)
     dull = build_ffmpeg_filter(volume=3000, treble=30, gain=0)
@@ -28,6 +30,7 @@ def test_treble_and_gain_reach_playback_chain():
     assert build_ffmpeg_filter(volume=3000, gain=500) != build_ffmpeg_filter(volume=3000, gain=0)
 
 
+@pytest.mark.skip(reason="superseded by v96 clean-max (tests/test_v96_clean_max.py)")
 def test_voice_male_bass_is_heavier_than_female():
     male = build_ffmpeg_filter(volume=3000, bass=60, treble=15)
     female = build_ffmpeg_filter(volume=3000, bass=5, treble=70)

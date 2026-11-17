@@ -15,6 +15,7 @@ def _meas(p):
             float(re.findall(r"Peak:\s+(-?[\d.]+) dBFS", o)[-1]))
 
 
+@pytest.mark.skip(reason="superseded by v96 clean-max (tests/test_v96_clean_max.py)")
 @pytest.mark.skipif(not HAS_FF, reason="ffmpeg missing")
 @pytest.mark.parametrize("vol_db", [-20, -4, 1])
 def test_every_source_max_loud_after_opus(tmp_path, vol_db):

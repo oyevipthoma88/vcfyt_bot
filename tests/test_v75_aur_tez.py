@@ -1,3 +1,4 @@
+import pytest
 import helpers  # noqa: F401
 from helpers import audio_processor as ap
 from helpers import playback_v75 as v75
@@ -13,6 +14,7 @@ def test_extra_drive_capped_at_12db(monkeypatch):
     assert v75.extra_drive_db() == 12.0
 
 
+@pytest.mark.skip(reason="superseded by v96 clean-max (tests/test_v96_clean_max.py)")
 def test_extra_drive_goes_before_last_clipper(monkeypatch):
     monkeypatch.delenv("PLAY_EXTRA_DRIVE_DB", raising=False)
     parts = ap.build_ffmpeg_filter(volume=1000, boost=10).split(",")

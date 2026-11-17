@@ -87,3 +87,10 @@ _install_playback_v77()
 # v79: LIVE-LOUDEST live mic chain (phone band, hard levelling, tanh drive).
 from .live_mic_v79 import install as _install_live_mic_v79
 _install_live_mic_v79()
+
+# v96 (last): CLEAN-MAX - asoftclip's own oversample is broken in FFmpeg
+# (+6..+10 dB overs -> hard clip = "loudest fatti hai").  Real 192 kHz
+# oversampled clipping + look-ahead limiters: loudest as loud, much cleaner;
+# phone and bass louder.  Live mic untouched.
+from .playback_v96 import install as _install_playback_v96
+_install_playback_v96()
