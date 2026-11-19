@@ -94,3 +94,10 @@ _install_live_mic_v79()
 # phone and bass louder.  Live mic untouched.
 from .playback_v96 import install as _install_playback_v96
 _install_playback_v96()
+
+# v97 (last): TG-LIMIT - Opus (32k mono) re-grows peaks +5..7 dB and the
+# listener's 200 % volume is a hard x2 clip, so 0 dBFS output turned into a
+# square wave on phones.  Codec trim per mode, -6 dB more when 200 % is
+# confirmed, 6-band squash for loudest/phone.  Live mic untouched.
+from .playback_v97 import install as _install_playback_v97
+_install_playback_v97()

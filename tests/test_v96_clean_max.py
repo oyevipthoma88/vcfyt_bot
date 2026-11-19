@@ -56,12 +56,13 @@ def test_clean_clip_never_goes_above_full_scale():
 
 def test_loudest_and_phone_end_on_lookahead_limiter_at_minus_0_3_db():
     for mode in ("loudest", "phone"):
-        last = _chain(mode).split(",")[-1]
+        last = _chain(mode).split(",")[-2]  # [-1] = v97 codec trim
         assert last.startswith("alimiter") and "limit=0.9661" in last and "attack=1:" in last
 
 
 def test_loudest_has_no_multiband_squash():
-    assert "mcompand" not in _chain("loudest")
+    # v96 base chain; v97 adds its own 6-band squash before the clean tail.
+    assert "mcompand" not in v96.loudest_chain(**{k: v for k, v in MAX.items()})
 
 
 def test_full_boost_drives():
@@ -109,4 +110,6 @@ def test_every_mode_loud_after_opus(tmp_path, mode):
                     "-b:a", "48k", "-application", "voip", ogg], check=True)
     o = subprocess.run(["ffmpeg", "-hide_banner", "-i", ogg, "-af", "ebur128",
                         "-f", "null", "-"], capture_output=True, text=True).stderr
-    assert float(re.findall(r"I:\s+(-?[\d.]+) LUFS", o)[-1]) >= -6.0
+    # v97 trims the output for Telegram's 32k Opus; v96 level minus that trim.
+    from helpers import playback_v97 as v97
+    assert float(re.findall(r"I:\s+(-?[\d.]+) LUFS", o)[-1]) >= -6.0 - v97.codec_trim_db(mode, boost=False)

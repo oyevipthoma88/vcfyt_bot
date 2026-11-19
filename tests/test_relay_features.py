@@ -54,7 +54,8 @@ class RelayFeatureTests(unittest.TestCase):
         stages = [s.split("=")[0] for s in af.split(",")]
         self.assertIn(stages[0], ("aresample", "highpass"))
         self.assertIn("highpass", stages[:3])
-        self.assertEqual(stages[-1], "alimiter")
+        # v97: the last stage is the Telegram codec trim, right after the limiter.
+        self.assertIn("alimiter", stages[-2:])
         self.assertTrue(any(s in ("acompressor", "mcompand") for s in stages))
         # v78 "loudest" default uses a 3-band mcompand instead of acompressor.
         self.assertNotIn("aecho=", af)

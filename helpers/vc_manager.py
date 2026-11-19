@@ -175,6 +175,7 @@ def _keep_open_copy(desc):
             "keep_open copy failed (%r) - audio may restart on SS toggle", exc)
         return desc
 
+from helpers import playback_v97 as _v97
 from helpers.audio_processor import (process_audio_to_file, build_stream_command,
                                       build_fake_screen_command)
 from helpers.logger_channel import (
@@ -2982,8 +2983,15 @@ class UserVC:
         #   1) set karo, 2) Telegram se wapas padh ke CONFIRM karo,
         #   3) khud se na lage to is VC me baithe doosre logged-in (admin)
         #      accounts se set karwao, 4) fail ho to saaf warning do.
+        # v97 TG-LIMIT: chain level depends on whether listeners multiply
+        # this ID x2 (200 % confirmed).  Snapshot before ensure_play_volume
+        # resets the flag; if Telegram's answer differs, rebuild once.
+        built_boost = bool(getattr(st, "boost_confirmed", False))
+        st.master_boost = built_boost
+
         async def _force_volume():
             await self.ensure_play_volume(chat_id)
+            await self._reconcile_master(chat_id, path, built_boost)
 
         task = asyncio.create_task(_force_volume())
         self._bg_tasks.add(task)
@@ -3000,8 +3008,9 @@ class UserVC:
         st.stream_offset = 0.0
         if use_fast and not preprocessed:
             try:
-                audio_src = self._audio_source(st, path, loop=(st.loop and st.loop_left < 0),
-                                               start_at=start_at)
+                with _v97.listener_boost(built_boost):
+                    audio_src = self._audio_source(st, path, loop=(st.loop and st.loop_left < 0),
+                                                   start_at=start_at)
                 st.last_mic = audio_src
                 # BUG FIX: purani processed WAV loop pe dobara bajti thi
                 # (pichla gaana / bina boost) — fast path ka koi WAV nahi.
@@ -3013,9 +3022,10 @@ class UserVC:
             except Exception as exc:
                 logger.warning("Fast play failed: %r", exc)
 
-        processed = preprocessed or await process_audio_to_file(
-            path, volume=st.volume, bass=st.bass, echo=st.echo, echo_level=st.echo_level, 
-            boost=st.boost, relay_volume=st.relay_volume, gain=st.gain, treble=st.treble)
+        with _v97.listener_boost(built_boost):
+            processed = preprocessed or await process_audio_to_file(
+                path, volume=st.volume, bass=st.bass, echo=st.echo, echo_level=st.echo_level,
+                boost=st.boost, relay_volume=st.relay_volume, gain=st.gain, treble=st.treble)
         st.processed_file = processed
         stream = MediaStream(processed, AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE)
         await self.calls.play(chat_id, stream, GroupCallConfig(auto_start=False))
@@ -3196,17 +3206,38 @@ class UserVC:
         if not st:
             return
         try:
-            processed = await process_audio_to_file(
-                path,
-                volume=st.volume, bass=st.bass, echo=st.echo,
-                echo_level=st.echo_level, boost=st.boost,
-                relay_volume=st.relay_volume, gain=st.gain, treble=st.treble,
-            )
+            with _v97.listener_boost(bool(getattr(st, "boost_confirmed", False))):
+                processed = await process_audio_to_file(
+                    path,
+                    volume=st.volume, bass=st.bass, echo=st.echo,
+                    echo_level=st.echo_level, boost=st.boost,
+                    relay_volume=st.relay_volume, gain=st.gain, treble=st.treble,
+                )
             if st.queue and st.queue[0][0] == path:
                 st.queue[0] = (path, st.queue[0][1], processed)
                 logger.info("Pre-processed next track for chat %s", chat_id)
         except Exception as exc:
             logger.debug("Pre-process failed for %s: %r", chat_id, exc)
+
+    async def _reconcile_master(self, chat_id: int, path: str, built_boost: bool) -> bool:
+        """v97: song was built for 100 % but Telegram confirmed 200 % (or the
+        other way) -> restart it once from the same position with the right
+        level, otherwise listeners get a square wave (or 6 dB too quiet)."""
+        st = self.chats.get(chat_id)
+        if not st or not st.is_playing or st.mic_enabled or st.current_file != path:
+            return False
+        if bool(getattr(st, "boost_confirmed", False)) == bool(built_boost):
+            return False
+        if getattr(st, "_v97_reconciled", None) == path:
+            return False          # only once per song: never a restart loop
+        st._v97_reconciled = path
+        logger.info("VC %s: 200%% now %s -> re-leveling current song",
+                    chat_id, "ON" if st.boost_confirmed else "OFF")
+        try:
+            return await self.reapply(chat_id)
+        except Exception as exc:
+            logger.debug("v97 re-level failed: %r", exc)
+            return False
 
     async def reapply(self, chat_id: int) -> bool:
         st = self.chats.get(chat_id)
