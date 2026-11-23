@@ -131,16 +131,52 @@ OWNER_COMMANDS = [
 # Purane imports ke liye (kuch plugins/tests BOT_COMMANDS padhte the).
 BOT_COMMANDS = USER_COMMANDS + OWNER_COMMANDS
 
-def _new_bot() -> StyledBotClient:
-    return StyledBotClient("vcbot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, parse_mode=ParseMode.HTML, plugins=dict(root="plugins"))
+def _new_bot(in_memory: bool = False) -> StyledBotClient:
+    kw = {"in_memory": True} if in_memory else {}
+    return StyledBotClient("vcbot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, parse_mode=ParseMode.HTML, plugins=dict(root="plugins"), **kw)
+
+
+def _wipe_bot_session() -> None:
+    """Failed login ke baad purani auth key / DC wali session file hatao,
+    taaki agla try bilkul fresh connection se ho (stale key se Telegram
+    baar-baar 500 RPC_CALL_FAIL deta rehta hai)."""
+    base = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0] or __file__)), "vcbot.session")
+    for path in (base, base + "-journal", os.path.abspath("vcbot.session"), os.path.abspath("vcbot.session-journal")):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+
+async def _check_bot_token() -> str:
+    """Bot API (HTTPS) se token check: 'ok', 'invalid' ya 'unknown'."""
+    token = (Config.BOT_TOKEN or "").strip()
+    if not token or ":" not in token:
+        return "invalid"
+    try:
+        import aiohttp
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as http:
+            async with http.get(f"https://api.telegram.org/bot{token}/getMe") as resp:
+                if resp.status in (401, 404):
+                    return "invalid"
+                data = await resp.json(content_type=None)
+                return "ok" if data.get("ok") else "unknown"
+    except Exception:
+        return "unknown"
+
 
 async def _start_bot_resilient() -> StyledBotClient:
     attempt = 0
     while True:
         attempt += 1
-        bot = _new_bot()
+        # Har doosra try in-memory session se: koi purani file beech me na aaye.
+        bot = _new_bot(in_memory=(attempt % 2 == 0))
         try:
             await bot.start()
+            if attempt > 1:
+                logger.info("Bot login OK after %s attempts", attempt)
             return bot
         except FloodWait as exc:
             wait_seconds = max(1, int(getattr(exc, "value", 1))) + 5
@@ -151,9 +187,19 @@ async def _start_bot_resilient() -> StyledBotClient:
         except Exception as exc:
             try: await bot.stop()
             except Exception: pass
+            _wipe_bot_session()
             if not _is_transient_start_error(exc):
                 raise
             wait_seconds = min(120, 5 * attempt)
+            if attempt in (1, 3) or attempt % 5 == 0:
+                state = await _check_bot_token()
+                if state == "invalid":
+                    logger.error("BOT_TOKEN galat ya revoke ho chuka hai — BotFather se naya token "
+                                 "lekar Heroku Config Vars me BOT_TOKEN update karo.")
+                    wait_seconds = 300
+                elif state == "ok":
+                    logger.warning("BOT_TOKEN sahi hai; Telegram server abhi login reject kar raha hai "
+                                   "(unki taraf ki dikkat). Fresh session se dobara try hoga.")
             logger.warning("Telegram temporary error during bot login (%s: %s); retry %s in %s seconds",
                            type(exc).__name__, exc, attempt, wait_seconds)
             await asyncio.sleep(wait_seconds)
