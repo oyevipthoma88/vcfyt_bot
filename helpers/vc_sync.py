@@ -33,7 +33,42 @@ async def init_vc_sync():
         logger.info("vc_sync active on channel %s", _VC_CH)
     except Exception as exc:
         _ready = False
-        logger.warning("vc_sync disabled (%s: %s)", type(exc).__name__, exc)
+        try:
+            if _client is not None:
+                await _client.stop()
+        except Exception:
+            pass
+        if _is_temporary(exc) and _retry_attempt < 20:
+            # Telegram 500 / network drop: try again in the background instead of
+            # leaving vc_sync off until the next restart.
+            import asyncio
+            delay = min(300, 15 * (_retry_attempt + 1))
+            logger.warning("vc_sync temporary error (%s: %s); retry in %ss", type(exc).__name__, exc, delay)
+            asyncio.get_running_loop().create_task(_retry_later(delay))
+        else:
+            logger.warning("vc_sync disabled (%s: %s)", type(exc).__name__, exc)
+
+_retry_attempt = 0
+
+async def _retry_later(delay: int):
+    global _retry_attempt
+    import asyncio
+    await asyncio.sleep(delay)
+    _retry_attempt += 1
+    await init_vc_sync()
+
+def _is_temporary(exc: BaseException) -> bool:
+    try:
+        from pyrogram.errors import InternalServerError, ServiceUnavailable
+        if isinstance(exc, (InternalServerError, ServiceUnavailable)):
+            return True
+    except Exception:
+        pass
+    import asyncio
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError, ConnectionError, OSError)):
+        return True
+    text = f"{type(exc).__name__} {exc}".upper()
+    return any(k in text for k in ("RPC_CALL_FAIL", "INTERNAL", "TIMEOUT", "-503"))
 
 def is_vc_sync_active() -> bool:
     return _ready
