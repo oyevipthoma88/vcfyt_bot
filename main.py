@@ -148,10 +148,29 @@ async def _start_bot_resilient() -> StyledBotClient:
             try: await bot.stop()
             except Exception: pass
             await asyncio.sleep(wait_seconds)
-        except Exception:
+        except Exception as exc:
             try: await bot.stop()
             except Exception: pass
-            raise
+            if not _is_transient_start_error(exc):
+                raise
+            wait_seconds = min(120, 5 * attempt)
+            logger.warning("Telegram temporary error during bot login (%s: %s); retry %s in %s seconds",
+                           type(exc).__name__, exc, attempt, wait_seconds)
+            await asyncio.sleep(wait_seconds)
+
+def _is_transient_start_error(exc: BaseException) -> bool:
+    """Telegram 5xx (RPC_CALL_FAIL etc.), timeouts and network drops are temporary.
+    Earlier these crashed the dyno; now we keep retrying until Telegram recovers."""
+    try:
+        from pyrogram.errors import InternalServerError, ServiceUnavailable
+        if isinstance(exc, (InternalServerError, ServiceUnavailable)):
+            return True
+    except Exception:
+        pass
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError, ConnectionError, OSError)):
+        return True
+    text = f"{type(exc).__name__} {exc}".upper()
+    return any(k in text for k in ("RPC_CALL_FAIL", "INTERNAL", "500", "TIMEOUT", "-503"))
 
 def _install_loop_guard():
     """Never let a background task die with an unretrieved exception.
