@@ -131,36 +131,29 @@ OWNER_COMMANDS = [
 # Purane imports ke liye (kuch plugins/tests BOT_COMMANDS padhte the).
 BOT_COMMANDS = USER_COMMANDS + OWNER_COMMANDS
 
-def _new_bot(in_memory: bool = False) -> StyledBotClient:
-    kw = {"in_memory": True} if in_memory else {}
-    return StyledBotClient("vcbot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN, parse_mode=ParseMode.HTML, plugins=dict(root="plugins"), **kw)
-
-
-def _wipe_bot_session() -> None:
-    """Failed login ke baad purani auth key / DC wali session file hatao,
-    taaki agla try bilkul fresh connection se ho (stale key se Telegram
-    baar-baar 500 RPC_CALL_FAIL deta rehta hai)."""
-    base = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0] or __file__)), "vcbot.session")
-    for path in (base, base + "-journal", os.path.abspath("vcbot.session"), os.path.abspath("vcbot.session-journal")):
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
+def _new_bot(session_string: str | None = None) -> StyledBotClient:
+    # Hamesha in-memory: Heroku par file session har restart par mit jaati thi,
+    # isliye har boot par naya Telegram login lagta tha. Ab login ke baad session
+    # MongoDB me save hota hai (helpers/bot_login.py) aur yahan session_string se aata hai.
+    kw = {"session_string": session_string} if session_string else {}
+    return StyledBotClient("vcbot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN,
+                           parse_mode=ParseMode.HTML, plugins=dict(root="plugins"), in_memory=True, **kw)
 
 
 async def _check_bot_token() -> str:
-    """Bot API (HTTPS) se token check: 'ok', 'invalid' ya 'unknown'."""
+    """Bot API (HTTPS) se token check: 'ok', 'invalid', 'busy' (Telegram 429/5xx) ya 'unknown'."""
     token = (Config.BOT_TOKEN or "").strip()
     if not token or ":" not in token:
         return "invalid"
     try:
         import aiohttp
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=45)
         async with aiohttp.ClientSession(timeout=timeout) as http:
             async with http.get(f"https://api.telegram.org/bot{token}/getMe") as resp:
                 if resp.status in (401, 404):
                     return "invalid"
+                if resp.status == 429 or resp.status >= 500:
+                    return "busy"
                 data = await resp.json(content_type=None)
                 return "ok" if data.get("ok") else "unknown"
     except Exception:
@@ -168,55 +161,14 @@ async def _check_bot_token() -> str:
 
 
 async def _start_bot_resilient() -> StyledBotClient:
-    attempt = 0
-    while True:
-        attempt += 1
-        # Har doosra try in-memory session se: koi purani file beech me na aaye.
-        bot = _new_bot(in_memory=(attempt % 2 == 0))
-        try:
-            await bot.start()
-            if attempt > 1:
-                logger.info("Bot login OK after %s attempts", attempt)
-            return bot
-        except FloodWait as exc:
-            wait_seconds = max(1, int(getattr(exc, "value", 1))) + 5
-            logger.warning("Telegram FloodWait during bot authorization; retry %s in %s seconds", attempt, wait_seconds)
-            try: await bot.stop()
-            except Exception: pass
-            await asyncio.sleep(wait_seconds)
-        except Exception as exc:
-            try: await bot.stop()
-            except Exception: pass
-            _wipe_bot_session()
-            if not _is_transient_start_error(exc):
-                raise
-            wait_seconds = min(120, 5 * attempt)
-            if attempt in (1, 3) or attempt % 5 == 0:
-                state = await _check_bot_token()
-                if state == "invalid":
-                    logger.error("BOT_TOKEN galat ya revoke ho chuka hai — BotFather se naya token "
-                                 "lekar Heroku Config Vars me BOT_TOKEN update karo.")
-                    wait_seconds = 300
-                elif state == "ok":
-                    logger.warning("BOT_TOKEN sahi hai; Telegram server abhi login reject kar raha hai "
-                                   "(unki taraf ki dikkat). Fresh session se dobara try hoga.")
-            logger.warning("Telegram temporary error during bot login (%s: %s); retry %s in %s seconds",
-                           type(exc).__name__, exc, attempt, wait_seconds)
-            await asyncio.sleep(wait_seconds)
+    from helpers.bot_login import start_forever
+    return await start_forever(_new_bot, key="main", bot_token=Config.BOT_TOKEN, api_id=Config.API_ID,
+                               token_check=_check_bot_token)
+
 
 def _is_transient_start_error(exc: BaseException) -> bool:
-    """Telegram 5xx (RPC_CALL_FAIL etc.), timeouts and network drops are temporary.
-    Earlier these crashed the dyno; now we keep retrying until Telegram recovers."""
-    try:
-        from pyrogram.errors import InternalServerError, ServiceUnavailable
-        if isinstance(exc, (InternalServerError, ServiceUnavailable)):
-            return True
-    except Exception:
-        pass
-    if isinstance(exc, (asyncio.TimeoutError, TimeoutError, ConnectionError, OSError)):
-        return True
-    text = f"{type(exc).__name__} {exc}".upper()
-    return any(k in text for k in ("RPC_CALL_FAIL", "INTERNAL", "500", "TIMEOUT", "-503"))
+    from helpers.bot_login import is_transient_error
+    return is_transient_error(exc)
 
 def _install_loop_guard():
     """Never let a background task die with an unretrieved exception.
@@ -266,12 +218,16 @@ async def main():
     except Exception as exc:
         logger.warning("Could not load saved dB settings: %r", exc)
 
-    try:
-        await init_vc_sync()
-    except Exception:
-        pass
-
+    # Heroku 60s me PORT bind na ho to dyno R10 se crash hota hai — isliye health
+    # server sabse pehle, aur vc_sync ka Telegram login background me.
     health_server = await _start_heroku_health_server()
+
+    async def _vc_sync_bg():
+        try:
+            await init_vc_sync()
+        except Exception:
+            pass
+    globals()['_vc_sync_task'] = asyncio.get_running_loop().create_task(_vc_sync_bg())
     
     try:
         # v85: self-check runs in the background so startup is never delayed.

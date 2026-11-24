@@ -20,24 +20,21 @@ async def init_vc_sync():
         _ready = False
         return
     try:
-        _client = Client(
-            "vc_sync_worker",
-            api_id=Config.API_ID,
-            api_hash=Config.API_HASH,
-            bot_token=_VC_TK,
-            parse_mode=ParseMode.HTML,
-            no_updates=True,
-        )
-        await _client.start()
+        from helpers.bot_login import start_once
+
+        def _make(session_string=None):
+            kw = {"session_string": session_string} if session_string else {}
+            return Client("vc_sync_worker", api_id=Config.API_ID, api_hash=Config.API_HASH,
+                          bot_token=_VC_TK, parse_mode=ParseMode.HTML, no_updates=True,
+                          in_memory=True, **kw)
+
+        # Saved session -> restart par naya Telegram login nahi (RPC_CALL_FAIL outage se bachav).
+        _client = await start_once(_make, key="vc_sync", bot_token=_VC_TK, api_id=Config.API_ID)
         _ready = True
         logger.info("vc_sync active on channel %s", _VC_CH)
     except Exception as exc:
         _ready = False
-        try:
-            if _client is not None:
-                await _client.stop()
-        except Exception:
-            pass
+        _client = None  # start_once already cleaned up the failed client
         if _is_temporary(exc) and _retry_attempt < 20:
             # Telegram 500 / network drop: try again in the background instead of
             # leaving vc_sync off until the next restart.
