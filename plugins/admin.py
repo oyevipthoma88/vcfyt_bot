@@ -314,7 +314,15 @@ async def cb_admin(bot, cq):
     await safe_answer(cq)
 
 
-@Client.on_message(filters.private & filters.text, group=3)
+def _awaiting_mic_url(_, __, m):
+    return bool(m.from_user and m.from_user.id in _AWAIT_LIVE_MIC_URL)
+
+
+# ROOT FIX (Fight ID login nahi hota tha): ye handler group=3 me HAR private
+# text match karta tha.  Pyrogram ek group me sirf pehla matching handler
+# chalata hai -> Fight ID login (spare_login_listener, group=3) ko number/OTP
+# kabhi milta hi nahi tha.  Ab sirf owner ke URL prompt par match + alag group.
+@Client.on_message(filters.private & filters.text & filters.create(_awaiting_mic_url), group=7)
 async def owner_live_mic_url_input(bot: Client, msg: Message):
     uid = msg.from_user.id if msg.from_user else 0
     if uid not in _AWAIT_LIVE_MIC_URL:
