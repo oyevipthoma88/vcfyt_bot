@@ -66,9 +66,9 @@ def test_loudest_has_no_multiband_squash():
 
 
 def test_full_boost_drives():
-    assert "volume=21.00dB," + v96.CLEAN_CLIP in _chain("loudest")
-    assert "volume=22.00dB," + v96.CLEAN_CLIP in _chain("phone")
-    assert "volume=11.00dB," + v96.CLEAN_CLIP in _chain("loudest", boost=0)
+    assert "volume=26.00dB," + v96.CLEAN_CLIP in _chain("loudest")
+    assert "volume=26.00dB," + v96.CLEAN_CLIP in _chain("phone")
+    assert "volume=16.00dB," + v96.CLEAN_CLIP in _chain("loudest", boost=0)
 
 
 def test_bass_clippers_get_6_and_7_db_less_drive():

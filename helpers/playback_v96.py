@@ -51,8 +51,8 @@ from . import playback_v77 as v77
 # Real oversampled soft clipper (asoftclip's own oversample is broken).
 CLEAN_CLIP = "aresample=192000,asoftclip=type=tanh,aresample=48000"
 CEILING_DB = -0.3
-LOUDEST_BASE_DRIVE_DB = 11.0      # + boost (0-10)  -> 21 dB at max
-PHONE_BASE_DRIVE_DB = 12.0        # + boost (0-10)  -> 22 dB at max
+LOUDEST_BASE_DRIVE_DB = 16.0      # + boost (0-10) -> 26 dB at max; env still overrides
+PHONE_BASE_DRIVE_DB = 16.0        # + boost (0-10) -> 26 dB at max; env still overrides
 BASS_CLIP_TRIM_DB = (6.0, 7.0)    # drive taken off the two bass clippers
 
 _BROKEN_CLIP = re.compile(r"asoftclip=type=(\w+):oversample=\d+")

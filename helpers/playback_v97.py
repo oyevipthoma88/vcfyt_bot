@@ -34,7 +34,12 @@ Bass keeps its v96 chain (it only gets the trims).  Live mic not touched.
 
 Measured (song / vocal / speech, chain -> Opus 32k mono 60 ms -> decode ->
 listener x volume -> 16-bit), see tests/test_v97_tg_limit.py and the commit.
-Env PLAY_TG_TRIM_DB overrides the codec trim (0 = old behaviour).
+v101 maximum playback default: codec trim is now 0 dB in all three modes.
+Loudest/phone drive defaults are 26 dB at boost=10. This trades codec
+headroom for loudness and can cause audible listener-side distortion.
+The confirmed-200% compensation and all live-mic processing are unchanged.
+Heroku PLAY_TG_TRIM_DB still overrides this default; use 2.8 (phone: 3.0)
+for the previous safer level.
 """
 import contextlib
 import contextvars
@@ -46,9 +51,9 @@ from . import playback_v96 as v96
 
 log = logging.getLogger(__name__)
 
-# dB taken off the finished chain so Opus re-grown peaks stay under full
-# scale on the listener (worst case of song / vocal / speech + ~0.2 dB).
-CODEC_TRIM_DB = {"loudest": 2.8, "phone": 3.0, "bass": 2.8}
+# Maximum playback by request: no extra codec attenuation by default.
+# More loudness is NOT guaranteed clean; env restores the safer codec trim.
+CODEC_TRIM_DB = {"loudest": 0.0, "phone": 0.0, "bass": 0.0}
 # Telegram 200 % = x2.0 on the listener after decoding (with hard clip).
 LISTENER_BOOST_DB = 6.02
 

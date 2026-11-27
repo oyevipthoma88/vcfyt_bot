@@ -32,7 +32,7 @@ def _trim(chain):
     return float(m.group(1)) if m else None
 
 
-@pytest.mark.parametrize("mode,db", [("loudest", 2.8), ("phone", 3.0), ("bass", 2.8)])
+@pytest.mark.parametrize("mode,db", [("loudest", 0.0), ("phone", 0.0), ("bass", 0.0)])
 def test_each_mode_ends_with_its_codec_trim(mode, db):
     v77.set_mode(mode)
     assert _trim(ap.build_ffmpeg_filter(**MAX)) == pytest.approx(db, abs=0.01)
@@ -113,8 +113,10 @@ def _listener_clip(path, gain):
 
 
 @pytest.mark.skipif(not HAS_FF, reason="ffmpeg missing")
-def test_200_percent_listener_not_squared(tmp_path):
+def test_200_percent_listener_not_squared(tmp_path, monkeypatch):
     """Old chain: ~half the samples chopped flat at 200 %.  v97: a few %."""
+    # Safety opt-in remains available; maximum defaults permit distortion.
+    monkeypatch.setenv("PLAY_TG_TRIM_DB", "3.0")
     v77.set_mode("loudest")
     src = str(tmp_path / "s.wav")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
